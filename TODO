@@ -1,0 +1,59 @@
+Today TODO:
+- read papers
+
+- make git clone of folder structure
+- make file with dependencies in terminal (>> filename.txt)
+
+- start looking at eel data
+- look at audian and ruff
+- start coding
+- initiate changelog (per code file at top of file or in separate file?)
+
+General TODO:
+  - read papers
+  - summarize info from papers in .txt
+
+  - read through patricks git labstarter
+  - initialize folder structure according to labstarter
+
+  - familiarize with audian
+  - familiarize with ruff
+  - familiarize with bash
+
+  Project TODO:
+  - Look at Berlin eel data (extract as much info from that before berlin as possible > answer open questions below)
+  - check if LED signal can be picked up by visual tracking software
+  - align video and audio data based on LED in video
+  - collect data from gnathostoma (this is important bc they are model organism to show that patricks algorithm works well in redicting animals position)
+
+  Hardware TODO: (end of week)
+  - find way to connect both grids
+  - check/calc if both grids fit into tank
+  - buy red LED
+  - add floaters to grids (in case we cant put them on ground)
+  - check if it works in water (in tank downstairs)
+  - build amplifier
+  - build second chamber for amplifier
+
+  Open questions Eel:
+  - which animal spikes with higher frequency
+  - does one animal have bigger amplitude even when normalized
+  - how long do they sleep
+  - how does spike pattern change during day
+  - what type of spiking activity/spike shape do they display
+  - does spiking activity correlate to external factors
+  - do they react to each other
+  - is positive pole of electric field really at head of animal
+
+  Overview Project:
+  - Software:
+	detect peaks
+	flip signal
+	normalize signal
+	UMAP
+	HDBScan
+	>> cluster spikes, get ID for each fish
+	use ID for tracking fish w patricks algorithm
+  - Hardware:
+	build more small, rigid grids
+	build second tetraeder w cables inside
