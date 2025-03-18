@@ -14,6 +14,7 @@ bash:
 - apt is software installer from linux (sudo apt update/upgrade/install/remove)
 - pwd: print working directory (shows current directory)
 - <programm> --version: to check if a program/software is installed and get the current version
+- touch <filename>: new file
 
 git:
 - Initialize a Repository: git init
@@ -48,4 +49,5 @@ questions:
 - shortcut for new folder?
 - IPython.embed() ?
 - how does vim work? what does it do?
-- how does pyenv work?
+- how does pyenv work? what does it do?
+- when do i need to make a -gitignore file?

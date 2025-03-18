@@ -1,9 +1,8 @@
 Today TODO:
+- get rid of prompts for pw when pushing to github
+
 - read papers
-
-- make git clone of folder structure
-- make file with dependencies in terminal (>> filename.txt)
-
+- connect new headphones (if possible)
 - start looking at eel data
 - look at audian and ruff
 - start coding
@@ -12,13 +11,8 @@ Today TODO:
 General TODO:
   - read papers
   - summarize info from papers in .txt
-
-  - read through patricks git labstarter
-  - initialize folder structure according to labstarter
-
   - familiarize with audian
   - familiarize with ruff
-  - familiarize with bash
 
   Project TODO:
   - Look at Berlin eel data (extract as much info from that before berlin as possible > answer open questions below)
