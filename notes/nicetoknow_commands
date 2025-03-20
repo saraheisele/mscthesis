@@ -11,7 +11,7 @@ bash:
 - Edit files: Terminal editors like nano <file> or vim <file> allow you to create, edit, and save files from the terminal.
 - sudo: super user do (admin rights ig)
 - cat /etc/lsb-release: find info about version of OS
-- apt is software installer from linux (sudo apt update/upgrade/install/remove)
+- apt is package manager that we use (for handling software packages): sudo apt update/upgrade/install/remove
 - pwd: print working directory (shows current directory)
 - <programm> --version: to check if a program/software is installed and get the current version
 - touch <filename>: new file

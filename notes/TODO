@@ -1,23 +1,19 @@
 Today TODO:
-- get rid of prompts for pw when pushing to github
-
-- read papers
-- connect new headphones (if possible)
-- start looking at eel data
-- look at audian and ruff
-- start coding
-- initiate changelog (per code file at top of file or in separate file?)
+- read papers and make notes
+- work on sync code (make ui for matplotlib to define very tight ROI)
+- look at more data and familiarize w audian
+- initiate changelog?
+- solve watching .avi files
 
 General TODO:
   - read papers
   - summarize info from papers in .txt
   - familiarize with audian
-  - familiarize with ruff
 
   Project TODO:
   - Look at Berlin eel data (extract as much info from that before berlin as possible > answer open questions below)
-  - check if LED signal can be picked up by visual tracking software
-  - align video and audio data based on LED in video
+  - align video and audio data based on LED in video w patricks script
+  - run sync script for all video files or only for interesting ones??
   - collect data from gnathostoma (this is important bc they are model organism to show that patricks algorithm works well in redicting animals position)
 
   Hardware TODO: (end of week)
