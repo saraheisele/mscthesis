@@ -48,3 +48,37 @@ Do, 27.03.25:
 
 
 ---WEEK 3---
+Mo, 31.03.25:
+- train to berlin
+- looked at eels
+- made plans how and when to record eel data
+
+Di, 01.04.25:
+- started eel rec at app. 4 pm
+- talked to stefan mucha about plans for pulse detection
+
+Mi, 02.04.25:
+- patrick talk in lab meeting of mucha group
+- specified plans for pulse detection project
+- ende of eel rec app. 2 pm
+- talked to marisa tietge bc of patricks involvement in her bat data analysis
+- jan grewe and alex arrived in berlin
+- dinner with lindner group
+
+Do, 03.04.25:
+- train back to tübingen at 9:20 with patrick
+- first look at eel data
+- read a paper
+
+
+---WEEK 4---
+Mo, 07.04.25:
+- calibrated grid w patrick (3 attempts, once sine generator turned off, once files were not written correctly (no idea why, 0 bytes), third time it worked)
+- found out that top platine of logger no. 1 has 473 instead of 472 resistors (47 Ohm instead of 4,7; both had gain of 1x)
+    - mittelwert problem (antiphasic 'signal' on other electrodes than the one taking the signal) was worse for 4,7 than 47 ohm resistors
+    - use 47 resistors in future
+    - problem: data we recorded in berlin with these loggers is now not accurate
+- got new screen
+
+Di, 08.04.25:
+-

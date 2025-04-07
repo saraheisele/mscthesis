@@ -24,7 +24,7 @@ home/wrk/videosync/src/sync_video_2.py
 - [] analyze eel data from berlin
 - [] mit Jan und Patrick reden was nächste Schritte für pulse detection sind und was meine Aufgaben sind, jan sagen dass wir einzelne grids bauen wollen die man dann modular zusammenstecken kann (16 kanal platinen)
 - [] sachen für Brasilien bestellen: 16 kanal platinen, schnüre, zipper
-- [] tetraeder so bauen dass er zusammenfaltbar ist wie grid (auf 50 cm kanten länge)
+- [] tetraeder so bauen dass er zusammenfaltbar ist wie grid (auf 40 cm kanten länge)
 - [] 5 aufnahme lines bauen
 - [] 10 grids
 - [] 10 tetraeder

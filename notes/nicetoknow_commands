@@ -15,11 +15,13 @@ bash:
 - pwd: print working directory (shows current directory)
 - <programm> --version: to check if a program/software is installed and get the current version
 - touch <filename>: new file
+- ls -ah: show all, human readable files in this directory
+- esc, wq: to escape console text editor (e.g. vim)
 
 git:
-- Initialize a Repository: git init
-- Add Remote Repository (GitHub, Gittea): git remote add origin <repository-url>
-- Clone a Repository: git clone <repository-url>
+- Initialize a Repository: git init (initialize new repo in current directory)
+- Add Remote Repository (GitHub, Gittea): git remote add origin <repository-url> (connect initialized repo in cd with github repo; adds remote repo to local repo)
+- Clone a Repository: git clone <repository-url> (Creates a local copy of an existing remote repository.)
 - Check Status: git status
 - Add Changes: git add <file-name>
 - Add all changes: git add .
@@ -30,6 +32,7 @@ git:
 - Switch Branches: git checkout <branch-name>
 - Merge Branches: git merge <branch-name>
 - View Commit History: git log
+- Force pushing stuff: git push -f (don't use this! Only for rewriting existing repo)
 
 shortcuts:
 - alt + left arrow: go back a page
@@ -47,6 +50,7 @@ shortcuts:
 - ctrl + shift + 7: comment/uncomment several lines in vs code
 - clear: make terminal empty
 - ctrl + c: keyboard interrupt
+- ctrl + h: show all hidden files (e.g. .git) in file explorer
 
 questions:
 - what is cat?
