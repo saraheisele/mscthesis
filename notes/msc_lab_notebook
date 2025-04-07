@@ -1,0 +1,50 @@
+--- WEEK 1---
+Mo, 17.03.25:
+- first day
+- set up workspace, Pc, environment, and harddrive
+- got overview over project from patrick (whats the overall expectation, possibilities, milestones)
+- mirrored eel data from berlin onto new harddrive
+- looked at hardware, talked about what there is todo for berlin
+- started collecting and reading papers
+
+Di, 18.03.25:
+- reading papers
+- reading through patricks labstarter
+- initializing structures according to labstarter
+- set up git repo
+- set up headphones via bluetooth to listen to wav files
+
+Mi, 19.03.25:
+- reading papers
+- looked at eel data w audian
+- started working on syncing audio and video data from eels
+
+Do, 20.03.25:
+- booked trains for berlin
+- worked on sync code (implemented changes so it runs for berlin eellogger files instead of gopro, made interactive plot to define small window for LED trigger and return roi coordinates)
+
+
+---WEEK 2---
+Mo, 24.03.25:
+- meeting w jan and patrick about what we will do in berlin
+- connected 2 grids for berlin
+- built new case for second amplifier
+- sautered fake fish for calibrating grids
+
+Di, 25.03.25:
+- worked on sync script (made function that calculates relative roi coordinates from the absolute coordinates that the interactive plot returns. adjusted color space for green and checked if mask picks LED signal from video up. implemented that when time_frame is shorter than 5 min, length of video is being taken.)
+    -> all of this works now
+- hardware w patrick: test grid functionality, prepare stuff for berlin
+
+Mi, 26.03.25:
+- read a paper (Social predation in electric eels, bastos 2020)
+- started making example dataset for berlin with wav files
+- resautered amplifiers with patrick
+
+Do, 27.03.25:
+- (worked on clark gp submission upsi)
+- finished sautering and preparing hardware for berlin
+- finished making example dataset for eel peakfinder script (data from day 20.03.25, ca 14-19:30)
+
+
+---WEEK 3---

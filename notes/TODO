@@ -1,0 +1,40 @@
+Today TODO:
+- paper lesen
+- grid kalibrieren
+- Look at Berlin eel data (extract as much info from that before berlin as possible > answer open questions below)
+- patrick git video sync klären
+- readme pushen
+- avi file pushen
+
+General TODO:
+  - read papers & summarize info from papers in .txt
+  - solve watching .avi files
+  - adjust shortcuts in vs code!!
+  - open thunderfish and thunderlab
+  - get headphones to work with audian
+  - look through word logging files
+  - record gnathostoma data
+
+Open questions Eel:
+  - which animal spikes with higher frequency
+  - does one animal have bigger amplitude even when normalized
+  - how long do they sleep
+  - how does spike pattern change during day
+  - what type of spiking activity/spike shape do they display
+  - does spiking activity correlate to external factors
+  - do they react to each other
+  - is positive pole of electric field really at head of animal
+  - try to watch underwater camera files from eels on pc
+
+Overview Project:
+  - Software:
+	detect peaks
+	flip signal
+	normalize signal
+	UMAP
+	HDBScan
+	>> cluster spikes, get ID for each fish
+	use ID for tracking fish w patricks algorithm
+  - Hardware:
+	build more small, rigid grids
+	build second tetraeder w cables inside

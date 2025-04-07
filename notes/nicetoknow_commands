@@ -1,0 +1,63 @@
+bash:
+- audian -U 1.5 -c 0,8,15 eellogger1-2025030*.wav: open all files from that day as one and only channels 0, 8, 15
+- audian -h: ?
+- Navigate directories: cd <folder> (change directory, eisele/anyfolderinthere/..)
+- cd ..: go one layer up/back
+- List files: ls
+- Create a folder: mkdir <folder>
+- Move files: mv <source> <destination>
+- Copy files: cp <source> <destination>
+- Remove files: rm <file> (use with caution! This will permanently delete the file, there is no undo. For example, rm -rf / will delete the entire filesystem.)
+- Edit files: Terminal editors like nano <file> or vim <file> allow you to create, edit, and save files from the terminal.
+- sudo: super user do (admin rights ig)
+- cat /etc/lsb-release: find info about version of OS
+- apt is package manager that we use (for handling software packages): sudo apt update/upgrade/install/remove
+- pwd: print working directory (shows current directory)
+- <programm> --version: to check if a program/software is installed and get the current version
+- touch <filename>: new file
+
+git:
+- Initialize a Repository: git init
+- Add Remote Repository (GitHub, Gittea): git remote add origin <repository-url>
+- Clone a Repository: git clone <repository-url>
+- Check Status: git status
+- Add Changes: git add <file-name>
+- Add all changes: git add .
+- Commit Changes: git commit -m "Commit message"
+- Push to Remote Repository: git push origin main
+- Pull from Remote Repository: git pull origin main
+- Create a New Branch: git branch <branch-name>
+- Switch Branches: git checkout <branch-name>
+- Merge Branches: git merge <branch-name>
+- View Commit History: git log
+
+shortcuts:
+- alt + left arrow: go back a page
+- ctrl + arrow: skip a word with cursor
+- ctrl + alt + t: open terminal
+- ctrl + tab: skip through tabs
+- alt + tab: skip through windows
+- ctrl + w: close tabs
+- ctrl + q: clow windows
+- ctrl + t/n: new tab
+- ctrl + o: open stuff
+- shift + arrows: highlight stuff
+- ctrl + shift + arrows: highlight whole word (left/right) OR move current line (up/down)
+- ctrl + shift + c/v: copy/paste from terminal
+- ctrl + shift + 7: comment/uncomment several lines in vs code
+- clear: make terminal empty
+- ctrl + c: keyboard interrupt
+
+questions:
+- what is cat?
+- shortcut for new folder?
+- IPython.embed() ?
+- how does vim work? what does it do?
+- how does pyenv work? what does it do?
+- when do i need to make a -gitignore file?
+- when exactly does ruff do stuff? i cant see it kinda
+- is a changelog file necessary even when i work with github version control?
+- how exactly does a debugger work?
+
+vscode:
+- crl + I: get inline copilot
