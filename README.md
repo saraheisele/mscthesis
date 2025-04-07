@@ -5,6 +5,7 @@ Content follows and changes as project progresses
 To install the required dependencies, run:
 ```bash
 pip install -r requirements.txt
+```
 
 ## Synchronize wav and mp4 files
 home/wrk/videosync/src/sync_video_2.py
