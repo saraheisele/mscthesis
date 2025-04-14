@@ -17,6 +17,7 @@ bash:
 - touch <filename>: new file
 - ls -ah: show all, human readable files in this directory
 - esc, wq: to escape console text editor (e.g. vim)
+- cat: concatenate (make several files into one file, create newfile, display files contents or specific lines of content)
 
 git:
 - Initialize a Repository: git init (initialize new repo in current directory)
@@ -52,16 +53,20 @@ shortcuts:
 - ctrl + c: keyboard interrupt
 - ctrl + h: show all hidden files (e.g. .git) in file explorer
 
-questions:
-- what is cat?
-- shortcut for new folder?
-- IPython.embed() ?
-- how does vim work? what does it do?
-- how does pyenv work? what does it do?
-- when do i need to make a -gitignore file?
-- when exactly does ruff do stuff? i cant see it kinda
-- is a changelog file necessary even when i work with github version control?
-- how exactly does a debugger work?
-
 vscode:
 - crl + I: get inline copilot
+- shift + enter: run code (if there are cells only runs current cell)
+- F5: run code in seperate terminal (not interactive)
+
+- # %%: to make a cell
+- select all cells, then shift + enter: run all cells/whole code in interactive/jupyter kernel so variables and packages are remembered
+- shift + enter: run current cell (where cursor is)
+
+- ctrl + shirt + M: Problems window
+- ctrl + shift + P: Command Pallette (e.g. to access JSON files)
+- ctrl + ,: Settings
+
+- pdb.set_trace()/IPython.embed(): use this in code to open interactive debug window at this line (pdb is from python debugger extension)
+- ctrl + shift + D: Debug console (built in vs code GUI, works with breakpoints, start w. F5)
+- run and Debug panel (left sidebar): this is where the debug process in the debug console is controlled (settings, start/end,...)
+

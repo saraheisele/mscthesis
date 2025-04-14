@@ -1,19 +1,19 @@
 Today TODO:
 - paper lesen!!
-- ask why in msc_labbook file text is weirdly red and different syved symbol on tab?
-- grid unten abbauen
-- Look at Berlin eel data (extract as much info from that before berlin as possible > answer open questions below)
+- plot tagesverlauf von aal daten für alle files aus einem ordner
+- checken ob ich fehler hab bei spikes to minutes allocaten
+- patrick peakfinder funktion zum laufen bringen
 
 General TODO:
+  - ask why in msc_labbook file text is weirdly red and different syved symbol on tab?
+  - grid unten abbauen
   - read papers & summarize info from papers in .txt
   - mit jan reden un brasilien sachen bestellen (16 kanal verstärker)
   - gnatho daten aufnehmen? ob und wann??
-  - solve watching .avi files
   - adjust shortcuts in vs code!!
   - open thunderfish and thunderlab
   - get headphones to work with audian
   - look through word logging files
-  - record gnathostoma data
 
 Open questions Eel:
   - which animal spikes with higher frequency

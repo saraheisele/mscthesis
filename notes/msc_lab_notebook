@@ -81,4 +81,24 @@ Mo, 07.04.25:
 - got new screen
 
 Di, 08.04.25:
--
+- spent whole day trying to get .avi files to work
+
+Mi, 09.04.25:
+- again whole day to get avi files to work
+    - they play on windows vlc with settings demuxer > h264
+    - don't work on anything else (linux, other media players, vlc command line)
+    - reason: h264 codec in avi container without any metadata (timestamps for frames, framerate, channels, ..)
+    - batch convert avi to mp4 works; only in windows vlc gui (possibly demuxer setting has to be reverted to standard for conversion)
+    - plan: batch convert all avi files on windows laptop from lab
+
+Do, 10.04.25:
+- did water exchange for fish
+- started working on plotting course of day of eel data
+- struggled with debugging, ruff, cells in vscode
+- stopped where I have to determine which spikes were made in which minute in order to make histogram over time
+
+
+---WEEK 5---
+Mo, 14.04.25
+- educated myself on how to make ruff work, debugging and cells in vscode
+- read paper

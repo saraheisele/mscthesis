@@ -1,3 +1,4 @@
+##################################################################
 The Astonishing behavior of electric eels - Catania 2019 (read on 19.03.2025)
 # maybe for journal club?
 
@@ -79,9 +80,41 @@ Reproductive effort and terminal investment in a multispecies assemblage of Amaz
 
 
 ##################################################################
-Electric Eel foraging optimization based control design of islanded microgrid - Ebrahim 2025 (read on 07.04.25)
+Electric Eel foraging optimization based control design of islanded microgrid - Ebrahim 2025 (read on 14.04.25)
+
+- micro grids that operate independent from the main electrical/energy grid
+- microgrid: local energy distribution system (source: mostly renewable), can be connected or disconnected to large grid
+- usages: community, industrial complex
+- rely on power converters (converts raw energy to AC)
+- grid feeding converters: push power into existing electrical grid, need grid forming unit
+- grid forming converters: maintain stable voltage and frequency, set electrical rhythm
+--> not really relevant, electric eels are proposed for model for microgrids, basically applied paper from social predation in eels paper (bastos)
 
 
+##################################################################
+Electric Eels Concentrate Their Electric Field to Induce Involuntary Fatigue in Struggling Prey - Catania 2015 (read on 14.04.25)
+
+- eels amplify electrical power to exhaust prey
+- when hunting: initial burst of high voltage pulses to stun prey
+- enough to stun small fish long enough for eel to catch and eat it
+- for more tricky prey (crayfish, bigger fish): eel curls its body, brings its head to its tail
+- this intensifies the electric field around prey so even stronger fish are stunned and can get captured
+- dipole attack: curling at least doubles around prey
+- pulses correspond to behavior
+- setup: eels attack pithed fish (brain, nervous system and muscles still intact but gutted)
+- the closer head to tail the higher measured voltage
+- voltage measured in pithed fish
+- motorneurons of prey involuntarily contract from high frequency stimulation
+- muscle fatigue less pronounced when voltage was cut in half (dipole attack is effective bc it increases amplitude)
+- burst frequency also critical for fatigue
+- initial shock leads to few sec of immobility, eel uses that to capture it, fatigue makes prey easy to swallow without fight and without getting hurt by prey resistance
+- initial shock doesnt work on all prey, e.g. crayfish
+- biological amplifier/self amplifier
+- very strategic hunting
+
+
+##################################################################
+Electric eels use high-voltage to track fast-moving prey - Catania 2015 (read on 14.04.25)
 
 
 
