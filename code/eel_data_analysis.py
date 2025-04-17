@@ -10,13 +10,15 @@ This script loads .npz files created from Patricks deep_peak_sieve package.
 
 This script calculates the number of detected peaks per minute/hour and plots the result as histogram.
 """
-# TODO: change filename, delete old file
-# TODO: implement case that there are no peaks detected for a file -1 (then no file)
-# TODO: plot amplitude over time?/for individuals?
-# TODO: make work for single files
+# TODO: implement case that there are no peaks detected for a file (then no file)
 # TODO: only plot full bins not started ones
-# TODO: make main function
 # TODO: add possibility to put in folder with folders that contains npz files
+# TODO: add wav loading to function
+# does it make more sense to write a function with the same purpose for different cases or to have one function that handles
+# all three cases but then I have to implement if statements in each function
+
+# TODO: plot amplitude over time?/for individuals?
+# TODO: make main function
 # TODO: google what M and U , .. at top of tab means and color code beige/yellow?
 
 # %%
@@ -27,6 +29,7 @@ import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 import math
 from audioio.audioloader import AudioLoader
+# from IPython import embed
 
 # Initialize console for logging
 con = Console()
@@ -49,7 +52,7 @@ wavpath = Path(datapath.parent.parent.parent / parent / datapath.parent.name / f
 # Get all wav files of one folder and store them alphabetically in a list
 # wavfiles = sorted(list(wavpath.glob("*.wav")))
 
-# Only one file for testing (TODO: implement this for all files)
+# Only one file for testing
 # wavfile = wavfiles[0]
 
 # Load the wav file
@@ -86,10 +89,11 @@ def load_peaks(datapath):
         if datapath.suffix == ".npz":
             con.log(f"Path {datapath} is a single npz file.")
             # Load file
-            with np.load(datapath) as data_file:
-                # Store objects in list for consistency woth directory case
+            data_file = []
+            with np.load(datapath) as data:
+                # Store objects in list for consistency with directory case
+                data_file.append({key: data[key] for key in data.files})
                 npz_path = [datapath]
-                data_file = [data_file]
                 return data_file, npz_path
         else:
             raise FileNotFoundError(f"File {datapath} is not an npz file.")
@@ -142,11 +146,11 @@ def peaks_over_time(
     peaks_per_bin = np.zeros(num_bins)
 
     # loop over dicts in data list
-    for i, file in enumerate(data):  # TODO: adjust for single files
+    for i, file in enumerate(data):
         # set offset for each file
         offset = i * points_per_min * min_per_rec
         # loop over all peaks in file
-        for peak in file["centers"]:
+        for peak in file["centers"]:  # TODO: adjust for single files
             # assign peaks to minutes
             global_peak_idx = int((peak + offset) // points_per_bin)
             # add peak to corresponding minute
