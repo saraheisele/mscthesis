@@ -26,7 +26,7 @@ This file is for analyzing random stuff about the eel data from berlin.
     >look at this in audian with synced video (!!)
 
 TODO:
-- filter if necessary
+- filter if necessary (yes!)
 - detect spikes (threshold)
 - normalize (max amplitude)
 - verify with video which animal produces which spikes (is higher amplitude = male?)
@@ -50,19 +50,22 @@ from scipy.signal import find_peaks
 from rich.console import Console
 from audioio.audioloader import AudioLoader
 
+
 con = Console()
 
 # %%
 ### Import data
 con.log("Loading data")
-# Define the path to the data (this is for one folder only, change path if want to look at other files)
-wavpath = Path("/mnt/data1/eels-mfn2021/recordings2025-03-12/")
+# Define the path to the data (this is for one folder only for now!)
+wavpath = Path(
+    "/home/eisele/wrk/mscthesis/data/raw/eellogger_example_data/recordings2025-03-31-20250401/"
+)
 
 # Get all wav files of one folder and store them alphabetically in a list
 wavfiles = sorted(list(wavpath.glob("*.wav")))
 
-# # Only one file for testing
-# wavfile = wavfiles[0]
+# Only one file for testing
+wavfile = wavfiles[0]
 
 # Load the wav file
 data = AudioLoader(wavfiles)
@@ -76,7 +79,7 @@ data_abs = np.abs(data)
 peak_height_threshold = 0.003
 min_peak_distance_seconds = 0.005
 min_peak_distance = int(np.ceil(min_peak_distance_seconds * data.rate))
-sample_rate = data.rate  # Hz??
+sample_rate = data.rate  # Hz
 
 
 # %%
@@ -123,9 +126,9 @@ peaks_list, channels_list = detect_peaks(
 
 # find which peaks in peaks_list are in which minute (peaks_list contains indexes of data_abs)
 
-# how many data points per minute (per hour for now)
-points_per_min = sample_rate * 60 * 60
-
+# how many data points per minute
+points_per_min = sample_rate * 60
+# embed()
 # preallocate structure to store number of spike for each minute
 minute_1 = []
 minute_2 = []
@@ -164,28 +167,7 @@ minute_5.extend(
     ]
 )
 
-# # approach with last channel for sanity check
-# minute_1.extend(peaks_list[7][peaks_list[7] <= points_per_min])
-# minute_2.extend(
-#     peaks_list[7][
-#         (peaks_list[7] > points_per_min) & (peaks_list[7] <= 2 * points_per_min)
-#     ]
-# )
-# minute_3.extend(
-#     peaks_list[7][
-#         (peaks_list[7] > 2 * points_per_min) & (peaks_list[7] <= 3 * points_per_min)
-#     ]
-# )
-# minute_4.extend(
-#     peaks_list[7][
-#         (peaks_list[7] > 3 * points_per_min) & (peaks_list[7] <= 4 * points_per_min)
-#     ]
-# )
-# minute_5.extend(
-#     peaks_list[7][
-#         (peaks_list[7] > 4 * points_per_min) & (peaks_list[7] <= 5 * points_per_min)
-#     ]
-# )
+# embed()
 
 # concatenate all minute lists into one
 minute_bins = np.array(
@@ -207,7 +189,7 @@ spike_counts = [
     len(minute_5),
 ]
 
-
+# embed()
 # %%
 ### Plotting
 # plot raw data and detected spikes
@@ -230,7 +212,7 @@ plt.show()
 
 
 # %%
-# plot spike frequency and amplitude over time
+# plot spike frequency over time
 fig, ax = plt.subplots()
 ax.bar(
     range(minute_bins.shape[0]),

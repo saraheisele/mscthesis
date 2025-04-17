@@ -114,9 +114,69 @@ Electric Eels Concentrate Their Electric Field to Induce Involuntary Fatigue in 
 
 
 ##################################################################
-Electric eels use high-voltage to track fast-moving prey - Catania 2015 (read on 14.04.25)
+Electric eels use high-voltage to track fast-moving prey - Catania 2015 (read on 15.04.25)
 
+- high voltage discharge is not just used to hunt but also sensory system
+- high voltage pulses used to track prey and hunt it
+- when weakly electric fish use EOD (low voltage) for sensory stuff, its possibly the same for eels
+- but not just low voltage pulse of eels but also high voltage organ important
 
+1. Experiment
+- pithed, anesthetized fish seals in insulated plastic bag, covered by agar barrier
+- fish twitches but eel cant sense fish with chemical or tactile cues, only electrical (control for vision in experiment 3)
+- twitch induced by current stimulator
+- when eel sensed twitch it swims toward pitched fish and makes high voltage volley
+- BUT no full feeding response (suction strike)
+
+1.2 Experiment
+- added rods near fish, under agar
+- 6 plastic, one carbon rod, look same
+- in this setup, eel responded same first (immediate response to twitch, turn to fish, high voltage strike)
+- with carbon rod: eel also tries to feed at carbon rod (suction strike) --> 6/6 times
+- eel ignored plastic rods
+
+- twitch: sensory input, information about possible prey
+- eel makes high voltage volley to confirm that preyis present (?)
+- if no electrical feedback, no feeding strike
+- feeding response only when  electrical feedback (carbon rod) to their own voltage strike!!
+- sensory conflict: eel starts moving towards twitch, but abruptly changes course to carbon rod
+
+2. Control experiment
+- same setup with fish and agar but only plastic rods, no carbon rods
+- same response as in 1.: eel shoots high voltage volley in response to fish, no attempted suction feeding
+
+3. spinning disk experiment
+- to check tracking abilities of eel and how it uses high voltage output for that
+- fast spinning disk (to mimick fast moving prey)
+- disk is under agar barrier (no tactile and chemical cues)
+- but there is one whole in agar barrier
+- conducting and non conducting elements on disk (3 plastic disks, 1 graphite)
+- no vision, done in darkness, racked w infrared light which eels cant see
+- infrared diods that indicate low and high voltage strikes
+
+- eels ignore plastic rods, but follows and strikes at carbon rods
+- strikes only happened at high voltage discharge, not low voltage
+- low voltage likely for searching/radar
+- eel makes suction strike exactly when carbon rod is under whole in barrier
+
+3.2 to check for precsion of electrical sensing
+- 15 plastic disks, 1 carbon
+- rotating at 45 s/m -> way faster than prev recorded for active electrolocation in weakly electric fish
+- high voltage system probably much faster feedback
+- full illumination (to check if vision helps)
+- no agar
+- eel can still track graphite plate well and shows suction strike, using high voltage organ
+
+- graphite is inert, so no passive electrical sensing of faint signals
+- agar would block low voltage, only let through high voltage
+- low voltage system used for passive sensing, radar - high voltage system used for precise and fast electrolocation, to track prey
+- dual purpose of high voltage system
+- eel needs high resolution feedback to high V strike to guide following strikes correctly on preys location
+
+- mechanical things other than fish movement, like water splash alert eel as well
+
+What does the third electric organ do?
+How many eels used in this?
 
 
 
