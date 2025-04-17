@@ -26,9 +26,6 @@ This file is for analyzing random stuff about the eel data from berlin.
     >look at this in audian with synced video (!!)
 
 TODO:
-- filter if necessary (yes!)
-- detect spikes (threshold)
-- normalize (max amplitude)
 - verify with video which animal produces which spikes (is higher amplitude = male?)
 - threshold to get two diff. spike sets, one per animal
 - threshold to distinguish between low and high voltage spikes
