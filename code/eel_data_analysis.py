@@ -10,16 +10,10 @@ This script loads .npz files created from Patricks deep_peak_sieve package.
 
 This script calculates the number of detected peaks per minute/hour and plots the result as histogram.
 """
-# TODO: implement case that there are no peaks detected for a file (then no file)
+# TODO: implement case that there are no peaks detected for a file (then no npz file)
 # TODO: only plot full bins not started ones
-# TODO: add possibility to put in folder with folders that contains npz files
-# TODO: add wav loading to function
-# does it make more sense to write a function with the same purpose for different cases or to have one function that handles
-# all three cases but then I have to implement if statements in each function
-
 # TODO: plot amplitude over time?/for individuals?
 # TODO: make main function
-# TODO: google what M and U , .. at top of tab means and color code beige/yellow?
 
 # %%
 from rich.console import Console
@@ -36,52 +30,83 @@ con = Console()
 
 # %%
 ### Import Data ###
-# Import detected peaks
-con.log("Loading detected peaks")
 
-# Datapath to folder that contains npz files
-datapath = Path(
-    "/home/eisele/wrk/mscthesis/data/raw/eellogger_example_data_peaks/recordings2025-03-06/eellogger1-20250306T101402_peaks.npz"
-)
+# Datapath to npz files (folder, subfolder or file)
+# datapath = Path(
+#     "/home/eisele/wrk/mscthesis/data/raw/eellogger_example_data_peaks/recordings2025-03-06/eellogger1-20250306T101402_peaks.npz"
+# )
 
-# Import corresponding wav file
-filename = str(datapath.name).split("_")[0] + ".wav"
-parent = "_".join(str(datapath.parent.parent).split("_")[:-1])
-wavpath = Path(datapath.parent.parent.parent / parent / datapath.parent.name / filename)
+# datapath = Path(
+#     "/home/eisele/wrk/mscthesis/data/raw/eellogger_example_data_peaks/recordings2025-03-06/"
+# )
 
-# Get all wav files of one folder and store them alphabetically in a list
-# wavfiles = sorted(list(wavpath.glob("*.wav")))
-
-# Only one file for testing
-# wavfile = wavfiles[0]
-
-# Load the wav file
-wav_data = AudioLoader(wavpath)
-
-
-# %%
-### Parameters ###
-# sampling rate
-sample_rate = wav_data.rate  # Hz
-
-# number of minutes per recording
-samples_per_rec = wav_data.shape[0]
-min_per_rec = samples_per_rec / sample_rate / 60
-
-# assign wanted bin size in minutes
-bin_size = 1
+datapath = Path("/home/eisele/wrk/mscthesis/data/raw/eellogger_example_data_peaks/")
 
 
 # %%
 ### Functions ###
-# load data
+# Import corresponding wav file (TODO: make this work for sup directories)
+def load_wav(datapath):
+    """
+    Load the corresponding wav file for the given npz file/s.
+    """
+    # Print status
+    con.log("Loading wav files")
+
+    if datapath.is_file():
+        # Get the filename from the npz file
+        filename = str(datapath.name).split("_")[0] + ".wav"
+
+        # Get the parent directory of the npz file
+        parent = "_".join(str(datapath.parent.parent).split("_")[:-1])
+
+        # Construct the path to the wav file
+        wavpath = Path(
+            datapath.parent.parent.parent / parent / datapath.parent.name / filename
+        )
+
+        # Load the wav file
+        audio_data = AudioLoader(wavpath)
+    elif datapath.is_dir():
+        # Construct path to folder that contains wav files
+        parent = "_".join(str(datapath.parent).split("_")[:-1])
+        wavpath = Path(datapath.parent.parent / parent / datapath.name)
+
+        # Get all wav files of one folder and store them alphabetically in a list
+        wavfiles = sorted(list(wavpath.glob("*.wav")))
+
+        # Only one file for testing (Remove when working!!)
+        wavfile = wavfiles[0]
+
+        # Load the wav file
+        audio_data = AudioLoader(wavfile)
+
+    ### Extract necessary parameters from wav file ###
+    # sampling rate
+    fs = audio_data.rate  # Hz
+
+    # number of minutes per recording
+    samples_per_rec = audio_data.shape[0]
+    minutes_rec = samples_per_rec / fs / 60  # 60 s/min
+
+    return audio_data, fs, minutes_rec
+
+
+# load npz files
 def load_peaks(datapath):
     """
     Load all .npz files from the given directory.
     """
+    # Print status
+    con.log("Loading detected peaks")
+
     # Check if the path exists
     if not datapath.exists():
         raise FileNotFoundError(f"Path {datapath} does not exist.")
+
+    # Initiaize lists
+    data_list = []
+    npz_path_list = []
 
     # Check if the path is a directory
     if datapath.is_file():
@@ -89,37 +114,52 @@ def load_peaks(datapath):
         if datapath.suffix == ".npz":
             con.log(f"Path {datapath} is a single npz file.")
             # Load file
-            data_file = []
             with np.load(datapath) as data:
                 # Store objects in list for consistency with directory case
-                data_file.append({key: data[key] for key in data.files})
-                npz_path = [datapath]
-                return data_file, npz_path
+                data_list.append({key: data[key] for key in data.files})
+                npz_path_list = npz_path_list.append(datapath)
         else:
             raise FileNotFoundError(f"File {datapath} is not an npz file.")
+    # elif datapath.is_dir():
+    #     con.log(f"Path {datapath} is a directory.")
+    #     # Get all npz files in this folder
+    #     npz_path_list = sorted(datapath.glob("*.npz"))
 
-    if datapath.is_dir():
-        con.log(f"Path {datapath} is a directory.")
-        # Get all npz files in this folder
-        npz_path_list = sorted(datapath.glob("*.npz"))
+    #     # Initialize list to store npz files (list of dictionaries)
+    #     data_list = []
 
-        # Initialize list to store npz files (list of dictionaries)
-        data_list = []
+    #     # Load all npz files into list
+    #     for file in npz_path_list:
+    #         with np.load(file) as data:
+    #             data_list.append({key: data[key] for key in data.files})
 
-        # Load all npz files into list
-        for file in npz_path_list:
+    #             # Print number of detected peaks per file
+    #             con.log(f"# Peaks {file.name}: {data['peaks'].shape[0]}")
+
+    #             # Warning if number of channels is not 16
+    #             if data["channels"].shape[1] != 16:
+    #                 con.log(
+    #                     f"Warning: {file.name} has {data['channels'].shape[1]} channels, expected 16 channels."
+    #                 )
+
+    elif datapath.is_dir():
+        con.log(f"Searching for .npz files in {datapath} and its subdirectories.")
+        # Recursively find all .npz files in the directory and subdirectories
+        for file in datapath.rglob("*.npz"):
             with np.load(file) as data:
                 data_list.append({key: data[key] for key in data.files})
-
-                # Print number of detected peaks per file
+                npz_path_list.append(file)
+                # Log number of detected peaks per file
                 con.log(f"# Peaks {file.name}: {data['peaks'].shape[0]}")
-
                 # Warning if number of channels is not 16
                 if data["channels"].shape[1] != 16:
                     con.log(
                         f"Warning: {file.name} has {data['channels'].shape[1]} channels, expected 16 channels."
                     )
-        return data_list, npz_path_list
+    else:
+        raise FileNotFoundError(f"Path {datapath} is neither a file nor a directory.")
+
+    return data_list, npz_path_list
 
 
 # Calculate how many peaks per time interval
@@ -216,16 +256,24 @@ def plot_peaks_time(peaks, start_time, binsize):
 
 # %%
 ### Main ###
+# set bin size in minutes
+binsize = 10
+# set sample rate (Hz)
+sample_rate = 48000
+# minutes per recording
+min_per_rec = 5
+
 # load data
 peak_data, file_paths = load_peaks(datapath)
+# wav_data, sample_rate, min_per_rec = load_wav(datapath)
 
-# calculate peaks per bin
-bin_peaks = peaks_over_time(peak_data, sample_rate, min_per_rec, bin_size)
+# calculate peaks per bin (insert binsize in minutes here)
+bin_peaks = peaks_over_time(peak_data, sample_rate, min_per_rec, binsize)
 
 # get start time from first file
 timestamp = get_timestamp(file_paths)
 
 # plot time histogram
-plot_peaks_time(bin_peaks, timestamp, bin_size)
+plot_peaks_time(bin_peaks, timestamp, binsize)
 
 # %%
