@@ -2,18 +2,38 @@
 This script loads .npz files created from Patricks deep_peak_sieve package.
 .npz files are created in collect_peaks.py.
 .npz files contain:
+dict_keys(['labels', 'peaks', 'channels', 'amplitudes', 'centers', 'start_stop_index', 'rate', 'predicted_labels', 'predicted_probs'])
     "peaks" - Window of amplitude values for each detected peak
     "centers" - avg index of highest amplitude value of peaks on all 16 channels
     "channels" - contains True/False for all 16 channels for all peaks, depending if peak showed up on that channel
     "start_stop_idx" - start and stop index of the peak (to find peak in original data)
     "labels" - only exists if peaks were labeled in later step of deep_peak_sieve. -1 default; not labeled, 1 = spike, 0 = noise
 
+peak_data contains as many entries/dicts as there are .npz files in the folder.
+
 This script calculates the number of detected peaks per minute/hour and plots the result as histogram.
 """
-# TODO: implement case that there are no peaks detected for a file (then no npz file)
-# TODO: only plot full bins not started ones
-# TODO: plot amplitude over time?/for individuals?
+
+# TODO: make code work for sup folders and single files
+# TODO: modularize code
 # TODO: make main function
+# TODO: account for amount of recordings that contribute to each bin ?
+# TODO: implement case that there are no peaks detected (no file created or empty file)
+# ask patrick if i should not discard start and end bins but assign prozentual soviele peaks wie zeit in dieser bin war?
+
+# TODO: sync new videos Monday
+# TODO: plot amplitude over time?/for individuals?
+
+
+# DONE:
+# add spike counts to correct bin for each file
+# rewrote code to load npz files one by one, instead of creating data_list
+# rewrote code to correctly assign peaks to bins (not just stack more bins at the end)
+# discard peaks at start and end of rec where not whole length of bin is covered by data
+# code works for single file
+# code works for sup folder
+# make wav file importing work for sup folders
+# make extraction of rec length and sample rate work for several files
 
 # %%
 from rich.console import Console
@@ -21,7 +41,6 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
-import math
 from audioio.audioloader import AudioLoader
 # from IPython import embed
 
@@ -31,24 +50,26 @@ con = Console()
 # %%
 ### Import Data ###
 
-# Datapath to npz files (folder, subfolder or file)
+## Datapath to npz files (folder, subfolder or file)
 # datapath = Path(
 #     "/home/eisele/wrk/mscthesis/data/raw/eellogger_example_data_peaks/recordings2025-03-06/eellogger1-20250306T101402_peaks.npz"
 # )
 
-# datapath = Path(
-#     "/home/eisele/wrk/mscthesis/data/raw/eellogger_example_data_peaks/recordings2025-03-06/"
-# )
+# Path to folder
+datapath = Path(
+    "/home/eisele/wrk/mscthesis/data/raw/eellogger_example_data_peaks/recordings2025-03-06/"
+)
 
-datapath = Path("/home/eisele/wrk/mscthesis/data/raw/eellogger_example_data_peaks/")
+## Path to sup folder (TODO: check if it works)
+# datapath = Path("/home/eisele/wrk/mscthesis/data/raw/eellogger_example_data_peaks/")
 
 
 # %%
 ### Functions ###
-# Import corresponding wav file (TODO: make this work for sup directories)
+# Import corresponding wav file
 def load_wav(datapath):
     """
-    Load the corresponding wav file for the given npz file/s.
+    Load the corresponding wav file for the given npz file/s and returns recording length in min.
     """
     # Print status
     con.log("Loading wav files")
@@ -67,35 +88,47 @@ def load_wav(datapath):
 
         # Load the wav file
         audio_data = AudioLoader(wavpath)
+
     elif datapath.is_dir():
-        # Construct path to folder that contains wav files
+        # # Construct path to folder that contains wav files # check that this works for normal dir
+        # new_path_name = "_".join(str(datapath.name).split("_")[:-1])
+        # wavpath = Path(datapath.parent / new_path_name)
+
+        # For normal directory (TEST)
         parent = "_".join(str(datapath.parent).split("_")[:-1])
         wavpath = Path(datapath.parent.parent / parent / datapath.name)
 
-        # Get all wav files of one folder and store them alphabetically in a list
-        wavfiles = sorted(list(wavpath.glob("*.wav")))
+        # Get all wav files of directoy/supdirectory and store them alphabetically in a list
+        wavfiles = sorted(list(wavpath.rglob("*.wav")))
 
-        # Only one file for testing (Remove when working!!)
-        wavfile = wavfiles[0]
+        # Initialize emtpy list to store number of minutes for each recording
+        minutes_list = []
 
-        # Load the wav file
-        audio_data = AudioLoader(wavfile)
+        for i, wav in enumerate(wavfiles):
+            # Load each wav file
+            audio_data = AudioLoader(wav)
 
-    ### Extract necessary parameters from wav file ###
-    # sampling rate
-    fs = audio_data.rate  # Hz
+            # Get sampling rate for this wav file
+            fs = audio_data.rate
 
-    # number of minutes per recording
-    samples_per_rec = audio_data.shape[0]
-    minutes_rec = samples_per_rec / fs / 60  # 60 s/min
+            # Get number of minutes per recording for this wav file
+            samples_per_rec = audio_data.shape[0]
+            minutes_rec = samples_per_rec / fs / 60
 
-    return audio_data, fs, minutes_rec
+            # # Store in peak_data (TODO: Adjust this!!)
+            # npz_data[i]["minutes"] = minutes_rec
+
+            ### Test ###
+            # save all minutes_rec in a list
+            minutes_list.append(minutes_rec)
+
+    return minutes_rec
 
 
-# load npz files
+# Load npz files
 def load_peaks(datapath):
     """
-    Load all .npz files from the given directory.
+    Load .npz files from the given path, directory or supdirectory.
     """
     # Print status
     con.log("Loading detected peaks")
@@ -103,12 +136,47 @@ def load_peaks(datapath):
     # Check if the path exists
     if not datapath.exists():
         raise FileNotFoundError(f"Path {datapath} does not exist.")
+    # --- old code, working---
+    # # Initiaize lists
+    # data_list = []
+    # npz_path_list = []
 
-    # Initiaize lists
-    data_list = []
+    # # Check if the path is a directory, a file or a directory containing files
+    # if datapath.is_file():
+    #     # Check if the file is an npz file
+    #     if datapath.suffix == ".npz":
+    #         con.log(f"Path {datapath} is a single npz file.")
+    #         # Load file
+    #         with np.load(datapath) as data:
+    #             # Store objects in list for consistency with directory case
+    #             data_list.append({key: data[key] for key in data.files})
+    #             npz_path_list = npz_path_list.append(datapath)
+    #     else:
+    #         raise FileNotFoundError(f"File {datapath} is not an npz file.")
+
+    # # Recursively find all .npz files in the directory and subdirectories
+    # elif datapath.is_dir():
+    #     for file in datapath.rglob("*.npz"):
+    #         with np.load(file) as data:
+    #             data_list.append({key: data[key] for key in data.files})
+    #             npz_path_list.append(file)
+    #             # Log number of detected peaks per file
+    #             con.log(f"# Peaks {file.name}: {data['peaks'].shape[0]}")
+    #             # Warning if number of channels is not 16
+    #             if data["channels"].shape[1] != 16:
+    #                 con.log(
+    #                     f"Warning: {file.name} has {data['channels'].shape[1]} channels, expected 16 channels."
+    #                 )
+    # else:
+    #     raise FileNotFoundError(
+    #         f"Path {datapath} is not a file, directory containing files or directory containing folders containing files."
+    #     )
+
+    # ############## TEST ##############
+    # Initiaize list to store file paths
     npz_path_list = []
 
-    # Check if the path is a directory
+    # Check if the path is a directory, a file or a directory containing files
     if datapath.is_file():
         # Check if the file is an npz file
         if datapath.suffix == ".npz":
@@ -116,38 +184,14 @@ def load_peaks(datapath):
             # Load file
             with np.load(datapath) as data:
                 # Store objects in list for consistency with directory case
-                data_list.append({key: data[key] for key in data.files})
                 npz_path_list = npz_path_list.append(datapath)
         else:
             raise FileNotFoundError(f"File {datapath} is not an npz file.")
-    # elif datapath.is_dir():
-    #     con.log(f"Path {datapath} is a directory.")
-    #     # Get all npz files in this folder
-    #     npz_path_list = sorted(datapath.glob("*.npz"))
 
-    #     # Initialize list to store npz files (list of dictionaries)
-    #     data_list = []
-
-    #     # Load all npz files into list
-    #     for file in npz_path_list:
-    #         with np.load(file) as data:
-    #             data_list.append({key: data[key] for key in data.files})
-
-    #             # Print number of detected peaks per file
-    #             con.log(f"# Peaks {file.name}: {data['peaks'].shape[0]}")
-
-    #             # Warning if number of channels is not 16
-    #             if data["channels"].shape[1] != 16:
-    #                 con.log(
-    #                     f"Warning: {file.name} has {data['channels'].shape[1]} channels, expected 16 channels."
-    #                 )
-
+    # Recursively find all .npz files in the directory and subdirectories
     elif datapath.is_dir():
-        con.log(f"Searching for .npz files in {datapath} and its subdirectories.")
-        # Recursively find all .npz files in the directory and subdirectories
         for file in datapath.rglob("*.npz"):
             with np.load(file) as data:
-                data_list.append({key: data[key] for key in data.files})
                 npz_path_list.append(file)
                 # Log number of detected peaks per file
                 con.log(f"# Peaks {file.name}: {data['peaks'].shape[0]}")
@@ -157,77 +201,176 @@ def load_peaks(datapath):
                         f"Warning: {file.name} has {data['channels'].shape[1]} channels, expected 16 channels."
                     )
     else:
-        raise FileNotFoundError(f"Path {datapath} is neither a file nor a directory.")
-
-    return data_list, npz_path_list
+        raise FileNotFoundError(
+            f"Path {datapath} is not a file, directory containing files or directory containing folders containing files."
+        )
+    return npz_path_list
 
 
 # Calculate how many peaks per time interval
 def peaks_over_time(
-    data: list,
-    sample_rate: int,
-    min_per_rec: int,
     bin_size: int,
+    datapath: Path,
+    file_paths: list,
 ):
     """
     Calculate number of peaks per minute.
     """
+    ###### TEST ######
+    # number of bins for 1 day, depending on bin size
+    num_bins = int(24 * 60 / bin_size)  # 24 hours * 60 minutes / bin size in minutes
 
-    # data points per minute (sample rate in Hz * 60 sec/min)
-    points_per_min = sample_rate * 60
+    # Initialize array to store number of peaks per bin
+    peaks_per_bin = np.full(num_bins, np.nan)
 
-    # calculate data points per bin
-    points_per_bin = points_per_min * bin_size
+    # Iterate over each npz file independently to load it
+    if datapath.is_file():
+        with np.load(datapath) as data:
+            # only use peaks that have been predicted as valid peaks
+            valid_peaks = data["peaks"][data["predicted_labels"] == 1]
 
-    # number of bins for all recordings
-    num_bins = math.ceil(len(data) * min_per_rec / bin_size)
+    # Recursively find all .npz files in the directory and subdirectories
+    elif datapath.is_dir():
+        for i, file in enumerate(datapath.rglob("*.npz")):
+            # TODO: make this into a function ?
+            with np.load(file) as data:
+                # extract sample rate
+                sample_rate = data["rate"]
 
-    # initialize structure to store number of peaks per minute
-    peaks_per_bin = np.zeros(num_bins)
+                ###
+                # get time of first and last file of recording
+                start_time, end_time = get_timestamps(file_paths)
 
-    # loop over dicts in data list
-    for i, file in enumerate(data):
-        # set offset for each file
-        offset = i * points_per_min * min_per_rec
-        # loop over all peaks in file
-        for peak in file["centers"]:  # TODO: adjust for single files
-            # assign peaks to minutes
-            global_peak_idx = int((peak + offset) // points_per_bin)
-            # add peak to corresponding minute
-            peaks_per_bin[global_peak_idx] += 1
+                ## Discard bins at start and end of rec where not whole length of bin is covered by data
+                # calculate the next bin time by rounding up to the nearest bin
+                next_bin_time = start_time + timedelta(
+                    minutes=bin_size - (start_time.minute % bin_size),
+                    seconds=-start_time.second,
+                )
+
+                # round down end time to the previous bin
+                prev_bin_time = end_time - timedelta(
+                    minutes=end_time.minute % bin_size, seconds=end_time.second
+                )
+
+                # calculate the difference in seconds
+                start_diff_seconds = (next_bin_time - start_time).total_seconds()
+                end_diff_seconds = (end_time - prev_bin_time).total_seconds()
+
+                # calculate how many indices to discard at start and end of each session(folder)
+                start_diff_idx = int(start_diff_seconds * sample_rate)
+                end_diff_idx = int(end_diff_seconds * sample_rate)
+
+                # get correct start bin for this file
+                if start_time.minute > 0:
+                    # round up to the next bin if not already on a bin
+                    start_bin = start_time.hour + 1
+                else:
+                    start_bin = start_time.hour
+
+                ###
+                # data points per minute (sample rate in Hz * 60 sec/min)
+                points_per_min = sample_rate * 60
+
+                # calculate data points per bin
+                points_per_bin = points_per_min * bin_size
+
+                ###
+                # only take peaks that have been predicted as valid peaks
+                valid_peaks = data["centers"][data["predicted_labels"] == 1]
+
+                # loop over all peaks in file
+                for peak in valid_peaks:
+                    if (i == 0 and peak <= start_diff_idx) or (
+                        i == -1 and peak >= end_diff_idx
+                    ):
+                        # discard peaks at start and end of rec where not whole length of bin is covered by data
+                        continue
+                    else:
+                        # assign peaks to bins
+                        global_peak_idx = int(peak // points_per_bin) + start_bin
+                        # add peak to corresponding bin
+                        peaks_per_bin[global_peak_idx] += 1
+
+    ###################################################################################
+
+    # --- old code, working ---
+    # # number of bins for all recordings
+    # num_bins = math.ceil(len(data) * min_per_rec / bin_size)
+
+    # # initialize structure to store number of peaks per minute
+    # peaks_per_bin = np.zeros(num_bins)
+
+    # # loop over dicts in data list
+    # for i, file in enumerate(data):
+    #     # data = np.load(file)
+    #     # valid_peaks = data["peaks"][data["predicted_labels"] == 1]
+
+    #     # extract sample rate and minutes per recording
+    #     sample_rate = file["rate"]
+    #     min_per_rec = file["minutes"]
+
+    #     # data points per minute (sample rate in Hz * 60 sec/min)
+    #     points_per_min = sample_rate * 60
+
+    #     # calculate data points per bin
+    #     points_per_bin = points_per_min * bin_size
+
+    #     # set offset for each file
+    #     offset = i * points_per_min * min_per_rec
+
+    #     # loop over all peaks in file
+    #     for peak in file["centers"]:
+    #         # assign peaks to minutes
+    #         global_peak_idx = int((peak + offset) // points_per_bin)
+    #         # add peak to corresponding minute
+    #         peaks_per_bin[global_peak_idx] += 1
+
     return peaks_per_bin
 
 
-# Extract time from filename
-def get_timestamp(npz_files):
-    # get last file name
+# Extract time from filename (TODO: doesn't work for sup folders with this logic !!)
+def get_timestamps(npz_files):
+    """
+    Get start and end time from the filenames of the first and last npz files in one recording directory.
+    """
+    # get first and last file names
     first_file = npz_files[0].name
+    last_file = npz_files[-1].name
+
     # get time stamp from file name
-    datetime_str = first_file.split("-")[1].split("_")[0]
+    datetime_str_start = first_file.split("-")[1].split("_")[0]
+    datetime_str_end = last_file.split("-")[1].split("_")[0]
+
     # convert to datetime object
-    start_time = datetime.strptime(datetime_str, "%Y%m%dT%H%M%S")
-    return start_time
+    dt_start = datetime.strptime(datetime_str_start, "%Y%m%dT%H%M%S")
+    dt_end = datetime.strptime(datetime_str_end, "%Y%m%dT%H%M%S")
+
+    return dt_start, dt_end
 
 
 # Plot histogram of number of peaks per time bin
-def plot_peaks_time(peaks, start_time, binsize):
+def plot_peaks_time(bin_peaks, start_time, binsize):
     """
     Plot histogram of number of peaks per time bin with actual time on x-axis.
     """
-    # Generate time labels for each minute bin
-    # time_labels = [start_time + timedelta(minutes=i) for i in range(len(peaks))]
-    time_labels = [
-        start_time + timedelta(minutes=i * binsize) for i in range(len(peaks))
-    ]
+    #### old code, working ####
+    # # Generate time labels for each minute bin
+    # time_labels = [
+    #     start_time + timedelta(minutes=i * binsize) for i in range(len(peaks))
+    # ]
+    # # Format as "HH:MM"
+    # time_labels_str = [time.strftime("%H:%M") for time in time_labels]
+    # ---
+    # Number of bins for 1 day, depending on bin size
+    # time_labels = list(range(0, 24 * 60, binsize)/60)
 
-    # Format as "HH:MM"
-    time_labels_str = [time.strftime("%H:%M") for time in time_labels]
-
+    # ---
     # Plot spike frequency over time
     fig, ax = plt.subplots()
     ax.bar(
-        list(range(len(peaks))),
-        peaks,
+        list(range(len(bin_peaks))),
+        bin_peaks,
         width=1,
         edgecolor="black",
         align="edge",
@@ -237,43 +380,31 @@ def plot_peaks_time(peaks, start_time, binsize):
     ax.set_ylabel("Number of Peaks")
 
     # Set x-ticks to actual time
-    ax.set_xticks(list(range(len(peaks))))
+    ax.set_xticks(list(range(len(bin_peaks))))
+    # embed()
     # Rotate for better readability
-    ax.set_xticklabels(time_labels_str, rotation=45, ha="right")
+    # ax.set_xticklabels(time_labels, rotation=45, ha="right")
 
     plt.tight_layout()
     plt.show()
 
 
 # %%
-### PLOTTING
-# Plot first peaks to visualize and verify app. good detection
-# fig, ax = plt.subplots()
-# for i in range(10):
-#     ax.plot(data["peaks"][i, :])
-
-# plt.show()
-
-# %%
 ### Main ###
-# set bin size in minutes
-binsize = 10
-# set sample rate (Hz)
-sample_rate = 48000
-# minutes per recording
-min_per_rec = 5
+# set bin size in minutes (TODO: prompt user to input number of minutes and only take value between 1 and 60)
+binsize = 60  # min
 
 # load data
-peak_data, file_paths = load_peaks(datapath)
-# wav_data, sample_rate, min_per_rec = load_wav(datapath)
-
-# calculate peaks per bin (insert binsize in minutes here)
-bin_peaks = peaks_over_time(peak_data, sample_rate, min_per_rec, binsize)
+file_paths = load_peaks(datapath)
+# min_per_rec = load_wav(datapath)
 
 # get start time from first file
-timestamp = get_timestamp(file_paths)
+start_time = get_timestamps(file_paths)
+
+# calculate peaks per bin (insert binsize in minutes here)
+bins = peaks_over_time(binsize, datapath, file_paths)
 
 # plot time histogram
-plot_peaks_time(bin_peaks, timestamp, binsize)
+plot_peaks_time(bins, start_time, binsize)
 
 # %%

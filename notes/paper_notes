@@ -175,6 +175,67 @@ Electric eels use high-voltage to track fast-moving prey - Catania 2015 (read on
 
 - mechanical things other than fish movement, like water splash alert eel as well
 
+
+##################################################################
+Electrochemical Capacitors with High Output Voltages that Mimic Electric Eels -  Sun 2016 (read on 23.04.25)
+
+- tries to solve problem of how to make energy efficient technology
+- especially for portables or wearables (flexible)
+- electrochemical capacitors
+- voltage problem: store max amount of voltage in small, flexible device, optimally waterproof
+- more batteries = bulky/heavy
+
+Eel approach:
+- thousands of electrocytes (small & flexible)
+- each electrocyte produces around 1.5V
+- electrocytes are arranged in series
+- all electrocytes add up to up to 600V
+
+Umsetzung:
+- fine, flexible fibre (500µm diameter)
+- wrapped fibre with multiwalled carbon nanotube (MWCNT) in 60° degree angle
+- in regelmäßigen abständen 0.2 cm gap, hier kein MWCNT sheet
+- coating gel electrolyte (conductive) everywhere but middle segment of MWCNT sheets
+- non coated MWCNT sheet acts as common electrode
+- gel coating creates electrodes (?) that are connected through non coated MWCNT -> linked in series
+- embedding PANI into MWCNT increased its specific capacitancen (70 wt% PANI)
+- PANI improved charge discharge stability and reduced series resistance -> app. 20x more energy storage
+- (the more units the more resistance)
+
+Results:
+- single unit capacitors pretty well controllable
+- discharge time increases linerarly with segment length i.e. unit number
+- good electrochemical stability at different bending and stretch and at higher voltages up to 10 V (?)
+- stretching improved capacitance
+- connecting multiple units for high voltage worked (5 units = 5 V)
+- 83% capacitance after 100.000 charge discharge cycles
+- 12m long fibre was able to store 1000V
+
+Application:
+- wove capacitor fibres into textiles (t shirt, wristwatch band)
+- weavable power source/storage/capacitor -> many applications
+- higher capacitance, stretchability, flexibility compared to other systems
+- doesn't rely on external power source
+- combined fibre with solar cell -> energy conversion rate of 6.2% (pretty decent for this tech)
+- 10V from 16 solar cells connected to same fibre
+- solar harvesting integrated into capacitor section -> shared MWCNT
+- fibre can now convert solar energy to electricity and store that electricity at high Voltage
+- one flexible, self-powered capacitor
+
+
+##################################################################
+MEMBRANE POTENTIALS IN THE ELECTROPLATES OF THE ELECTRIC EEL - Keynes 1952 (read on 24.04.25)
+
+- intracellular recordings from electrocytes of electric eels
+- 3 parts of electric organ: main organ, organ of sachs, hunters organ
+- resting electrical potential in organ of sachs: -85 mV (insicde more neg than outside)
+- shock is large reversed AP (inside neg to inside pos)
+- up to 150 mv pos inside
+- in resting phase net 0 V (inside and outside cancel out)
+-
+
+---------------------------------------------------
+QUESTIONS:
 What does the third electric organ do?
 How many eels used in this?
 
