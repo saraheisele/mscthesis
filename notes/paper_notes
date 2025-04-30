@@ -1,6 +1,5 @@
 ##################################################################
 The Astonishing behavior of electric eels - Catania 2019 (read on 19.03.2025)
-# maybe for journal club?
 
 - 2 EODs:
     high voltage - volleys for hunting, doubles for localization of prey
@@ -9,7 +8,7 @@ The Astonishing behavior of electric eels - Catania 2019 (read on 19.03.2025)
 
 Hunting:
 - high V bursts contract preys muscles and stun it so eel can catch it
-- high V doubles used to localize hiding prey, makes prey twitch involuntarily, folllowed by burst high V attack
+- high V doubles used to localize hiding prey, makes prey twitch involuntarily, followed by burst high V attack
 - eel can localize any conductor solely relying on EODs (experiment where eel strikes on graphite rod instead of plastic rods that it cant see)
 - dipole attack: to deliver stronger shock to prey, eel curls up to increase strength of electric field between head and tail (double voltage that prey feels)
 
@@ -25,7 +24,7 @@ Self defense:
 
 ##################################################################
 Social predation in electric eels - Bastos 2020 (read on 26.03.25)
-- elecrophoris voltai
+- elecrophorus voltai
 - high/low voltage output systems
 - eels work together to hunt (video !!)
 - prevailing understanding: hunt alone using high voltage charges in shallow waters
@@ -115,6 +114,8 @@ Electric Eels Concentrate Their Electric Field to Induce Involuntary Fatigue in 
 
 ##################################################################
 Electric eels use high-voltage to track fast-moving prey - Catania 2015 (read on 15.04.25)
+
+- 4 eels, electrophorus electricus
 
 - high voltage discharge is not just used to hunt but also sensory system
 - high voltage pulses used to track prey and hunt it
@@ -234,11 +235,50 @@ MEMBRANE POTENTIALS IN THE ELECTROPLATES OF THE ELECTRIC EEL - Keynes 1952 (read
 - in resting phase net 0 V (inside and outside cancel out)
 -
 
+
+##################################################################
+The shocking predatory strike of the electric eel - Catania 2014 (read on 29.04.25)
+
+- E. electricus
+- up to 600 V
+- 3 ms after high V volley prey fish is paralyzed
+
+mechanism of prey immobilisation:
+- pithed fish, so only peripheral nerve and muscle reaction can be measured
+- eel hunts worms
+- pithed fish seperated from eel with agar plate (seperated mechanically but not electrically)
+- 3-4 ms after first high V pulse fish contracted
+- fish contraction is equally strong to maximum twitch that could be elicited on purpose
+- electrically induced tetanus
+
+muscle or nerve immobilisation:
+- 2 fish next to each other behind agar barrier
+- one fish treated with curare, other got saline
+- fish w curare almost no muscle tension, other fish same amount as in prev experiments
+- eels shock acts on nervous system of prey, specifically motor neurons
+- high frequency and amplitude discharge very effective to immobilize
+
+- fish in plastic bag and behind agar (isolated from eel in all senses but mechanically)
+- if researcher makes fish twitch after doublet of eel; attack
+- same response if fish twitched without probing doublet
+- no attack if fish doesn't twitch after doublet
+
+
+################ SUMMARY CATANIA PAPERS ################
+- NEXT JOURNAL CLUB
+usual hunting strategy of eel:
+- probing environment with small V pulses
+- then high V doublet, to force prey to twitch (mechanosensory detection)
+- attack in direction of prey with high V volley
+- prey immobilized after 3 ms
+- if too big/tricky, eel concentrates electric field around it to put more force into paralyzing prey
+- high V volley also used to very precisely sense prey location and confirm that is prey (electrosensory feedback necessary for feeding attempt)
+
+
 ---------------------------------------------------
 QUESTIONS:
 What does the third electric organ do?
-How many eels used in this?
-
+how do they mate?
 
 
 

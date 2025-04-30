@@ -18,42 +18,48 @@ home/wrk/videosync/src/sync_video_2.py
 - 04.-08.08.: Urlaub
 
 ## TODO
-- [] weg finden um .avi files anzuschauen
-- [] get headphones to work with audian
-- [] record gnathostoma data
-- [] analyze eel data from berlin
-- [] mit Jan und Patrick reden was nächste Schritte für pulse detection sind und was meine Aufgaben sind, jan sagen dass wir einzelne grids bauen wollen die man dann modular zusammenstecken kann (16 kanal platinen)
-- [] sachen für Brasilien bestellen: 16 kanal platinen, schnüre, zipper
-- [] tetraeder so bauen dass er zusammenfaltbar ist wie grid (auf 40 cm kanten länge)
-- [] 5 aufnahme lines bauen
-- [] 10 grids
-- [] 10 tetraeder
-- [] 10 (?) gehäuse für logger
-- [] verstärker platinen fertig machen (löten)
-- [] neural networks einlesen
+- [ ] analyze eel data from berlin: timeline of overall peak frequency, individual differences of frequency and amplitude, correlation of peak freq with other eel interaction or external factors
+- [ ] videosync project: filter (sosfiltfilt), plot data of strongest channel below video, verify which pole is at which end of eel
+
+- [ ] get headphones to work with audian
+- [ ] record gnathostoma data - ask Jan
+- [ ] mit Jan und Patrick reden was nächste Schritte für pulse detection sind und was meine Aufgaben sind, jan sagen dass wir einzelne grids bauen wollen die man dann modular zusammenstecken kann (16 kanal platinen)
+- [ ] sachen für Brasilien bestellen: 16 kanal platinen, schnüre, zipper
+- [ ] tetraeder so bauen dass er zusammenfaltbar ist wie grid (auf 40 cm kanten länge)
+- [ ] 5 aufnahme lines bauen
+- [ ] 10 grids
+- [ ] 10 tetraeder
+- [ ] 10 (?) gehäuse für logger
+- [ ] verstärker platinen fertig machen (löten)
+- [ ] neural networks einlesen
+- [ ] Promos Daten für Brasilien schicken
+- [ ] Teufel Stiftung Antrag
+
+## DONE
+- [x] paper lesen
 - [x] grid kalibrieren
 - [x] audio und video files syncen
 - [x] hardware für berlin vorbereiten (beide grids connecten)  
+- [x] weg finden um .avi files anzuschauen
 
 ## Timeline
 # März
-- Einarbeitung
-- Paper lesen
-- Berlin Vorbereitungen
-- Audio video synchronisierung
+- Einarbeitung [x]
+- Paper lesen [x]
+- Berlin Vorbereitungen [x]
+- Audio video synchronisierung [x]
 
 # April
-- Berlin besuch, grid daten aufnehmen mit aalen
-- Paper fertig lesen
-- An pulse detection projekt arbeiten
-- Berlin aal daten analysieren
-- Promos Daten für Brasilien schicken     
+- Berlin besuch, grid daten aufnehmen mit aalen [x]
+- Paper fertig lesen [x]
+- An pulse detection projekt arbeiten (patrick) [x]
+- Aal aktivität über Zeit plotten [x]
 
 # Mai
 - Hardware für Brasilien vorbereiten
 - An pulse detection projekt arbeiten
-- Berlin aal daten analysieren
-- Intro und MatMet schreiben anfangen
+- Berlin aal daten analysieren (amplitude, individuelle unterschiede,..)
+- Intro und MatMet schreiben anfangen (?)
 
 # Juni
 - Hardware für Brasilien vorbereiten
