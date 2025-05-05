@@ -14,7 +14,7 @@ peak_data contains as many entries/dicts as there are .npz files in the folder.
 This script calculates the number of detected peaks per minute/hour and plots the result as histogram.
 """
 
-# TODO: make code work for sup folders and single files
+# TODO: make code work for single files
 # TODO: modularize code
 # TODO: make main function
 # TODO: account for amount of recordings that contribute to each bin ?
@@ -42,6 +42,14 @@ This script calculates the number of detected peaks per minute/hour and plots th
 # fixed mistakes
 # started implementing session function in peaks over time
 
+# Monday
+# implemented session function in peaks over time, iterating over sessions instead of all paths now
+# new implementations works for sup folders
+# skip files if filename doesnt start with eellogger
+# initiated offset and start idx variables to count up peak idx and assign correctly to subsequent bins (within and across recordings)
+
+# next: make it work for no file (check with wav files if there should be a file)/empty npz file
+
 # %%
 from rich.console import Console
 from pathlib import Path
@@ -62,13 +70,13 @@ con = Console()
 #     "/home/eisele/wrk/mscthesis/data/raw/eellogger_example_data_peaks/recordings2025-03-06/eellogger1-20250306T101402_peaks.npz"
 # )
 
-# Path to folder
-datapath = Path(
-    "/home/eisele/wrk/mscthesis/data/raw/eellogger_example_data_peaks/recordings2025-03-06/"
-)
+# # Path to folder
+# datapath = Path(
+#     "/home/eisele/wrk/mscthesis/data/raw/eellogger_example_data_peaks/recordings2025-03-06/"
+# )
 
-## Path to sup folder (TODO: check if it works)
-# datapath = Path("/home/eisele/wrk/mscthesis/data/raw/eellogger_example_data_peaks/")
+# Path to sup folder
+datapath = Path("/home/eisele/wrk/mscthesis/data/raw/eellogger_example_data_peaks/")
 
 
 # %%
@@ -81,55 +89,65 @@ def load_wav(datapath):
     # Print status
     con.log("Loading wav files")
 
+    # Initiaize list to store file paths globally
+    # wav_path_list = []
+
     if datapath.is_file():
-        # Get the filename from the npz file
-        filename = str(datapath.name).split("_")[0] + ".wav"
+        # check if file starts with eellogger # TODO: necessary here?
+        if datapath.name.startswith("eellogger") and datapath.suffix == ".npz":
+            # Get the filename from the npz file
+            filename = str(datapath.name).split("_")[0] + ".wav"
 
-        # Get the parent directory of the npz file
-        parent = "_".join(str(datapath.parent.parent).split("_")[:-1])
+            # Get the parent directory of the npz file
+            parent = "_".join(str(datapath.parent.parent).split("_")[:-1])
 
-        # Construct the path to the wav file
-        wavpath = Path(
-            datapath.parent.parent.parent / parent / datapath.parent.name / filename
-        )
+            # Construct the path to the wav file
+            wavpath = Path(
+                datapath.parent.parent.parent / parent / datapath.parent.name / filename
+            )
 
-        # Load the wav file
-        audio_data = AudioLoader(wavpath)
+            # Load the wav file
+            audio_data = AudioLoader(wavpath)
+
+            # add path to list for consistency with directory case
+            wav_path_list = [wavpath]
 
     elif datapath.is_dir():
-        # # Construct path to folder that contains wav files # check that this works for normal dir
-        # new_path_name = "_".join(str(datapath.name).split("_")[:-1])
-        # wavpath = Path(datapath.parent / new_path_name)
+        # Construct path to sup folder TODO: change this so not necessary to hardcode if its a sup/normal directory
+        new_path_name = "_".join(str(datapath.name).split("_")[:-1])
+        wavpath = Path(datapath.parent / new_path_name)
 
-        # For normal directory (TEST)
-        parent = "_".join(str(datapath.parent).split("_")[:-1])
-        wavpath = Path(datapath.parent.parent / parent / datapath.name)
+        # # Construct path to normal directory
+        # parent = "_".join(str(datapath.parent).split("_")[:-1])
+        # wavpath = Path(datapath.parent.parent / parent / datapath.name)
 
         # Get all wav files of directoy/supdirectory and store them alphabetically in a list
-        wavfiles = sorted(list(wavpath.rglob("*.wav")))
+        wav_path_list = sorted(list(wavpath.rglob("*.wav")))
 
         # Initialize emtpy list to store number of minutes for each recording
         minutes_list = []
 
-        for i, wav in enumerate(wavfiles):
-            # Load each wav file
-            audio_data = AudioLoader(wav)
+        for i, wav in enumerate(wav_path_list):
+            # check if wav file starts with eellogger
+            if wav.name.startswith("eellogger"):
+                # Load each wav file
+                audio_data = AudioLoader(wav)
 
-            # Get sampling rate for this wav file
-            fs = audio_data.rate
+                # Get sampling rate for this wav file
+                fs = audio_data.rate
 
-            # Get number of minutes per recording for this wav file
-            samples_per_rec = audio_data.shape[0]
-            minutes_rec = samples_per_rec / fs / 60
+                # Get number of minutes per recording for this wav file
+                samples_per_rec = audio_data.shape[0]
+                minutes_rec = samples_per_rec / fs / 60
 
-            # # Store in peak_data (TODO: Adjust this!!)
-            # npz_data[i]["minutes"] = minutes_rec
+                # # Store in peak_data
+                # npz_data[i]["minutes"] = minutes_rec
 
-            ### Test ###
-            # save all minutes_rec in a list
-            minutes_list.append(minutes_rec)
+                ### Test ###
+                # save all minutes_rec in a list
+                minutes_list.append(minutes_rec)
 
-    return minutes_rec
+    return minutes_rec, wav_path_list
 
 
 # Load npz files
@@ -150,42 +168,63 @@ def load_peaks(datapath):
     # Check if the path is a directory, a file or a directory containing files
     if datapath.is_file():
         # Check if the file is an npz file
-        if datapath.suffix == ".npz":
+        if datapath.suffix == ".npz" and datapath.name.startswith("eellogger"):
             con.log(f"Path {datapath} is a single npz file.")
-            # Load file
-            with np.load(datapath) as data:
-                # Store objects in list for consistency with directory case
-                npz_path_list = npz_path_list.append(datapath)
+            # Store objects in list for consistency with directory case
+            npz_path_list.append(datapath)
         else:
             raise FileNotFoundError(f"File {datapath} is not an npz file.")
 
     # Recursively find all .npz files in the directory and subdirectories
     elif datapath.is_dir():
         for file in datapath.rglob("*.npz"):
-            with np.load(file) as data:
+            # skip files that don't start with eellogger (wrong recording format)
+            if file.name.startswith("eellogger"):
                 npz_path_list.append(file)
-                # Log number of detected peaks per file
-                con.log(f"# Peaks {file.name}: {data['peaks'].shape[0]}")
-                # Warning if number of channels is not 16
-                if data["channels"].shape[1] != 16:
-                    con.log(
-                        f"Warning: {file.name} has {data['channels'].shape[1]} channels, expected 16 channels."
-                    )
+                with np.load(file) as data:  # TODO: necessary?
+                    # Warning if number of channels is not 16
+                    if data["channels"].shape[1] != 16:
+                        con.log(
+                            f"Warning: {file.name} has {data['channels'].shape[1]} channels, expected 16 channels."
+                        )
+
     else:
         raise FileNotFoundError(
             f"Path {datapath} is not a file, directory containing files or directory containing folders containing files."
         )
+
     return sorted(npz_path_list)
+
+
+# Construction####################
+def faulty_files(wav_path_list, npz_path_list, sessions):
+    """
+    Check if there are any faulty files in the given lists of wav and npz files.
+    """
+    # Check if the number of wav and npz files is equal TODO: necessary?
+    if len(wav_path_list) != len(npz_path_list):
+        # Check if the wav and npz files have the same names
+        for i, (wav_file, npz_file) in enumerate(zip(wav_path_list, npz_path_list)):
+            if (
+                wav_file.name != npz_file.name
+            ):  # change condition to if no npz file with wav file name or npz file with wav file name is emtpy
+                con.log(
+                    f"Warning: Wav file {wav_file.name} does not match npz file {npz_file.name}."
+                )
+                # Insert NaN in place of the faulty npz file TODO: insert this into correct place in sessions
+                npz_path_list[i] = np.nan
+
+    return npz_path_list
+
+
+# Construction####################
 
 
 # %%
 # Calculate how many peaks per time interval
 def peaks_over_time(
     bin_size: int,
-    datapath: Path,
-    paths: dict,  # TODO: make that it works for dict
-    # TODO: iterate over sessions in peaks_over_time
-    # TODO: calculate end time +5 min??
+    paths: dict,
 ):
     """
     Calculate number of peaks per minute.
@@ -196,23 +235,17 @@ def peaks_over_time(
     # Initialize array to store number of peaks per bin
     peaks_per_bin = np.zeros(num_bins)
 
-    # get time of first and last file of recording
-    start_time, end_time = get_timestamps(paths)
+    # Iterate over each rec session in the dictionary
+    for key, file_list in paths.items():
+        # get time of first and last timestamps of recording session
+        start_time, end_time = get_timestamps(file_list)
 
-    # calculate start and end bin (TODO: dont hardcode)
-    start_bin = start_time.hour
-    end_bin = end_time.hour
+        # calculate start and end bin (TODO: dont hardcode)
+        start_bin = start_time.hour
+        end_bin = end_time.hour
 
-    # Iterate over each npz file independently to load it
-    if datapath.is_file():
-        with np.load(datapath) as data:
-            # only use peaks that have been predicted as valid peaks
-            valid_peaks = data["peaks"][data["predicted_labels"] == 1]
-            # TODO: insert function from below
-
-    # Recursively find all .npz files in the directory and subdirectories
-    elif datapath.is_dir():
-        for file in datapath.rglob("*.npz"):
+        # iterate over each filepath in the session
+        for i, file in enumerate(file_list):
             # TODO: make this into a function
             with np.load(file) as data:
                 # only take peaks that have been predicted as valid peaks
@@ -229,7 +262,7 @@ def peaks_over_time(
 
                 # case that start and end of a recording session are in the same hour
                 if start_time.hour == end_time.hour:
-                    # calculate the difference of start and end time in seconds
+                    # calculate the t_diff of start and end time in seconds
                     diff_seconds = timedelta(
                         minutes=end_time.minute - start_time.minute,
                         seconds=end_time.second - start_time.second,
@@ -250,7 +283,7 @@ def peaks_over_time(
 
                 # case that start and end of a recording session are in different hours
                 else:
-                    # calculate the difference to next/last bin in seconds
+                    # calculate the t_diff to next/last bin in seconds
                     start_diff_seconds = timedelta(
                         minutes=bin_size - (start_time.minute % bin_size),
                         seconds=-start_time.second,
@@ -267,10 +300,20 @@ def peaks_over_time(
                     start_diff_percent = start_diff_idx / idx_per_bin
                     end_diff_percent = end_diff_idx / idx_per_bin
 
+                    # calculate offset to account for length of recorddings
+                    min_per_rec = int(5)  # TODO: dont hardcode this
+                    offset = i * idx_per_min * min_per_rec
+
+                    # calculate at which idx of start bin this recording starts
+                    start_idx = idx_per_bin - start_diff_idx
+
                     # loop over all peaks in file
                     for peak in valid_peaks:
                         # assign peaks to bins
-                        global_peak_idx = int(peak // idx_per_bin) + start_bin
+                        global_peak_idx = (
+                            int((start_idx + offset + peak) // idx_per_bin) + start_bin
+                        )
+
                         # check if bin is at start or end of recording session, add correct number of peaks to bins
                         if global_peak_idx == start_bin:
                             peaks_per_bin[global_peak_idx] += start_diff_percent
@@ -284,38 +327,40 @@ def peaks_over_time(
 
 def check_sessions(
     file_paths: list,
-    max_difference: int = 6,  # min
 ):
     """
     Check if recordings are subsequent and store seperate recording sessions in a dictionary.
-    """
     # TODO: implement to check for missing files but not new rec session
+    """
+    # accepted time difference and tolerance between two files
+    t_diff = timedelta(minutes=5)
+    tolerance = timedelta(seconds=1)
+
     # extract timestamps from filepaths
     dt_list = []
     rec_sessions = {}
+
     for i, path in enumerate(file_paths):
+        # get time stamp from file name
         time_stamp = path.name.split("-")[1].split("_")[0]
+        # convert it to datetime object
         dt = datetime.strptime(time_stamp, "%Y%m%dT%H%M%S")
 
         # append dict for first session
         if i == 0:
             rec_sessions[f"rec session {i}"] = []
-            dt_list.append(dt.minute)
 
-        # check if time stamps are consecutive
-        if i > 0:
-            # access last saved time stamp of current session to check if current time is subsequent
-            if dt.minute > (dt_list[-1] + max_difference):
-                rec_sessions[f"rec session {len(rec_sessions)}"] = []
+        # check if next file is not subsequent to last file
+        elif i > 0 and abs((dt - dt_list[-1]) - t_diff) > tolerance:
+            # create new session
+            rec_sessions[f"rec session {len(rec_sessions)}"] = []
 
-            # add curent time stamp to list
-            dt_list.append(
-                dt.minute
-            )  # maybe this works in for loop lvl instead this level?
+        # add curent time stamp to list
+        dt_list.append(dt)
 
         # append path to last session
         last_key = list(rec_sessions.keys())[-1]
-        rec_sessions[last_key].append(path)  # TODO: check if this works
+        rec_sessions[last_key].append(path)
 
     return rec_sessions
 
@@ -323,44 +368,21 @@ def check_sessions(
 # Extract time from filename
 def get_timestamps(npz_files):
     """
-    Get start and end time from the filenames of the first and last npz files in one recording session (entry in dict).
-    Stores start and end time of each session in a dict with the same keys.
+    Get start and end time from the filenames of the first and last npz files in one recording session.
     """
-    # old code, working
-    # # get first and last file names
-    # first_file = npz_files[0].name
-    # last_file = npz_files[-1].name
+    # get first and last file names
+    first_file = npz_files[0].name
+    last_file = npz_files[-1].name
 
-    # # get time stamp from file name
-    # datetime_str_start = first_file.split("-")[1].split("_")[0]
-    # datetime_str_end = last_file.split("-")[1].split("_")[0]
+    # get time stamp from file name
+    datetime_str_start = first_file.split("-")[1].split("_")[0]
+    datetime_str_end = last_file.split("-")[1].split("_")[0]
 
-    # # convert to datetime object
-    # dt_start = datetime.strptime(datetime_str_start, "%Y%m%dT%H%M%S")
-    # dt_end = datetime.strptime(datetime_str_end, "%Y%m%dT%H%M%S")
+    # convert to datetime object
+    dt_start = datetime.strptime(datetime_str_start, "%Y%m%dT%H%M%S")
+    dt_end = datetime.strptime(datetime_str_end, "%Y%m%dT%H%M%S")
 
-    # ----
-    # create dict to store timestamps of each session
-    time_stamps = {}
-
-    # Iterate over each key in the dictionary
-    for key, file_list in npz_files.items():
-        # Get first and last file names in the current session
-        first_file = file_list[0].name
-        last_file = file_list[-1].name
-
-        # Extract timestamps from file names
-        datetime_str_start = first_file.split("-")[1].split("_")[0]
-        datetime_str_end = last_file.split("-")[1].split("_")[0]
-
-        # Convert to datetime objects
-        dt_start = datetime.strptime(datetime_str_start, "%Y%m%dT%H%M%S")
-        dt_end = datetime.strptime(datetime_str_end, "%Y%m%dT%H%M%S")
-
-        # store start and end time per session as tuple in dict
-        time_stamps[key] = dt_start, dt_end
-
-    return time_stamps
+    return dt_start, dt_end
 
 
 # Plot histogram of number of peaks per time bin
@@ -368,6 +390,7 @@ def plot_peaks_time(bin_peaks, binsize):
     """
     Plot histogram of number of peaks per time bin with actual time on x-axis.
     """
+    con.log("Plotting histogram")
     #### old code, working #### TODO: dont hardcode x ticks
     # # Generate time labels for each minute bin
     # time_labels = [
@@ -408,13 +431,17 @@ def plot_peaks_time(bin_peaks, binsize):
 binsize = 60  # min
 
 # load data
-file_paths = load_peaks(datapath)
+_, wav_paths = load_wav(datapath)
+npz_paths = load_peaks(datapath)
 
 # sort file paths into recording sessions
-session_paths = check_sessions(file_paths)
+session_paths = check_sessions(npz_paths)
+
+# faulty files function
+new_session_paths = faulty_files(wav_paths, npz_paths, session_paths)
 
 # calculate peaks per bin (TODO: insert binsize in minutes as variable here ?)
-bins = peaks_over_time(binsize, datapath, session_paths)
+bins = peaks_over_time(binsize, new_session_paths)
 
 # plot time histogram
 plot_peaks_time(bins, binsize)
