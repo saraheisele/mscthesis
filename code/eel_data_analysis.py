@@ -17,10 +17,9 @@ This script calculates the number of detected peaks per minute/hour and plots th
 # TODO: make code work for single files
 # TODO: modularize code
 # TODO: make main function
-# TODO: account for amount of recordings that contribute to each bin ?
-# TODO: implement case that there are no peaks detected (no file created or empty file)
+# TODO: account for amount of recordings that contribute to each bin (determine certainty)
 
-# TODO: plot amplitude over time?/for individuals?
+# TODO: plot amplitude over time?/for individuals? maybe with grid data - put into long term todos
 
 
 # DONE:
@@ -48,7 +47,17 @@ This script calculates the number of detected peaks per minute/hour and plots th
 # skip files if filename doesnt start with eellogger
 # initiated offset and start idx variables to count up peak idx and assign correctly to subsequent bins (within and across recordings)
 
-# next: make it work for no file (check with wav files if there should be a file)/empty npz file
+# Tuesday:
+# finished function that checks for faulty files
+# implemented faulty_files functionj in check_sessions function
+# wrote function to trim nans if they are at edges of list
+# make it work for no file (check with wav files if there should be a file)/empty npz file
+
+# Wednesday:
+# next: check current code version
+# next: make it work for single files
+# next: do all todos in code
+# next: try on big dataset
 
 # %%
 from rich.console import Console
@@ -196,28 +205,186 @@ def load_peaks(datapath):
     return sorted(npz_path_list)
 
 
-# Construction####################
-def faulty_files(wav_path_list, npz_path_list, sessions):
+def faulty_files(wav_path_list, npz_path_list):
     """
-    Check if there are any faulty files in the given lists of wav and npz files.
+    Check if there are any missing or empty files in the given lists of wav and npz files.
     """
-    # Check if the number of wav and npz files is equal TODO: necessary?
-    if len(wav_path_list) != len(npz_path_list):
-        # Check if the wav and npz files have the same names
-        for i, (wav_file, npz_file) in enumerate(zip(wav_path_list, npz_path_list)):
-            if (
-                wav_file.name != npz_file.name
-            ):  # change condition to if no npz file with wav file name or npz file with wav file name is emtpy
+    ## check if the wav and npz files have the same names, i.e. if npz file exists for each wav file
+    for i, (wav_file, npz_file) in enumerate(zip(wav_path_list, npz_path_list)):
+        if wav_file.name != npz_file.name:
+            con.log(f"Warning: No npz file that matches wav file {wav_file.name}!")
+            # insert NaN in place of missing npz file
+            npz_path_list.insert(i, np.nan)
+
+        ## check if existing npz file is empty
+        # check for file size
+        elif Path(npz_file).stat().st_size == 0:
+            con.log(f"Warning: npz file {npz_file.name} is empty!")
+            # insert NaN in place of empty npz file
+            npz_path_list[i] = np.nan
+
+        # if file size isnt zero, check if npz file contains npy files (dict keys)
+        else:
+            try:
+                with np.load(npz_file) as data:
+                    if len(data.files) == 0:
+                        con.log(f"Warning: npz file {npz_file.name} contains no keys!")
+                        # insert NaN in place of empty npz file
+                        npz_path_list[i] = np.nan
+
+                    # if keys exist, check if keys are empty
+                    else:
+                        for key in data.files:
+                            if data[key].size == 0:
+                                con.log(
+                                    f"Warning: npz file {npz_file.name} contains empty key {key}!"
+                                )
+                                # insert NaN in place of empty npz file
+                                npz_path_list[i] = np.nan
+            except Exception as e:
                 con.log(
-                    f"Warning: Wav file {wav_file.name} does not match npz file {npz_file.name}."
+                    f"Warning: npz file {npz_file.name} could not be loaded! Error: {e}"
                 )
-                # Insert NaN in place of the faulty npz file TODO: insert this into correct place in sessions
+                # insert NaN in place of empty npz file
                 npz_path_list[i] = np.nan
 
     return npz_path_list
 
 
-# Construction####################
+def remove_nans_at_edges(input_list):
+    """
+    Remove NaN values only at the start and end of a list.
+    """
+    # Convert the list to a NumPy array for easier manipulation
+    array = np.array(input_list)
+
+    # Find the indices of non-NaN values
+    non_nan_indices = np.where(~np.isnan(array))[0]
+
+    # If there are no non-NaN values, return an empty list
+    if len(non_nan_indices) == 0:
+        return []
+
+    # Get the start and end indices of the non-NaN values
+    start_idx = non_nan_indices[0]
+    end_idx = non_nan_indices[-1]
+
+    # Slice the array to include only the range between the first and last non-NaN values
+    trimmed_array = array[start_idx : end_idx + 1]
+
+    # Convert back to a list and return
+    return trimmed_array.tolist()
+
+
+def check_sessions(
+    file_paths: list,
+):
+    """
+    Check if recordings are subsequent and store seperate recording sessions in a dictionary.
+    """
+    # # old code, working ##
+    # # accepted time difference and tolerance between two files
+    # t_diff = timedelta(minutes=5)
+    # tolerance = timedelta(seconds=1)
+
+    # # extract timestamps from filepaths
+    # dt_list = []
+    # rec_sessions = {}
+
+    # for i, path in enumerate(file_paths):
+    #     # get time stamp from file name
+    #     time_stamp = path.name.split("-")[1].split("_")[0]
+    #     # convert it to datetime object
+    #     dt = datetime.strptime(time_stamp, "%Y%m%dT%H%M%S")
+
+    #     # append dict for first session
+    #     if i == 0:
+    #         rec_sessions[f"rec session {i}"] = []
+
+    #     # check if next file is not subsequent to last file
+    #     elif i > 0 and abs((dt - dt_list[-1]) - t_diff) > tolerance:
+    #         # create new session
+    #         rec_sessions[f"rec session {len(rec_sessions)}"] = []
+
+    #     # add curent time stamp to list
+    #     dt_list.append(dt)
+
+    #     # append path to last session
+    #     last_key = list(rec_sessions.keys())[-1]
+    #     rec_sessions[last_key].append(path)
+
+    #### TODO: TEST this ####
+    # store timestamps
+    dt_list = []
+
+    # first iterate over all filepaths to extract timestamps to list
+    for path in file_paths:
+        # check for corrupted files and indicate those by inserting nan into dt list
+        if path == np.nan:
+            dt_list.append(np.nan)
+        else:
+            # get time stamp from file name
+            time_stamp = path.name.split("-")[1].split("_")[0]
+            # convert it to datetime object
+            dt = datetime.strptime(time_stamp, "%Y%m%dT%H%M%S")
+            # add curent time stamp to list
+            dt_list.append(dt)
+
+    # accepted time difference and tolerance between two files
+    t_diff = timedelta(minutes=5)
+    tolerance = timedelta(seconds=1)
+
+    # dict to store recording sessions
+    rec_sessions = {}
+
+    for i, path in enumerate(file_paths):
+        # check if next file is not subsequent to last file; nan is not within current session
+        if (
+            np.isnan(path)
+            and abs((dt_list[i + 1] - dt_list[i - 1]) - t_diff * 2) > tolerance
+        ):
+            # TODO: ask if its ok to skip/ignore nans at session edges
+            # create new session
+            rec_sessions[f"rec session {len(rec_sessions)}"] = []
+            # skip rest of loop, dont add nan to dict
+            continue
+
+        # append dict for first session
+        elif i == 0:
+            rec_sessions[f"rec session {i}"] = []
+
+        # check if next file is not subsequent to last file
+        elif i > 0 and abs((dt_list[i] - dt_list[i - 1]) - t_diff) > tolerance:
+            # create new session
+            rec_sessions[f"rec session {len(rec_sessions)}"] = []
+
+        # append path to last session
+        last_key = list(rec_sessions.keys())[-1]
+        rec_sessions[last_key].append(path)
+
+        ##################
+
+    return rec_sessions
+
+
+# Extract time from filename
+def get_timestamps(npz_files):
+    """
+    Get start and end time from the filenames of the first and last npz files in one recording session.
+    """
+    # get first and last file names
+    first_file = npz_files[0].name
+    last_file = npz_files[-1].name
+
+    # get time stamp from file name
+    datetime_str_start = first_file.split("-")[1].split("_")[0]
+    datetime_str_end = last_file.split("-")[1].split("_")[0]
+
+    # convert to datetime object
+    dt_start = datetime.strptime(datetime_str_start, "%Y%m%dT%H%M%S")
+    dt_end = datetime.strptime(datetime_str_end, "%Y%m%dT%H%M%S")
+
+    return dt_start, dt_end
 
 
 # %%
@@ -261,8 +428,10 @@ def peaks_over_time(
                 idx_per_bin = idx_per_min * bin_size
 
                 # case that start and end of a recording session are in the same hour
+                # TODO: implement missing/empty files within rec sessions
+                # TODO: dont harcode start and end bin
                 if start_time.hour == end_time.hour:
-                    # calculate the t_diff of start and end time in seconds
+                    # calculate the time difference of start and end time in seconds
                     diff_seconds = timedelta(
                         minutes=end_time.minute - start_time.minute,
                         seconds=end_time.second - start_time.second,
@@ -283,7 +452,7 @@ def peaks_over_time(
 
                 # case that start and end of a recording session are in different hours
                 else:
-                    # calculate the t_diff to next/last bin in seconds
+                    # calculate the time difference to next/last bin in seconds
                     start_diff_seconds = timedelta(
                         minutes=bin_size - (start_time.minute % bin_size),
                         seconds=-start_time.second,
@@ -292,15 +461,15 @@ def peaks_over_time(
                         minutes=end_time.minute % bin_size, seconds=end_time.second
                     ).total_seconds()
 
-                    # calculate how many indices to discard at start and end of each session(folder)
+                    # calculate how many indices at start and end of each session
                     start_diff_idx = int(start_diff_seconds * sample_rate)
                     end_diff_idx = int(end_diff_seconds * sample_rate)
 
-                    # calculate the percentage of start_diff_idx relative to points_per_bin
+                    # calculate the percentage of start_diff_idx relative to points_per_bin (in decimals)
                     start_diff_percent = start_diff_idx / idx_per_bin
                     end_diff_percent = end_diff_idx / idx_per_bin
 
-                    # calculate offset to account for length of recorddings
+                    # calculate offset to account for length of recordings
                     min_per_rec = int(5)  # TODO: dont hardcode this
                     offset = i * idx_per_min * min_per_rec
 
@@ -323,66 +492,6 @@ def peaks_over_time(
                             peaks_per_bin[global_peak_idx] += 1
 
     return peaks_per_bin
-
-
-def check_sessions(
-    file_paths: list,
-):
-    """
-    Check if recordings are subsequent and store seperate recording sessions in a dictionary.
-    # TODO: implement to check for missing files but not new rec session
-    """
-    # accepted time difference and tolerance between two files
-    t_diff = timedelta(minutes=5)
-    tolerance = timedelta(seconds=1)
-
-    # extract timestamps from filepaths
-    dt_list = []
-    rec_sessions = {}
-
-    for i, path in enumerate(file_paths):
-        # get time stamp from file name
-        time_stamp = path.name.split("-")[1].split("_")[0]
-        # convert it to datetime object
-        dt = datetime.strptime(time_stamp, "%Y%m%dT%H%M%S")
-
-        # append dict for first session
-        if i == 0:
-            rec_sessions[f"rec session {i}"] = []
-
-        # check if next file is not subsequent to last file
-        elif i > 0 and abs((dt - dt_list[-1]) - t_diff) > tolerance:
-            # create new session
-            rec_sessions[f"rec session {len(rec_sessions)}"] = []
-
-        # add curent time stamp to list
-        dt_list.append(dt)
-
-        # append path to last session
-        last_key = list(rec_sessions.keys())[-1]
-        rec_sessions[last_key].append(path)
-
-    return rec_sessions
-
-
-# Extract time from filename
-def get_timestamps(npz_files):
-    """
-    Get start and end time from the filenames of the first and last npz files in one recording session.
-    """
-    # get first and last file names
-    first_file = npz_files[0].name
-    last_file = npz_files[-1].name
-
-    # get time stamp from file name
-    datetime_str_start = first_file.split("-")[1].split("_")[0]
-    datetime_str_end = last_file.split("-")[1].split("_")[0]
-
-    # convert to datetime object
-    dt_start = datetime.strptime(datetime_str_start, "%Y%m%dT%H%M%S")
-    dt_end = datetime.strptime(datetime_str_end, "%Y%m%dT%H%M%S")
-
-    return dt_start, dt_end
 
 
 # Plot histogram of number of peaks per time bin
@@ -434,14 +543,17 @@ binsize = 60  # min
 _, wav_paths = load_wav(datapath)
 npz_paths = load_peaks(datapath)
 
-# sort file paths into recording sessions
-session_paths = check_sessions(npz_paths)
-
 # faulty files function
-new_session_paths = faulty_files(wav_paths, npz_paths, session_paths)
+npz_paths_new = faulty_files(wav_paths, npz_paths)
+
+# remove nans at edges of path list
+file_paths = remove_nans_at_edges(npz_paths_new)
+
+# sort file paths into recording sessions
+session_paths = check_sessions(file_paths)
 
 # calculate peaks per bin (TODO: insert binsize in minutes as variable here ?)
-bins = peaks_over_time(binsize, new_session_paths)
+bins = peaks_over_time(binsize, session_paths)
 
 # plot time histogram
 plot_peaks_time(bins, binsize)
