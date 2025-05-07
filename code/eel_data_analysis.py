@@ -15,11 +15,9 @@ This script calculates the number of detected peaks per minute/hour and plots th
 """
 
 # TODO: make code work for single files
-# TODO: modularize code
+# TODO: modularize and improve code
 # TODO: make main function
 # TODO: account for amount of recordings that contribute to each bin (determine certainty)
-
-# TODO: plot amplitude over time?/for individuals? maybe with grid data - put into long term todos
 
 
 # DONE:
@@ -54,10 +52,27 @@ This script calculates the number of detected peaks per minute/hour and plots th
 # make it work for no file (check with wav files if there should be a file)/empty npz file
 
 # Wednesday:
-# next: check current code version
-# next: make it work for single files
-# next: do all todos in code
-# next: try on big dataset
+# implement faulty files in peaks_per_bin
+# soft coded start and end bin
+# initiated global variables
+# changed logic for files that are present but no peaks detected (not treated as faulty files anymore)
+# peaks_per_bin checks now if there are any valid peaks in the file
+# check current code version
+# try on big dataset
+
+# Thursday:
+# ask/check why so many empty wav files
+# fix stem of wav files! no wav files of single channels,...
+# instate in very beginning that files that dont start with eellogger (also eelgrid) are skipped
+# this error message:
+# Traceback (most recent call last):
+#   File "/home/eisele/wrk/mscthesis/code/eel_data_analysis.py", line 622, in <module>
+#     # sort file paths into recording sessions
+#                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+#   File "/home/eisele/wrk/mscthesis/code/eel_data_analysis.py", line 316, in check_sessions
+#     path is None
+#              ^^^^
+# TypeError: unsupported operand type(s) for -: 'NoneType' and 'datetime.datetime'
 
 # %%
 from rich.console import Console
@@ -66,7 +81,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 from audioio.audioloader import AudioLoader
-# from IPython import embed
+from IPython import embed
 
 # Initialize console for logging
 con = Console()
@@ -85,7 +100,7 @@ con = Console()
 # )
 
 # Path to sup folder
-datapath = Path("/home/eisele/wrk/mscthesis/data/raw/eellogger_example_data_peaks/")
+datapath = Path("/mnt/data1/eels-mfn2021_peaks/")
 
 
 # %%
@@ -98,7 +113,7 @@ def load_wav(datapath):
     # Print status
     con.log("Loading wav files")
 
-    # Initiaize list to store file paths globally
+    # Initialize list to store file paths globally
     # wav_path_list = []
 
     if datapath.is_file():
@@ -139,9 +154,12 @@ def load_wav(datapath):
         for i, wav in enumerate(wav_path_list):
             # check if wav file starts with eellogger
             if wav.name.startswith("eellogger"):
-                # Load each wav file
-                audio_data = AudioLoader(wav)
-
+                try:
+                    # Load each wav file
+                    audio_data = AudioLoader(wav)
+                except Exception as e:
+                    con.log(f"Error loading: {e}")
+                    continue
                 # Get sampling rate for this wav file
                 fs = audio_data.rate
 
@@ -189,13 +207,17 @@ def load_peaks(datapath):
         for file in datapath.rglob("*.npz"):
             # skip files that don't start with eellogger (wrong recording format)
             if file.name.startswith("eellogger"):
-                npz_path_list.append(file)
-                with np.load(file) as data:  # TODO: necessary?
-                    # Warning if number of channels is not 16
-                    if data["channels"].shape[1] != 16:
-                        con.log(
-                            f"Warning: {file.name} has {data['channels'].shape[1]} channels, expected 16 channels."
-                        )
+                try:
+                    npz_path_list.append(file)
+                    with np.load(file) as data:
+                        # Warning if number of channels is not 16
+                        if data["channels"].shape[1] != 16:
+                            con.log(
+                                f"Warning: {file.name} has {data['channels'].shape[1]} channels, expected 16 channels."
+                            )
+                except Exception as e:
+                    con.log(f"Error loading {file.name}: {e}")
+                    continue
 
     else:
         raise FileNotFoundError(
@@ -211,17 +233,20 @@ def faulty_files(wav_path_list, npz_path_list):
     """
     ## check if the wav and npz files have the same names, i.e. if npz file exists for each wav file
     for i, (wav_file, npz_file) in enumerate(zip(wav_path_list, npz_path_list)):
-        if wav_file.name != npz_file.name:
+        # get the filenames without "peaks" and suffixes
+        wav_name = wav_file.stem
+        npz_name = npz_file.stem.split("_")[0]
+        if wav_name != npz_name:
             con.log(f"Warning: No npz file that matches wav file {wav_file.name}!")
             # insert NaN in place of missing npz file
-            npz_path_list.insert(i, np.nan)
+            npz_path_list.insert(i, None)
 
         ## check if existing npz file is empty
         # check for file size
         elif Path(npz_file).stat().st_size == 0:
             con.log(f"Warning: npz file {npz_file.name} is empty!")
             # insert NaN in place of empty npz file
-            npz_path_list[i] = np.nan
+            npz_path_list[i] = None
 
         # if file size isnt zero, check if npz file contains npy files (dict keys)
         else:
@@ -230,7 +255,7 @@ def faulty_files(wav_path_list, npz_path_list):
                     if len(data.files) == 0:
                         con.log(f"Warning: npz file {npz_file.name} contains no keys!")
                         # insert NaN in place of empty npz file
-                        npz_path_list[i] = np.nan
+                        npz_path_list[i] = None
 
                     # if keys exist, check if keys are empty
                     else:
@@ -239,41 +264,31 @@ def faulty_files(wav_path_list, npz_path_list):
                                 con.log(
                                     f"Warning: npz file {npz_file.name} contains empty key {key}!"
                                 )
-                                # insert NaN in place of empty npz file
-                                npz_path_list[i] = np.nan
             except Exception as e:
                 con.log(
                     f"Warning: npz file {npz_file.name} could not be loaded! Error: {e}"
                 )
                 # insert NaN in place of empty npz file
-                npz_path_list[i] = np.nan
+                npz_path_list[i] = None
 
     return npz_path_list
 
 
-def remove_nans_at_edges(input_list):
+def remove_nones_at_edges(path_list):
     """
-    Remove NaN values only at the start and end of a list.
+    Remove None values only at the start and end of a list.
     """
-    # Convert the list to a NumPy array for easier manipulation
-    array = np.array(input_list)
+    # Find first and last non-None index
+    start = 0
+    while start < len(path_list) and path_list[start] is None:
+        start += 1
 
-    # Find the indices of non-NaN values
-    non_nan_indices = np.where(~np.isnan(array))[0]
+    end = len(path_list)
+    while end > start and path_list[end - 1] is None:
+        end -= 1
 
-    # If there are no non-NaN values, return an empty list
-    if len(non_nan_indices) == 0:
-        return []
-
-    # Get the start and end indices of the non-NaN values
-    start_idx = non_nan_indices[0]
-    end_idx = non_nan_indices[-1]
-
-    # Slice the array to include only the range between the first and last non-NaN values
-    trimmed_array = array[start_idx : end_idx + 1]
-
-    # Convert back to a list and return
-    return trimmed_array.tolist()
+    # return the sliced list
+    return path_list[start:end]
 
 
 def check_sessions(
@@ -282,46 +297,14 @@ def check_sessions(
     """
     Check if recordings are subsequent and store seperate recording sessions in a dictionary.
     """
-    # # old code, working ##
-    # # accepted time difference and tolerance between two files
-    # t_diff = timedelta(minutes=5)
-    # tolerance = timedelta(seconds=1)
-
-    # # extract timestamps from filepaths
-    # dt_list = []
-    # rec_sessions = {}
-
-    # for i, path in enumerate(file_paths):
-    #     # get time stamp from file name
-    #     time_stamp = path.name.split("-")[1].split("_")[0]
-    #     # convert it to datetime object
-    #     dt = datetime.strptime(time_stamp, "%Y%m%dT%H%M%S")
-
-    #     # append dict for first session
-    #     if i == 0:
-    #         rec_sessions[f"rec session {i}"] = []
-
-    #     # check if next file is not subsequent to last file
-    #     elif i > 0 and abs((dt - dt_list[-1]) - t_diff) > tolerance:
-    #         # create new session
-    #         rec_sessions[f"rec session {len(rec_sessions)}"] = []
-
-    #     # add curent time stamp to list
-    #     dt_list.append(dt)
-
-    #     # append path to last session
-    #     last_key = list(rec_sessions.keys())[-1]
-    #     rec_sessions[last_key].append(path)
-
-    #### TODO: TEST this ####
     # store timestamps
     dt_list = []
 
     # first iterate over all filepaths to extract timestamps to list
     for path in file_paths:
         # check for corrupted files and indicate those by inserting nan into dt list
-        if path == np.nan:
-            dt_list.append(np.nan)
+        if path is None:
+            dt_list.append(None)
         else:
             # get time stamp from file name
             time_stamp = path.name.split("-")[1].split("_")[0]
@@ -340,10 +323,9 @@ def check_sessions(
     for i, path in enumerate(file_paths):
         # check if next file is not subsequent to last file; nan is not within current session
         if (
-            np.isnan(path)
+            path is None
             and abs((dt_list[i + 1] - dt_list[i - 1]) - t_diff * 2) > tolerance
         ):
-            # TODO: ask if its ok to skip/ignore nans at session edges
             # create new session
             rec_sessions[f"rec session {len(rec_sessions)}"] = []
             # skip rest of loop, dont add nan to dict
@@ -390,36 +372,76 @@ def get_timestamps(npz_files):
 # %%
 # Calculate how many peaks per time interval
 def peaks_over_time(
-    bin_size: int,
+    bin_size: int,  # min
+    time_line: int,  # min
+    min_per_rec: int,  # min
     paths: dict,
 ):
     """
     Calculate number of peaks per minute.
     """
-    # number of bins for 1 day, depending on bin size
-    num_bins = int(24 * 60 / bin_size)  # 24 hours * 60 minutes / bin size in minutes
+    # number of bins
+    num_bins = int(time_line / bin_size)
 
     # Initialize array to store number of peaks per bin
     peaks_per_bin = np.zeros(num_bins)
+
+    # initialize array to hold nan percentages
+    nan_per_bin = np.zeros(num_bins)
+
+    # number of indices per minute (updated with every recording)
+    # TODO: check if this works, that this variable is updated with every recording
+    # idx_per_min = 0
 
     # Iterate over each rec session in the dictionary
     for key, file_list in paths.items():
         # get time of first and last timestamps of recording session
         start_time, end_time = get_timestamps(file_list)
 
-        # calculate start and end bin (TODO: dont hardcode)
-        start_bin = start_time.hour
-        end_bin = end_time.hour
+        # minutes from start of time axis to start time of recording session
+        start_time_minutes = (
+            timedelta(
+                hours=start_time.hour,
+                minutes=start_time.minute,
+                seconds=start_time.second,
+            ).total_seconds()
+            / 60
+        )
+        end_time_minutes = (
+            timedelta(
+                hours=end_time.hour,
+                minutes=end_time.minute,
+                seconds=end_time.second,
+            ).total_seconds()
+            / 60
+        )
 
+        # calculate start and end bin
+        start_bin = int(start_time_minutes // bin_size)
+        end_bin = int(end_time_minutes // bin_size)
+
+        # -----------
+        # # count how many nans/faulty files are in the session, changes to None now!!!
+        # file_array = np.array(file_list)
+        # nan_count = np.isnan(file_array).sum()
+
+        # # calculate how many indices are missing because of faulty files, using fs from previous rec
+        # missing_idx = int(nan_count * min_per_rec * idx_per_min)
+
+        # # calculate how many percent of the bin faulty files make up
+        # nan_percent = idx_per_bin - missing_idx / idx_per_bin
+
+        # # correct bin of faulty files
+
+        # ------------
         # iterate over each filepath in the session
         for i, file in enumerate(file_list):
-            # TODO: make this into a function
-            with np.load(file) as data:
-                # only take peaks that have been predicted as valid peaks
-                valid_peaks = data["centers"][data["predicted_labels"] == 1]
-
-                # extract sample rate
-                sample_rate = int(data["rate"])  # int
+            # ------------ TODO: maybe implement better logic?
+            # check if file is faulty
+            if file is None:
+                # extract sample rate from previous file
+                with np.load(file_list[i - 1]) as data:
+                    sample_rate = int(data["rate"])  # int
 
                 # calculate data points per minute (sample rate in Hz * 60 sec/min)
                 idx_per_min = sample_rate * 60
@@ -427,69 +449,134 @@ def peaks_over_time(
                 # calculate data points per bin
                 idx_per_bin = idx_per_min * bin_size
 
-                # case that start and end of a recording session are in the same hour
-                # TODO: implement missing/empty files within rec sessions
-                # TODO: dont harcode start and end bin
-                if start_time.hour == end_time.hour:
-                    # calculate the time difference of start and end time in seconds
-                    diff_seconds = timedelta(
-                        minutes=end_time.minute - start_time.minute,
-                        seconds=end_time.second - start_time.second,
+                # calculate how many indices are missing due to faulty file
+                missing_idx = int(min_per_rec * idx_per_min)
+
+                # calculate how many percent of the bin faulty file makes up
+                nan_percent = missing_idx / idx_per_bin
+
+                ## get correct bin of faulty files
+                # extract start time of previous file
+                prev_start_time = datetime.strptime(
+                    file_list[i - 1].name.split("-")[1].split("_")[0], "%Y%m%dT%H%M%S"
+                )
+
+                # calculate start time of faulty file
+                nan_start_time = (
+                    timedelta(
+                        hours=prev_start_time.hour,
+                        minutes=prev_start_time.minute,
+                        seconds=prev_start_time.second,
                     ).total_seconds()
+                    / 60
+                ) + timedelta(minutes=min_per_rec)
 
-                    # convert to number of indices in this time window
-                    diff_idx = int(diff_seconds * sample_rate)
+                # calculate start bin of faulty file
+                correct_nan_bin = nan_start_time // bin_size
 
-                    # calculate how many percent of the bin is covered by data
-                    diff_percent = diff_idx / idx_per_bin
+                ## store amount of missing nan percentage per bin
+                nan_per_bin[correct_nan_bin] += nan_percent
 
-                    # loop over all peaks in file
-                    for peak in valid_peaks:
-                        # assign peaks to bin
-                        global_peak_idx = int(peak // idx_per_bin) + start_bin
-                        # add correct number of peaks to bin
-                        peaks_per_bin[global_peak_idx] += diff_percent
+            # ----------
+            # non faulty files
+            else:
+                # load current file
+                with np.load(file) as data:
+                    # extract peaks that have been predicted as valid peaks
+                    valid_peaks = data["centers"][data["predicted_labels"] == 1]
 
-                # case that start and end of a recording session are in different hours
-                else:
-                    # calculate the time difference to next/last bin in seconds
-                    start_diff_seconds = timedelta(
-                        minutes=bin_size - (start_time.minute % bin_size),
-                        seconds=-start_time.second,
-                    ).total_seconds()
-                    end_diff_seconds = timedelta(
-                        minutes=end_time.minute % bin_size, seconds=end_time.second
-                    ).total_seconds()
+                    # check if there are any valid peaks
+                    if len(valid_peaks) == 0:
+                        con.log(f"Warning: No valid peaks in {file.name}!")
+                        continue
 
-                    # calculate how many indices at start and end of each session
-                    start_diff_idx = int(start_diff_seconds * sample_rate)
-                    end_diff_idx = int(end_diff_seconds * sample_rate)
+                    # if valid peaks detected
+                    else:
+                        # ------- maybe put this whole block at start
+                        # extract sample rate
+                        sample_rate = int(data["rate"])  # int
 
-                    # calculate the percentage of start_diff_idx relative to points_per_bin (in decimals)
-                    start_diff_percent = start_diff_idx / idx_per_bin
-                    end_diff_percent = end_diff_idx / idx_per_bin
+                        # calculate data points per minute (sample rate in Hz * 60 sec/min)
+                        idx_per_min = sample_rate * 60
 
-                    # calculate offset to account for length of recordings
-                    min_per_rec = int(5)  # TODO: dont hardcode this
-                    offset = i * idx_per_min * min_per_rec
+                        # calculate data points per bin
+                        idx_per_bin = idx_per_min * bin_size
+                        # -------
 
-                    # calculate at which idx of start bin this recording starts
-                    start_idx = idx_per_bin - start_diff_idx
+                        # start and end of a recording session are in the same hour
+                        if start_bin == end_bin:
+                            # calculate the time difference of start and end time in seconds
+                            diff_seconds = timedelta(
+                                minutes=end_time.minute - start_time.minute,
+                                seconds=end_time.second - start_time.second,
+                            ).total_seconds()
 
-                    # loop over all peaks in file
-                    for peak in valid_peaks:
-                        # assign peaks to bins
-                        global_peak_idx = (
-                            int((start_idx + offset + peak) // idx_per_bin) + start_bin
-                        )
+                            # convert to number of indices in this time window
+                            diff_idx = int(diff_seconds * sample_rate)
 
-                        # check if bin is at start or end of recording session, add correct number of peaks to bins
-                        if global_peak_idx == start_bin:
-                            peaks_per_bin[global_peak_idx] += start_diff_percent
-                        elif global_peak_idx == end_bin:
-                            peaks_per_bin[global_peak_idx] += end_diff_percent
+                            # calculate how many percent of the bin is covered by data
+                            diff_percent = diff_idx / idx_per_bin
+
+                            # loop over all peaks in file
+                            for peak in valid_peaks:
+                                # assign peaks to bin
+                                global_peak_idx = int(peak // idx_per_bin) + start_bin
+                                # add correct number of peaks to bin
+                                # check if bin contains faulty files and add according correct percentage of peaks
+                                peaks_per_bin[global_peak_idx] += (
+                                    diff_percent - nan_per_bin[global_peak_idx]
+                                )
+
+                        # start and end of a recording session are in different hours
                         else:
-                            peaks_per_bin[global_peak_idx] += 1
+                            # calculate the time difference to next/last bin in seconds
+                            start_diff_seconds = timedelta(
+                                minutes=bin_size - (start_time.minute % bin_size),
+                                seconds=-start_time.second,
+                            ).total_seconds()
+                            end_diff_seconds = timedelta(
+                                minutes=end_time.minute % bin_size,
+                                seconds=end_time.second,
+                            ).total_seconds()
+
+                            # calculate how many indices at start and end of each session
+                            start_diff_idx = int(start_diff_seconds * sample_rate)
+                            end_diff_idx = int(end_diff_seconds * sample_rate)
+
+                            # calculate the percentage of start_diff_idx relative to points_per_bin (in decimals)
+                            start_diff_percent = start_diff_idx / idx_per_bin
+                            end_diff_percent = end_diff_idx / idx_per_bin
+
+                            # calculate offset to account for length of recordings
+                            offset = i * idx_per_min * min_per_rec
+
+                            # calculate at which idx of start bin this recording starts
+                            start_idx = idx_per_bin - start_diff_idx
+
+                            # loop over all peaks in file
+                            for peak in valid_peaks:
+                                # assign peaks to bins
+                                global_peak_idx = (
+                                    int((start_idx + offset + peak) // idx_per_bin)
+                                    + start_bin
+                                )
+
+                                # check if bin is at start or end of recording session, add correct number of peaks to bins
+                                # check if bin contains faulty files and add according correct percentage of peaks
+                                if global_peak_idx == start_bin:
+                                    peaks_per_bin[global_peak_idx] += (
+                                        start_diff_percent
+                                        - nan_per_bin[global_peak_idx]
+                                    )
+                                elif global_peak_idx == end_bin:
+                                    peaks_per_bin[global_peak_idx] += (
+                                        end_diff_percent - nan_per_bin[global_peak_idx]
+                                    )
+                                # normal bin
+                                else:
+                                    peaks_per_bin[global_peak_idx] += (
+                                        1 - nan_per_bin[global_peak_idx]
+                                    )
 
     return peaks_per_bin
 
@@ -500,18 +587,7 @@ def plot_peaks_time(bin_peaks, binsize):
     Plot histogram of number of peaks per time bin with actual time on x-axis.
     """
     con.log("Plotting histogram")
-    #### old code, working #### TODO: dont hardcode x ticks
-    # # Generate time labels for each minute bin
-    # time_labels = [
-    #     start_time + timedelta(minutes=i * binsize) for i in range(len(peaks))
-    # ]
-    # # Format as "HH:MM"
-    # time_labels_str = [time.strftime("%H:%M") for time in time_labels]
-    # ---
-    # Number of bins for 1 day, depending on bin size
-    # time_labels = list(range(0, 24 * 60, binsize)/60)
 
-    # ---
     # Plot spike frequency over time
     fig, ax = plt.subplots()
     ax.bar(
@@ -538,6 +614,10 @@ def plot_peaks_time(bin_peaks, binsize):
 ### Main ###
 # set bin size in minutes (TODO: prompt user to input number of minutes and only take value between 1 and 60)
 binsize = 60  # min
+# set time on x axis in minutes
+timeline = 24 * 60  # min
+# set recording length in minutes (TODO: maybe solve this with array of rec lengths from load wav function)
+rec_length = 5  # min
 
 # load data
 _, wav_paths = load_wav(datapath)
@@ -547,15 +627,17 @@ npz_paths = load_peaks(datapath)
 npz_paths_new = faulty_files(wav_paths, npz_paths)
 
 # remove nans at edges of path list
-file_paths = remove_nans_at_edges(npz_paths_new)
+file_paths = remove_nones_at_edges(npz_paths_new)
 
 # sort file paths into recording sessions
-session_paths = check_sessions(file_paths)
+session_paths = check_sessions(file_paths)  # current error
 
-# calculate peaks per bin (TODO: insert binsize in minutes as variable here ?)
-bins = peaks_over_time(binsize, session_paths)
+# calculate peaks per bin
+bins = peaks_over_time(binsize, timeline, rec_length, session_paths)
+embed()
 
 # plot time histogram
 plot_peaks_time(bins, binsize)
+
 
 # %%
