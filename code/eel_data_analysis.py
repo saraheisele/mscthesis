@@ -14,11 +14,15 @@ peak_data contains as many entries/dicts as there are .npz files in the folder.
 This script calculates the number of detected peaks per minute/hour and plots the result as histogram.
 """
 
-# TODO: make code work for single files
+# TODO: make code work for single files ??
 # TODO: modularize and improve code
 # TODO: progress bar
 # TODO: make main function
+# TODO: save rec session dict as json file and rec session/min/counts as csv with pandas (check pic of tafel from patricks aufschrieb)
+
+# TODO: count peaks per minute and then add them up to get hours/diff bin sizes, ignore peaks that are in bins that are not whole
 # TODO: account for amount of recordings that contribute to each bin (determine certainty)
+# TODO: make csv of metadata (automate this ?)
 # TODO: peaks over years, months, temp, leitfähigkeit, individuum
 
 
