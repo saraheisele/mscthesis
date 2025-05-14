@@ -169,6 +169,11 @@ Di, 13.05.25
 # jan said he thinks syncing is correct now, based on correlations with eel behavior
 
 Mi, 14.05.25
-# eel analysis code
+# make seperate script for preprocessing
+# save session paths dict as json
+# load json file in analysis script
+# make errorbar in preprocessing script
+# add main functions in both scripts
+# run preprocessnig script to create json file
 # lena back from vacation (talked whole morning hehe)
 

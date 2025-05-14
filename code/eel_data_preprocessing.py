@@ -24,6 +24,7 @@ The json file created in this script is loaded and used in the next step of this
 """
 
 # TODO: modularize and improve code
+# TODO: make code work for single files ??
 
 # TODO: ask patrick how he includes wav files in his code?
 # why no npz file for folder 20240913, 20240612, 20240517, 20240503, 20240502, 20240418, 20231201 ?
@@ -54,7 +55,7 @@ def load_wav(datapath):
     Load the corresponding wav file for the given npz file/s and returns recording length in min.
     """
     # Print status
-    con.log("Loading wav files")
+    con.log("Loading wav files.")
 
     # Initialize list to store file paths globally
     # wav_path_list = []
@@ -133,7 +134,7 @@ def load_peaks(datapath):
     Load .npz files from the given path, directory or supdirectory.
     """
     # Print status
-    con.log("Loading detected peaks")
+    con.log("Loading detected peaks from npz files.")
 
     # Check if the path exists
     if not datapath.exists():
@@ -172,52 +173,66 @@ def faulty_files(wav_path_list, npz_path_list):
     """
     Check if there are any missing or empty files in the given lists of wav and npz files.
     """
-    ## check if the wav and npz files have the same names, i.e. if npz file exists for each wav file
-    for i, (wav_file, npz_file) in enumerate(zip(wav_path_list, npz_path_list)):
-        # get the filenames without "peaks" and suffixes
-        wav_name = wav_file.stem
-        npz_name = npz_file.stem.split("_")[0]
-        if wav_name != npz_name:
-            con.log(f"Warning: No npz file that matches wav file {wav_file.name}!")
-            # insert NaN in place of missing npz file
-            npz_path_list.insert(i, None)
+    # print status
+    con.log("Checking for empty/missing/corrupted files.")
 
-        ## check if existing npz file is empty
-        # check for file size
-        elif Path(npz_file).stat().st_size == 0:
-            con.log(f"Warning: npz file {npz_file.name} is empty!")
-            # insert NaN in place of empty npz file
-            npz_path_list[i] = None
+    # add progress bar
+    with Progress() as progress:
+        task = progress.add_task(
+            "Checking for faulty files...", total=len(npz_path_list)
+        )
 
-        # if file size isnt zero, check if npz file contains npy files (dict keys)
-        else:
-            try:
-                with np.load(npz_file) as data:
-                    # check if npz file contains any keys
-                    if len(data.files) == 0:
-                        con.log(f"Warning: npz file {npz_file.name} contains no keys!")
-                        # insert NaN in place of empty npz file
-                        npz_path_list[i] = None
+        ## check if the wav and npz files have the same names, i.e. if npz file exists for each wav file
+        for i, (wav_file, npz_file) in enumerate(zip(wav_path_list, npz_path_list)):
+            # get the filenames without "peaks" and suffixes
+            wav_name = wav_file.stem
+            npz_name = npz_file.stem.split("_")[0]
+            if wav_name != npz_name:
+                con.log(f"Warning: No npz file that matches wav file {wav_file.name}!")
+                # insert NaN in place of missing npz file
+                npz_path_list.insert(i, None)
 
-                    # check if predicted_labels exists (crucial for analysis)
-                    elif "predicted_labels" not in data.files:
-                        con.log(
-                            f"Warning: npz file {npz_file.name} does not contain predicted_labels key!"
-                        )
-                        # insert NaN in place of file without predicted_labels
-                        npz_path_list[i] = None
-
-                    # if keys exist, check if keys are empty
-                    else:
-                        for key in data.files:
-                            if data[key].size == 0:
-                                con.log(
-                                    f"Warning: npz file {npz_file.name} contains empty key {key}!"
-                                )
-            except Exception as e:
-                con.log(f"Error loading {npz_file.name}: {e}")
+            ## check if existing npz file is empty
+            # check for file size
+            elif Path(npz_file).stat().st_size == 0:
+                con.log(f"Warning: npz file {npz_file.name} is empty!")
                 # insert NaN in place of empty npz file
                 npz_path_list[i] = None
+
+            # if file size isnt zero, check if npz file contains npy files (dict keys)
+            else:
+                try:
+                    with np.load(npz_file) as data:
+                        # check if npz file contains any keys
+                        if len(data.files) == 0:
+                            con.log(
+                                f"Warning: npz file {npz_file.name} contains no keys!"
+                            )
+                            # insert NaN in place of empty npz file
+                            npz_path_list[i] = None
+
+                        # check if predicted_labels exists (crucial for analysis)
+                        elif "predicted_labels" not in data.files:
+                            con.log(
+                                f"Warning: npz file {npz_file.name} does not contain predicted_labels key!"
+                            )
+                            # insert NaN in place of file without predicted_labels
+                            npz_path_list[i] = None
+
+                        # if keys exist, check if keys are empty
+                        else:
+                            for key in data.files:
+                                if data[key].size == 0:
+                                    con.log(
+                                        f"Warning: npz file {npz_file.name} contains empty key {key}!"
+                                    )
+                except Exception as e:
+                    con.log(f"Error loading {npz_file.name}: {e}")
+                    # insert NaN in place of empty npz file
+                    npz_path_list[i] = None
+
+            # update progress bar
+            progress.update(task, advance=1)
 
     return npz_path_list
 
@@ -314,30 +329,15 @@ def save_session_paths(session_paths):
         "/home/eisele/wrk/mscthesis/data/intermediate/eellogger_session_paths.json"
     )
 
+    # Convert Path objects to strings
+    session_paths_str = {k: [str(p) for p in v] for k, v in session_paths.items()}
+
     # print statement before saving
     con.log(f"Saving session paths to {path}.")
 
     # open json and save dict in it
-    with path.open as file:
-        json.dump(session_paths, file)
-
-
-# %% MAIN
-# # Path to sup folder
-# datapath = Path("/mnt/data1/eels-mfn2021_peaks/")
-
-# # load data
-# wav_paths = load_wav(datapath)
-# npz_paths = load_peaks(datapath)
-
-# # faulty files function
-# npz_paths_new = faulty_files(wav_paths, npz_paths)
-
-# # sort file paths into recording sessions
-# session_paths = check_sessions(npz_paths_new)
-
-# # save session paths to json file
-# save_session_paths(session_paths)
+    with path.open("w") as file:
+        json.dump(session_paths_str, file)
 
 
 # %%
@@ -354,52 +354,23 @@ def save_session_paths(session_paths):
 # )
 
 
-# %% main
+# %% Main
 def main():
     # Path to sup folder
     datapath = Path("/mnt/data1/eels-mfn2021_peaks/")
 
-    # # define steps for progress bar
-    # steps = [
-    #     ("Store audio paths", load_wav, datapath),
-    #     ("Store npz paths", load_peaks, datapath),
-    #     ("Check for faulty files", faulty_files),
-    #     ("Sort sessions", check_sessions),
-    #     ("Save session paths", save_session_paths),
-    # ]
+    # load data
+    wav_paths = load_wav(datapath)
+    npz_paths = load_peaks(datapath)
 
-    # with Progress() as progress:
-    #     task = progress.add_task("Total Progress", total=len(steps))
+    # faulty files function
+    npz_paths_new = faulty_files(wav_paths, npz_paths)
 
-    #     # iterate over defined steps and call associated function/code
-    #     for description, action in steps:
-    #         progress.console.log(f"[bold green]Step:[/bold green] {description}")
-    #         action()
-    #         progress.update(task, advance=1)
+    # sort file paths into recording sessions
+    session_paths = check_sessions(npz_paths_new)
 
-    # Create a progress bar context
-    with Progress() as progress:
-        # Add a single task with 5 total steps
-        task = progress.add_task("[bold green]Processing...", total=5)
-
-        # Step 1: Load data
-        wav_paths = load_wav(datapath)
-        progress.update(task, advance=1)
-
-        npz_paths = load_peaks(datapath)
-        progress.update(task, advance=1)
-
-        # Step 2: Filter faulty files
-        npz_paths_new = faulty_files(wav_paths, npz_paths)
-        progress.update(task, advance=1)
-
-        # Step 3: Sort file paths into sessions
-        session_paths = check_sessions(npz_paths_new)
-        progress.update(task, advance=1)
-
-        # Step 4: Save sessions
-        save_session_paths(session_paths)
-        progress.update(task, advance=1)
+    # save session paths to json file
+    save_session_paths(session_paths)
 
 
 if __name__ == "__main__":

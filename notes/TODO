@@ -1,15 +1,15 @@
 Today TODO:
-- plot tagesverlauf von aal daten für alle files aus einem ordner
 
 General TODO:
-  - ask why in msc_labbook file text is weirdly red and different syved symbol on tab?
+  - ask why in msc_labbook file text is weirdly red and different saved symbol on tab?
   - read papers & summarize info from papers in .txt
   - mit jan reden und brasilien sachen bestellen (16 kanal verstärker)
   - gnatho daten aufnehmen? ob und wann??
   - adjust shortcuts in vs code!!
   - open thunderfish and thunderlab
   - get headphones to work with audian
-  - look through word logging files and more data
+  - look through word logging files and more data, make csv for metadata from word files
+  - sync script clean up and implement filter and improve plotting
 
 Open questions Eel:
   - which animal spikes with higher frequency

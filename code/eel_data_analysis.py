@@ -3,32 +3,17 @@ This script loads preprocessed data from eel_data_preprocessing script
 and calculates the number of detected peaks per minute/hour and plots the result as histogram.
 """
 
-# TODO: make code work for single files ??
-# TODO: modularize and improve code
-# TODO: save rec session/min/counts as csv with pandas (check pic of tafel from patricks aufschrieb)
-
 # now
 # TODO: count peaks per minute and then add them up to get hours/diff bin sizes, ignore peaks that are in bins that are not whole
 # TODO: dont use counts but firing rate per minute per bin (counts/time)
+# TODO: progress bar
 
+# TODO: modularize and improve code
+# TODO: save rec session/min/counts as csv with pandas (check pic of tafel from patricks aufschrieb)
 # TODO: plot distribution of EODs per bin (hopefully uniform) infront of histogram of day cyle
 # TODO: account for amount of recordings that contribute to each bin (determine certainty)
 # TODO: make csv of metadata (automate this ?)
 # TODO: peaks over years, months, temp, leitfähigkeit, individuum
-
-# next: ask patrick how he includes wav files in his code?
-# why no npz file for folder 20240913, 20240612, 20240517, 20240503, 20240502, 20240418, 20231201 ?
-# what to do in this case:
-# [12:03:49] Error loading eellogger1-20240503T051442_peaks.npz: tuple index out of range                                                                                                                                                        eel_data_analysis.py:228
-#            Error loading eellogger1-20240503T051943_peaks.npz: tuple index out of range                                                                                                                                                        eel_data_analysis.py:228
-#            Error loading eellogger1-20240503T052943_peaks.npz: tuple index out of range
-
-# Wednesday:
-# make seperate script for preprocessing
-# save session paths dict as json
-# load json file in analysis script
-# make errorbar in preprocessing script
-# add main functions in both scripts
 
 # %%
 from rich.console import Console
@@ -36,6 +21,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
 import json
+from pathlib import Path
 
 # Initialize console for logging
 con = Console()
@@ -314,12 +300,22 @@ def main():
     rec_length = 5  # min
 
     # load preprocessed paths of recording sessions from json file
-    data = json.read(
-        "/home/eisele/wrk/mscthesis/data/intermediate/eellogger_session_paths.json"
-    )
+
+    # Open a JSON file and load its content
+    with open(
+        "/home/eisele/wrk/mscthesis/data/intermediate/eellogger_session_paths.json", "r"
+    ) as file:
+        data = json.load(file)
+
+    # data = json.load(
+    #     "/home/eisele/wrk/mscthesis/data/intermediate/eellogger_session_paths.json"
+    # )
+
+    # convert strings back to path objects
+    data_paths = {k: [Path(p) for p in v] for k, v in data.items()}
 
     # calculate peaks per bin
-    bins = peaks_over_time(binsize, timeline, rec_length, data)
+    bins = peaks_over_time(binsize, timeline, rec_length, data_paths)
 
     # plot time histogram
     plot_peaks_time(bins, binsize)
