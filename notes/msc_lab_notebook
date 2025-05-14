@@ -97,8 +97,78 @@ Do, 10.04.25:
 - struggled with debugging, ruff, cells in vscode
 - stopped where I have to determine which spikes were made in which minute in order to make histogram over time
 
-
 ---WEEK 5---
 Mo, 14.04.25
 - educated myself on how to make ruff work, debugging and cells in vscode
 - read paper
+
+---WEEK 6---
+Fr, 25.04.25:
+eel analysis code
+# add spike counts to correct bin for each file
+# rewrote code to load npz files one by one, instead of creating data_list
+# rewrote code to correctly assign peaks to bins (not just stack more bins at the end)
+# discard peaks at start and end of rec where not whole length of bin is covered by data
+# code works for single file
+# code works for sup folder
+# make wav file importing work for sup folders
+# make extraction of rec length and sample rate work for several files
+
+---WEEK 7---
+Mi, 30.04.25:
+# function geschrieben die checkt ob recordings subsequent sind und paths in recording sessions speichert
+
+Fr, 02.05.25:
+# made it work that start and end bin are percentually calculated and not disregarded
+# fixed mistakes
+# started implementing session function in peaks over time
+
+---WEEK 8---
+Mo, 05.05.25:
+# implemented session function in peaks over time, iterating over sessions instead of all paths now
+# new implementations works for sup folders
+# skip files if filename doesnt start with eellogger
+# initiated offset and start idx variables to count up peak idx and assign correctly to subsequent bins (within and across recordings)
+
+Di, 06.05.25:
+# finished function that checks for faulty files
+# implemented faulty_files functionj in check_sessions function
+# wrote function to trim nans if they are at edges of list
+# make it work for no file (check with wav files if there should be a file)/empty npz file
+
+Mi, 07.05.25:
+# implement faulty files in peaks_per_bin
+# soft coded start and end bin
+# initiated global variables
+# changed logic for files that are present but no peaks detected (not treated as faulty files anymore)
+# peaks_per_bin checks now if there are any valid peaks in the file
+# check current code version
+# try on big dataset
+
+Do, 08.05.25:
+# wav files have to match naming pattern to be included in wav path list
+# files that dont start with eellogger (also eelgrid) are not in wav file list
+# fixed check_sessions function to work for multiple subsequent None values
+# killed remove nans at edges function bc its redundant with new check sessions logic
+# empty wav files are now not included in wav file list
+# if peak idx reaches maximum bin it is reset to continute in bin idx 0
+# synchronized berlin videos (buggy, audio track too short, some variables unnessecary/wrong)
+# --> code works for big dataset, ran code through big dataset for first time & got first figure/histogram!!
+
+Fr, 09.05.25
+# arbeit bei ari
+
+---WEEK 9---
+Mo, 12.05.25
+# video sync code
+# found what mistakes could be
+# duration and offset variables are defined several times, video start time extracted from metadata not relevant variable but wrong
+
+Di, 13.05.25
+# fixed video sync bug (logic in create_new_audio_track didnt work if only one wav file for whole video)
+# jan said he thinks syncing is correct now, based on correlations with eel behavior
+
+Mi, 14.05.25
+# eel analysis code
+# lena back from vacation (talked whole morning hehe)
+

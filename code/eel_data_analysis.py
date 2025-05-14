@@ -25,61 +25,13 @@ This script calculates the number of detected peaks per minute/hour and plots th
 # TODO: make csv of metadata (automate this ?)
 # TODO: peaks over years, months, temp, leitfähigkeit, individuum
 
-
-# DONE:
-# Friday
-# add spike counts to correct bin for each file
-# rewrote code to load npz files one by one, instead of creating data_list
-# rewrote code to correctly assign peaks to bins (not just stack more bins at the end)
-# discard peaks at start and end of rec where not whole length of bin is covered by data
-# code works for single file
-# code works for sup folder
-# make wav file importing work for sup folders
-# make extraction of rec length and sample rate work for several files
-
-# Wednesday
-# function geschrieben die checkt ob recordings subsequent sind und paths in recording sessions speichert
-
-# Friday
-# made it work that start and end bin are percentually calculated and not disregarded
-# fixed mistakes
-# started implementing session function in peaks over time
-
-# Monday
-# implemented session function in peaks over time, iterating over sessions instead of all paths now
-# new implementations works for sup folders
-# skip files if filename doesnt start with eellogger
-# initiated offset and start idx variables to count up peak idx and assign correctly to subsequent bins (within and across recordings)
-
-# Tuesday:
-# finished function that checks for faulty files
-# implemented faulty_files functionj in check_sessions function
-# wrote function to trim nans if they are at edges of list
-# make it work for no file (check with wav files if there should be a file)/empty npz file
-
-# Wednesday:
-# implement faulty files in peaks_per_bin
-# soft coded start and end bin
-# initiated global variables
-# changed logic for files that are present but no peaks detected (not treated as faulty files anymore)
-# peaks_per_bin checks now if there are any valid peaks in the file
-# check current code version
-# try on big dataset
-
-# Thursday:
-# wav files have to match naming pattern to be included in wav path list
-# files that dont start with eellogger (also eelgrid) are not in wav file list
-# fixed check_sessions function to work for multiple subsequent None values
-# killed remove nans at edges function bc its redundant with new check sessions logic
-# empty wav files are now not included in wav file list
-# if peak idx reaches maximum bin it is reset to continute in bin idx 0
-#
 # next: ask patrick how he includes wav files in his code?
 # why no npz file for folder 20240913, 20240612, 20240517, 20240503, 20240502, 20240418, 20231201 ?
 # what to do in this case:
 # [12:03:49] Error loading eellogger1-20240503T051442_peaks.npz: tuple index out of range                                                                                                                                                        eel_data_analysis.py:228
 #            Error loading eellogger1-20240503T051943_peaks.npz: tuple index out of range                                                                                                                                                        eel_data_analysis.py:228
-#            Error loading eellogger1-20240503T052943_peaks.npz: tuple index out of range                                                                                                                                                        eel_data_analysis.py:228
+#            Error loading eellogger1-20240503T052943_peaks.npz: tuple index out of range
+#                                                                                                                                              eel_data_analysis.py:228
 # %%
 from rich.console import Console
 from pathlib import Path
