@@ -5,16 +5,14 @@ and calculates the number of detected peaks per minute/hour and plots the result
 
 # TODO: make code work for single files ??
 # TODO: modularize and improve code
-# TODO: progress bar
-# TODO: make main function
+# TODO: save rec session/min/counts as csv with pandas (check pic of tafel from patricks aufschrieb)
 
-# TODO: save rec session dict as json file and rec session/min/counts as csv with pandas (check pic of tafel from patricks aufschrieb)
-
+# now
 # TODO: count peaks per minute and then add them up to get hours/diff bin sizes, ignore peaks that are in bins that are not whole
-# TODO: dont use counts but firing rate per minute per bin
+# TODO: dont use counts but firing rate per minute per bin (counts/time)
+
 # TODO: plot distribution of EODs per bin (hopefully uniform) infront of histogram of day cyle
 # TODO: account for amount of recordings that contribute to each bin (determine certainty)
-
 # TODO: make csv of metadata (automate this ?)
 # TODO: peaks over years, months, temp, leitfähigkeit, individuum
 
@@ -24,11 +22,20 @@ and calculates the number of detected peaks per minute/hour and plots the result
 # [12:03:49] Error loading eellogger1-20240503T051442_peaks.npz: tuple index out of range                                                                                                                                                        eel_data_analysis.py:228
 #            Error loading eellogger1-20240503T051943_peaks.npz: tuple index out of range                                                                                                                                                        eel_data_analysis.py:228
 #            Error loading eellogger1-20240503T052943_peaks.npz: tuple index out of range
+
+# Wednesday:
+# make seperate script for preprocessing
+# save session paths dict as json
+# load json file in analysis script
+# make errorbar in preprocessing script
+# add main functions in both scripts
+
 # %%
 from rich.console import Console
 import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
+import json
 
 # Initialize console for logging
 con = Console()
@@ -36,13 +43,13 @@ con = Console()
 
 # %%
 # Extract time from filename
-def get_timestamps(npz_files):
+def get_timestamps(npz_file_path_list):  # path_list
     """
     Get start and end time from the filenames of the first and last npz files in one recording session.
     """
     # get first and last file names
-    first_file = npz_files[0].name
-    last_file = npz_files[-1].name
+    first_file = npz_file_path_list[0].name
+    last_file = npz_file_path_list[-1].name
 
     # get time stamp from file name
     datetime_str_start = first_file.split("-")[1].split("_")[0]
@@ -297,30 +304,29 @@ def plot_peaks_time(bin_peaks, binsize):
     plt.show()
 
 
-# %%
-### Main ###
-# set bin size in minutes (TODO: prompt user to input number of minutes and only take value between 1 and 60)
-binsize = 60  # min
-# set time on x axis in minutes
-timeline = 24 * 60  # min
-# set recording length in minutes (TODO: maybe solve this with array of rec lengths from load wav function)
-rec_length = 5  # min
+# %% Main
+def main():
+    # set bin size in minutes (TODO: prompt user to input number of minutes and only take value between 1 and 60)
+    binsize = 60  # min
+    # set time on x axis in minutes
+    timeline = 24 * 60  # min
+    # set recording length in minutes (TODO: maybe solve this with array of rec lengths from load wav function)
+    rec_length = 5  # min
 
-# load data
-_, wav_paths = load_wav(datapath)
-npz_paths = load_peaks(datapath)
+    # load preprocessed paths of recording sessions from json file
+    data = json.read(
+        "/home/eisele/wrk/mscthesis/data/intermediate/eellogger_session_paths.json"
+    )
 
-# faulty files function
-npz_paths_new = faulty_files(wav_paths, npz_paths)
+    # calculate peaks per bin
+    bins = peaks_over_time(binsize, timeline, rec_length, data)
 
-# sort file paths into recording sessions
-session_paths = check_sessions(npz_paths_new)
+    # plot time histogram
+    plot_peaks_time(bins, binsize)
 
-# calculate peaks per bin
-bins = peaks_over_time(binsize, timeline, rec_length, session_paths)
 
-# plot time histogram
-plot_peaks_time(bins, binsize)
+if __name__ == "__main__":
+    main()
 
 
 # %%

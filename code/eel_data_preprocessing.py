@@ -11,36 +11,39 @@ dict_keys(['labels', 'peaks', 'channels', 'amplitudes', 'centers', 'start_stop_i
 
 peak_data contains as many entries/dicts as there are .npz files in the folder.
 
-The script saves the data as follows:
-(TODO: specify)
+The script consists of 4 steps:
+1. Acces and store paths of npz files and corresponding wav files in seperate sorted lists.
+2. Check both lists for missing, empty or corrupt files and exclude them from further analysis.
+3. Sort npz file paths into recording sessions based on the time stamps in the file names.
+This step is necessary because sometimes there are several recordings essions within the same folder.
+This step produces a dictionary that contains as many keys as rec sessions,
+each key contains a list of npz file paths that belong to that session.
+4. Save the dictionary with the session paths to a json file for later use.
+
+The json file created in this script is loaded and used in the next step of this analysis (eel_data_analysis.py).
 """
+
+# TODO: modularize and improve code
+
+# TODO: ask patrick how he includes wav files in his code?
+# why no npz file for folder 20240913, 20240612, 20240517, 20240503, 20240502, 20240418, 20231201 ?
+# what to do in this case:
+# [12:03:49] Error loading eellogger1-20240503T051442_peaks.npz: tuple index out of range                                                                                                                                                        eel_data_analysis.py:228
+#            Error loading eellogger1-20240503T051943_peaks.npz: tuple index out of range                                                                                                                                                        eel_data_analysis.py:228
+#            Error loading eellogger1-20240503T052943_peaks.npz: tuple index out of range
 
 # %%
 from rich.console import Console
+from rich.progress import Progress
 from pathlib import Path
 import numpy as np
 from datetime import datetime, timedelta
-from audioio.audioloader import AudioLoader
 import re
+import json
+# from audioio.audioloader import AudioLoader
 
 # Initialize console for logging
 con = Console()
-
-# %%
-### Import Data ###
-
-## Datapath to npz files (folder, subfolder or file)
-# datapath = Path(
-#     "/home/eisele/wrk/mscthesis/data/raw/eellogger_example_data_peaks/recordings2025-03-06/eellogger1-20250306T101402_peaks.npz"
-# )
-
-# # Path to folder
-# datapath = Path(
-#     "/home/eisele/wrk/mscthesis/data/raw/eellogger_example_data_peaks/recordings2025-03-06/"
-# )
-
-# Path to sup folder
-datapath = Path("/mnt/data1/eels-mfn2021_peaks/")
 
 
 # %%
@@ -71,7 +74,7 @@ def load_wav(datapath):
             )
 
             # Load the wav file
-            audio_data = AudioLoader(wavpath)
+            # audio_data = AudioLoader(wavpath)
 
             # add path to list for consistency with directory case
             wav_path_list = [wavpath]
@@ -98,30 +101,30 @@ def load_wav(datapath):
             ]
         )
 
-        # Initialize emtpy list to store number of minutes for each recording - not used atm!!
-        minutes_list = []
+        # # Initialize emtpy list to store number of minutes for each recording - not used atm!!
+        # minutes_list = []
 
-        for i, wav in enumerate(wav_path_list):
-            try:
-                # Load each wav file
-                audio_data = AudioLoader(wav)
-            except Exception as e:
-                con.log(f"Error loading: {e}")
-                continue
-            # Get sampling rate for this wav file
-            fs = audio_data.rate
+        # for i, wav in enumerate(wav_path_list):
+        #     try:
+        #         # Load each wav file
+        #         audio_data = AudioLoader(wav)
+        #     except Exception as e:
+        #         con.log(f"Error loading: {e}")
+        #         continue
+        #     # Get sampling rate for this wav file
+        #     fs = audio_data.rate
 
-            # Get number of minutes per recording for this wav file
-            samples_per_rec = audio_data.shape[0]
-            minutes_rec = samples_per_rec / fs / 60
+        #     # Get number of minutes per recording for this wav file
+        #     samples_per_rec = audio_data.shape[0]
+        #     minutes_rec = samples_per_rec / fs / 60
 
-            # # Store in peak_data
-            # npz_data[i]["minutes"] = minutes_rec
+        #     # # Store in peak_data
+        #     # npz_data[i]["minutes"] = minutes_rec
 
-            # save all minutes_rec in a list
-            minutes_list.append(minutes_rec)
+        #     # save all minutes_rec in a list
+        #     minutes_list.append(minutes_rec)
 
-    return minutes_rec, wav_path_list
+    return wav_path_list
 
 
 # Load npz files
@@ -164,6 +167,7 @@ def load_peaks(datapath):
     return sorted(npz_path_list)
 
 
+# Find files that are empty, missing or somehow corrupted
 def faulty_files(wav_path_list, npz_path_list):
     """
     Check if there are any missing or empty files in the given lists of wav and npz files.
@@ -218,6 +222,7 @@ def faulty_files(wav_path_list, npz_path_list):
     return npz_path_list
 
 
+# Sort file paths into recording sessions
 def check_sessions(file_paths: list):
     """
     Check if recordings are subsequent and store seperate recording sessions in a dictionary.
@@ -299,4 +304,103 @@ def check_sessions(file_paths: list):
     return rec_sessions
 
 
-# TODO: save this dictionary to a file for later use!!
+# Save dictionary that contains lists of paths per rec session in json file
+def save_session_paths(session_paths):
+    """
+    Save the session paths to a JSON file.
+    """
+    # define path where json file is created
+    path = Path(
+        "/home/eisele/wrk/mscthesis/data/intermediate/eellogger_session_paths.json"
+    )
+
+    # print statement before saving
+    con.log(f"Saving session paths to {path}.")
+
+    # open json and save dict in it
+    with path.open as file:
+        json.dump(session_paths, file)
+
+
+# %% MAIN
+# # Path to sup folder
+# datapath = Path("/mnt/data1/eels-mfn2021_peaks/")
+
+# # load data
+# wav_paths = load_wav(datapath)
+# npz_paths = load_peaks(datapath)
+
+# # faulty files function
+# npz_paths_new = faulty_files(wav_paths, npz_paths)
+
+# # sort file paths into recording sessions
+# session_paths = check_sessions(npz_paths_new)
+
+# # save session paths to json file
+# save_session_paths(session_paths)
+
+
+# %%
+### Import Data ###
+
+## Datapath to npz files (folder, subfolder or file)
+# datapath = Path(
+#     "/home/eisele/wrk/mscthesis/data/raw/eellogger_example_data_peaks/recordings2025-03-06/eellogger1-20250306T101402_peaks.npz"
+# )
+
+# # Path to folder
+# datapath = Path(
+#     "/home/eisele/wrk/mscthesis/data/raw/eellogger_example_data_peaks/recordings2025-03-06/"
+# )
+
+
+# %% main
+def main():
+    # Path to sup folder
+    datapath = Path("/mnt/data1/eels-mfn2021_peaks/")
+
+    # # define steps for progress bar
+    # steps = [
+    #     ("Store audio paths", load_wav, datapath),
+    #     ("Store npz paths", load_peaks, datapath),
+    #     ("Check for faulty files", faulty_files),
+    #     ("Sort sessions", check_sessions),
+    #     ("Save session paths", save_session_paths),
+    # ]
+
+    # with Progress() as progress:
+    #     task = progress.add_task("Total Progress", total=len(steps))
+
+    #     # iterate over defined steps and call associated function/code
+    #     for description, action in steps:
+    #         progress.console.log(f"[bold green]Step:[/bold green] {description}")
+    #         action()
+    #         progress.update(task, advance=1)
+
+    # Create a progress bar context
+    with Progress() as progress:
+        # Add a single task with 5 total steps
+        task = progress.add_task("[bold green]Processing...", total=5)
+
+        # Step 1: Load data
+        wav_paths = load_wav(datapath)
+        progress.update(task, advance=1)
+
+        npz_paths = load_peaks(datapath)
+        progress.update(task, advance=1)
+
+        # Step 2: Filter faulty files
+        npz_paths_new = faulty_files(wav_paths, npz_paths)
+        progress.update(task, advance=1)
+
+        # Step 3: Sort file paths into sessions
+        session_paths = check_sessions(npz_paths_new)
+        progress.update(task, advance=1)
+
+        # Step 4: Save sessions
+        save_session_paths(session_paths)
+        progress.update(task, advance=1)
+
+
+if __name__ == "__main__":
+    main()
