@@ -25,7 +25,7 @@ The json file created in this script is loaded and used in the next step of this
 
 # TODO: modularize and improve code
 # TODO: make code work for single files ??
-
+# TODO: ask patrick if i should save Nones as placeholder for missing npz files in sessions dict?
 # TODO: ask patrick how he includes wav files in his code?
 # why no npz file for folder 20240913, 20240612, 20240517, 20240503, 20240502, 20240418, 20231201 ?
 # what to do in this case:
