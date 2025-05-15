@@ -155,20 +155,20 @@ Do, 08.05.25:
 # synchronized berlin videos (buggy, audio track too short, some variables unnessecary/wrong)
 # --> code works for big dataset, ran code through big dataset for first time & got first figure/histogram!!
 
-Fr, 09.05.25
+Fr, 09.05.25:
 # arbeit bei ari
 
 ---WEEK 9---
-Mo, 12.05.25
+Mo, 12.05.25:
 # video sync code
 # found what mistakes could be
 # duration and offset variables are defined several times, video start time extracted from metadata not relevant variable but wrong
 
-Di, 13.05.25
+Di, 13.05.25:
 # fixed video sync bug (logic in create_new_audio_track didnt work if only one wav file for whole video)
 # jan said he thinks syncing is correct now, based on correlations with eel behavior
 
-Mi, 14.05.25
+Mi, 14.05.25:
 # make seperate script for preprocessing
 # save session paths dict as json
 # load json file in analysis script
@@ -177,3 +177,19 @@ Mi, 14.05.25
 # run preprocessnig script to create json file
 # lena back from vacation (talked whole morning hehe)
 
+Do, 15.05.25:
+# progress bar in analysis script
+# changed bin size to 1 min
+# plot speichern
+# put all files in one list
+# loop over file list, get start and end time per file
+# made function to extract and convert data
+# code ignores peaks in start and end bin now
+# count peaks per minute and then add them up to get hours/diff bin sizes
+# modularized and improved code (its way shorter and faster now)
+
+Fr, 16.05.25:
+# arbeit bei arbeit
+
+---WEEK 10---
+Mo, 19.05.25:
