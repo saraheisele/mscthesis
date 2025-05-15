@@ -3,13 +3,17 @@ This script loads preprocessed data from eel_data_preprocessing script
 and calculates the number of detected peaks per minute/hour and plots the result as histogram.
 """
 
-# now
-# TODO: count peaks per minute and then add them up to get hours/diff bin sizes, ignore peaks that are in bins that are not whole
+# Thursday:
+# TODO: count peaks per minute and then add them up to get hours/diff bin sizes
+# TODO: ignore peaks that are in bins that are not whole
+
 # TODO: dont use counts but firing rate per minute per bin (counts/time)
-# TODO: progress bar
+# TODO: save rec session/min/counts as csv with pandas (check pic of tafel from patricks aufschrieb)
+# progress bar in analysis script
+# changed bin size to 1 min
+# plot speichern
 
 # TODO: modularize and improve code
-# TODO: save rec session/min/counts as csv with pandas (check pic of tafel from patricks aufschrieb)
 # TODO: plot distribution of EODs per bin (hopefully uniform) infront of histogram of day cyle
 # TODO: account for amount of recordings that contribute to each bin (determine certainty)
 # TODO: make csv of metadata (automate this ?)
@@ -17,6 +21,7 @@ and calculates the number of detected peaks per minute/hour and plots the result
 
 # %%
 from rich.console import Console
+from rich.progress import Progress
 import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime, timedelta
@@ -51,10 +56,10 @@ def get_timestamps(npz_file_path_list):  # path_list
 # %%
 # Calculate how many peaks per time interval
 def peaks_over_time(
-    bin_size: int,  # min
+    paths: dict,  # dictionary with keys as rec session and values as list of npz files
     time_line: int,  # min
-    min_per_rec: int,  # min
-    paths: dict,
+    min_per_rec: 5,  # min
+    bin_size: 1,  # min
 ):
     """
     Calculate number of peaks per minute.
@@ -62,207 +67,226 @@ def peaks_over_time(
     # number of bins
     num_bins = int(time_line / bin_size)
 
-    # Initialize array to store number of peaks per bin
+    # initialize array to store number of peaks per bin
     peaks_per_bin = np.zeros(num_bins)
 
     # initialize array to hold nan percentages
     nan_per_bin = np.zeros(num_bins)
 
-    # Iterate over each rec session in the dictionary
-    for key, file_list in paths.items():
-        con.log(f"Processing {key}")
-        # get time of first and last timestamps of recording session
-        start_time, end_time = get_timestamps(file_list)
+    # count number of all entries of dictionary
+    total_paths = sum(len(file_list) for file_list in paths.values())
 
-        # minutes from start of time axis to start time of recording session
-        start_time_minutes = (
-            timedelta(
-                hours=start_time.hour,
-                minutes=start_time.minute,
-                seconds=start_time.second,
-            ).total_seconds()
-            / 60
-        )
-        end_time_minutes = (
-            timedelta(
-                hours=end_time.hour,
-                minutes=end_time.minute,
-                seconds=end_time.second,
-            ).total_seconds()
-            / 60
-        )
+    # track overall progress in progress bar
+    with Progress() as progress:
+        task = progress.add_task("Processing...", total=total_paths)
 
-        # calculate start and end bin
-        start_bin = int(start_time_minutes // bin_size)
-        end_bin = int(end_time_minutes // bin_size)
+        # iterate over each rec session in the dictionary
+        for key, file_list in paths.items():
+            # get time of first and last timestamps of recording session
+            start_time, end_time = get_timestamps(file_list)
 
-        # iterate over each filepath in the session
-        for i, file in enumerate(file_list):
-            # ------------ TODO: maybe implement better logic?
-            # check if file is faulty
-            if file is None:
-                # extract sample rate from previous file
-                with np.load(file_list[i - 1]) as data:
-                    sample_rate = int(data["rate"])  # int
+            # minutes from start of time axis to start time of recording session
+            start_time_minutes = (
+                timedelta(
+                    hours=start_time.hour,
+                    minutes=start_time.minute,
+                    seconds=start_time.second,
+                ).total_seconds()
+                / 60
+            )
+            end_time_minutes = (
+                timedelta(
+                    hours=end_time.hour,
+                    minutes=end_time.minute,
+                    seconds=end_time.second,
+                ).total_seconds()
+                / 60
+            )
 
-                # calculate data points per minute (sample rate in Hz * 60 sec/min)
-                idx_per_min = sample_rate * 60
+            # calculate start and end bin
+            start_bin = int(start_time_minutes // bin_size)
+            end_bin = int(end_time_minutes // bin_size)
 
-                # calculate data points per bin
-                idx_per_bin = idx_per_min * bin_size
-
-                # calculate how many indices are missing due to faulty file
-                missing_idx = int(min_per_rec * idx_per_min)
-
-                # calculate how many percent of the bin faulty file makes up
-                nan_percent = missing_idx / idx_per_bin
-
-                ## get correct bin of faulty files
-                # extract start time of previous file
-                prev_start_time = datetime.strptime(
-                    file_list[i - 1].name.split("-")[1].split("_")[0], "%Y%m%dT%H%M%S"
-                )
-
-                # calculate start time of faulty file
-                nan_start_time = (
-                    timedelta(
-                        hours=prev_start_time.hour,
-                        minutes=prev_start_time.minute,
-                        seconds=prev_start_time.second,
-                    ).total_seconds()
-                    / 60
-                ) + timedelta(minutes=min_per_rec)
-
-                # calculate start bin of faulty file
-                correct_nan_bin = nan_start_time // bin_size
-
-                ## store amount of missing nan percentage per bin
-                nan_per_bin[correct_nan_bin] += nan_percent
-
-            # ----------
-            # non faulty files
-            else:
-                # load current file
-                with np.load(file) as data:
-                    # extract peaks that have been predicted as valid peaks
-                    valid_peaks = data["centers"][data["predicted_labels"] == 1]
-
-                    # check if there are any valid peaks
-                    if len(valid_peaks) == 0:
-                        con.log(f"Warning: No valid peaks in {file.name}!")
-                        continue
-
-                    # if valid peaks detected
-                    else:
-                        # ------- maybe put this whole block at start
-                        # extract sample rate
+            # iterate over each filepath in the session
+            for i, file in enumerate(file_list):
+                # ------------ TODO: maybe implement better logic?
+                # check if file is faulty
+                if file is None:
+                    # extract sample rate from previous file
+                    with np.load(file_list[i - 1]) as data:
                         sample_rate = int(data["rate"])  # int
 
-                        # calculate data points per minute (sample rate in Hz * 60 sec/min)
-                        idx_per_min = sample_rate * 60
+                    # calculate data points per minute (sample rate in Hz * 60 sec/min)
+                    idx_per_min = sample_rate * 60
 
-                        # calculate data points per bin
-                        idx_per_bin = idx_per_min * bin_size
-                        # -------
+                    # calculate data points per bin
+                    idx_per_bin = idx_per_min * bin_size
 
-                        # start and end of a recording session are in the same hour
-                        if start_bin == end_bin:
-                            # calculate the time difference of start and end time in seconds
-                            diff_seconds = timedelta(
-                                minutes=end_time.minute - start_time.minute,
-                                seconds=end_time.second - start_time.second,
-                            ).total_seconds()
+                    # calculate how many indices are missing due to faulty file
+                    missing_idx = int(min_per_rec * idx_per_min)
 
-                            # convert to number of indices in this time window
-                            diff_idx = int(diff_seconds * sample_rate)
+                    # calculate how many percent of the bin faulty file makes up
+                    nan_percent = missing_idx / idx_per_bin
 
-                            # calculate how many percent of the bin is covered by data
-                            diff_percent = diff_idx / idx_per_bin
+                    ## get correct bin of faulty files
+                    # extract start time of previous file
+                    prev_start_time = datetime.strptime(
+                        file_list[i - 1].name.split("-")[1].split("_")[0],
+                        "%Y%m%dT%H%M%S",
+                    )
 
-                            # loop over all peaks in file
-                            for peak in valid_peaks:
-                                # assign peaks to bin
-                                global_peak_idx = int(peak // idx_per_bin) + start_bin
-                                # add correct number of peaks to bin
-                                # check if bin contains faulty files and add according correct percentage of peaks
-                                peaks_per_bin[global_peak_idx] += (
-                                    diff_percent - nan_per_bin[global_peak_idx]
-                                )
+                    # calculate start time of faulty file
+                    nan_start_time = (
+                        timedelta(
+                            hours=prev_start_time.hour,
+                            minutes=prev_start_time.minute,
+                            seconds=prev_start_time.second,
+                        ).total_seconds()
+                        / 60
+                    ) + timedelta(minutes=min_per_rec)
 
-                        # start and end of a recording session are in different hours
+                    # calculate start bin of faulty file
+                    correct_nan_bin = nan_start_time // bin_size
+
+                    ## store amount of missing nan percentage per bin
+                    nan_per_bin[correct_nan_bin] += nan_percent
+
+                # ----------
+                # non faulty files
+                else:
+                    # load current file
+                    with np.load(file) as data:
+                        # extract peaks that have been predicted as valid peaks
+                        valid_peaks = data["centers"][data["predicted_labels"] == 1]
+
+                        # check if there are any valid peaks
+                        if len(valid_peaks) == 0:
+                            con.log(f"Warning: No valid peaks in {file.name}!")
+                            continue
+
+                        # if valid peaks detected
                         else:
-                            # calculate the time difference to next/last bin in seconds
-                            start_diff_seconds = timedelta(
-                                minutes=bin_size - (start_time.minute % bin_size),
-                                seconds=-start_time.second,
-                            ).total_seconds()
-                            end_diff_seconds = timedelta(
-                                minutes=end_time.minute % bin_size,
-                                seconds=end_time.second,
-                            ).total_seconds()
+                            # ------- maybe put this whole block at start
+                            # extract sample rate
+                            sample_rate = int(data["rate"])  # int
 
-                            # calculate how many indices at start and end of each session
-                            start_diff_idx = int(start_diff_seconds * sample_rate)
-                            end_diff_idx = int(end_diff_seconds * sample_rate)
+                            # calculate data points per minute (sample rate in Hz * 60 sec/min)
+                            idx_per_min = sample_rate * 60
 
-                            # calculate the percentage of start_diff_idx relative to points_per_bin (in decimals)
-                            start_diff_percent = start_diff_idx / idx_per_bin
-                            end_diff_percent = end_diff_idx / idx_per_bin
+                            # calculate data points per bin
+                            idx_per_bin = idx_per_min * bin_size
+                            # -------
 
-                            # calculate offset to account for length of recordings
-                            offset = i * idx_per_min * min_per_rec
+                            # start and end of a recording session are in the same hour
+                            if start_bin == end_bin:
+                                # calculate the time difference of start and end time in seconds
+                                diff_seconds = timedelta(
+                                    minutes=end_time.minute - start_time.minute,
+                                    seconds=end_time.second - start_time.second,
+                                ).total_seconds()
 
-                            # calculate at which idx of start bin this recording starts
-                            start_idx = idx_per_bin - start_diff_idx
+                                # convert to number of indices in this time window
+                                diff_idx = int(diff_seconds * sample_rate)
 
-                            # loop over all peaks in file
-                            try:
+                                # calculate how many percent of the bin is covered by data
+                                diff_percent = diff_idx / idx_per_bin
+
+                                # loop over all peaks in file
                                 for peak in valid_peaks:
-                                    # assign peaks to bins
+                                    # assign peaks to bin
                                     global_peak_idx = (
-                                        int((start_idx + offset + peak) // idx_per_bin)
-                                        + start_bin
+                                        int(peak // idx_per_bin) + start_bin
+                                    )
+                                    # add correct number of peaks to bin
+                                    # check if bin contains faulty files and add according correct percentage of peaks
+                                    peaks_per_bin[global_peak_idx] += (
+                                        diff_percent - nan_per_bin[global_peak_idx]
                                     )
 
-                                    # reset global peak idx if it exceeds number of bins so it goes into bin 0 at 24
-                                    if global_peak_idx >= num_bins * 3:
-                                        global_peak_idx = global_peak_idx - num_bins * 3
-                                        con.log(3)
-                                    elif global_peak_idx >= num_bins * 2:
-                                        global_peak_idx = global_peak_idx - num_bins * 2
-                                        con.log(2)
-                                    elif global_peak_idx >= num_bins:
-                                        global_peak_idx = global_peak_idx - num_bins
+                            # start and end of a recording session are in different hours
+                            else:
+                                # calculate the time difference to next/last bin in seconds
+                                start_diff_seconds = timedelta(
+                                    minutes=bin_size - (start_time.minute % bin_size),
+                                    seconds=-start_time.second,
+                                ).total_seconds()
+                                end_diff_seconds = timedelta(
+                                    minutes=end_time.minute % bin_size,
+                                    seconds=end_time.second,
+                                ).total_seconds()
 
-                                    # check if bin is at start or end of recording session, add correct number of peaks to bins
-                                    # check if bin contains faulty files and add according correct percentage of peaks
-                                    if global_peak_idx == start_bin:
-                                        peaks_per_bin[global_peak_idx] += (
-                                            start_diff_percent
-                                            - nan_per_bin[global_peak_idx]
+                                # calculate how many indices at start and end of each session
+                                start_diff_idx = int(start_diff_seconds * sample_rate)
+                                end_diff_idx = int(end_diff_seconds * sample_rate)
+
+                                # calculate the percentage of start_diff_idx relative to points_per_bin (in decimals)
+                                start_diff_percent = start_diff_idx / idx_per_bin
+                                end_diff_percent = end_diff_idx / idx_per_bin
+
+                                # calculate offset to account for length of recordings
+                                offset = i * idx_per_min * min_per_rec
+
+                                # calculate at which idx of start bin this recording starts
+                                start_idx = idx_per_bin - start_diff_idx
+
+                                # loop over all peaks in file
+                                try:
+                                    for peak in valid_peaks:
+                                        # assign peaks to bins
+                                        global_peak_idx = (
+                                            int(
+                                                (start_idx + offset + peak)
+                                                // idx_per_bin
+                                            )
+                                            + start_bin
                                         )
-                                    elif global_peak_idx == end_bin:
-                                        peaks_per_bin[global_peak_idx] += (
-                                            end_diff_percent
-                                            - nan_per_bin[global_peak_idx]
-                                        )
-                                    # normal bin
-                                    else:
-                                        peaks_per_bin[global_peak_idx] += (
-                                            1 - nan_per_bin[global_peak_idx]
-                                        )
-                            except IndexError:  # TODO: find actual solution for this
-                                con.log(
-                                    f"Warning: Peak index {peak} out of range for file {file.name}!!!!!!!!!"
-                                )
-                                continue
+
+                                        # reset global peak idx if it exceeds number of bins so it goes into bin 0 at 24 (TODO: improve)
+                                        if global_peak_idx >= num_bins * 3:
+                                            global_peak_idx = (
+                                                global_peak_idx - num_bins * 3
+                                            )
+                                        elif global_peak_idx >= num_bins * 2:
+                                            global_peak_idx = (
+                                                global_peak_idx - num_bins * 2
+                                            )
+                                        elif global_peak_idx >= num_bins:
+                                            global_peak_idx = global_peak_idx - num_bins
+
+                                        # check if bin is at start or end of recording session, add correct number of peaks to bins
+                                        # check if bin contains faulty files and add according correct percentage of peaks
+                                        if global_peak_idx == start_bin:
+                                            peaks_per_bin[global_peak_idx] += (
+                                                start_diff_percent
+                                                - nan_per_bin[global_peak_idx]
+                                            )
+                                        elif global_peak_idx == end_bin:
+                                            peaks_per_bin[global_peak_idx] += (
+                                                end_diff_percent
+                                                - nan_per_bin[global_peak_idx]
+                                            )
+                                        # normal bin
+                                        else:
+                                            peaks_per_bin[global_peak_idx] += (
+                                                1 - nan_per_bin[global_peak_idx]
+                                            )
+                                except (
+                                    IndexError
+                                ):  # TODO: find actual solution for this
+                                    con.log(
+                                        f"Warning: Peak index {peak} out of range for file {file.name}!!!!!!!!!"
+                                    )
+                                    continue
+
+                # update progress bar
+                progress.update(task, advance=1)
 
     return peaks_per_bin
 
 
 ### put plot in seperate script
 # Plot histogram of number of peaks per time bin
-def plot_peaks_time(bin_peaks, binsize):
+def plot_peaks_time(bin_peaks, save_path=None):
     """
     Plot histogram of number of peaks per time bin with actual time on x-axis.
     """
@@ -277,48 +301,43 @@ def plot_peaks_time(bin_peaks, binsize):
         edgecolor="black",
         align="edge",
     )
-    ax.set_title(f"Number of Peaks over Time (binsize: {binsize} min)")
+    ax.set_title("EOD count over Time")
     ax.set_xlabel("Time [h]")
     ax.set_ylabel("Number of Peaks")
-
-    # Set x-ticks to actual time
-    ax.set_xticks(list(range(len(bin_peaks))))
-    # Rotate for better readability
-    # ax.set_xticklabels(time_labels, rotation=45, ha="right")
-
+    ax.set_xticks(list(range(len(bin_peaks))))  # set x-ticks to actual time
     plt.tight_layout()
+
+    # save figure
+    if save_path:
+        con.log(f"Saving figure to {save_path}.")
+        fig.savefig(save_path, dpi=300)
+
+    # show figure
     plt.show()
 
 
 # %% Main
 def main():
-    # set bin size in minutes (TODO: prompt user to input number of minutes and only take value between 1 and 60)
-    binsize = 60  # min
-    # set time on x axis in minutes
+    # set time on x axis in minutes TODO: make kwarg?
     timeline = 24 * 60  # min
-    # set recording length in minutes (TODO: maybe solve this with array of rec lengths from load wav function)
-    rec_length = 5  # min
 
     # load preprocessed paths of recording sessions from json file
-
-    # Open a JSON file and load its content
     with open(
         "/home/eisele/wrk/mscthesis/data/intermediate/eellogger_session_paths.json", "r"
     ) as file:
         data = json.load(file)
 
-    # data = json.load(
-    #     "/home/eisele/wrk/mscthesis/data/intermediate/eellogger_session_paths.json"
-    # )
-
     # convert strings back to path objects
     data_paths = {k: [Path(p) for p in v] for k, v in data.items()}
 
     # calculate peaks per bin
-    bins = peaks_over_time(binsize, timeline, rec_length, data_paths)
+    binned_peaks = peaks_over_time(data_paths, timeline, rec_length=5, binsize=1)
 
     # plot time histogram
-    plot_peaks_time(bins, binsize)
+    plot_peaks_time(
+        binned_peaks,
+        save_path="/home/eisele/wrk/mscthesis/data/processed/eod_count_over_time_hist.png",
+    )
 
 
 if __name__ == "__main__":
