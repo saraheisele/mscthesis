@@ -23,10 +23,24 @@ and calculates the number of detected peaks per minute/hour and plots the result
 
 # Tuesday:
 # test which resistor is best for eelgrid data recordings
+# ordered hardware for brazil
+# restructured code to calculate sem using new variables from peaks_over_time function
+# function that makes variables of len num_bins (e.g. 1440 for 24h) to store eod counts of each rec for each minute
+# first binning minutes variable into hourly bins then calculate sem per hour
+# got rid of normalizing step bc thats being done in calculating the std (mean) already (according to benda)
+# downloaded data from peter (may, wetransfer)
+
+# Wednesday:
+# TODO: check if no normalization necessary if i do mean (bc that would be bdividing by n recs 2 time)??
+# refine whats being saved
 # TODO: split script in 2 halves
-# TODO: use npz file to to plot sem error bars (determine certainty)!
-# TODO: make rec count y axis in minutes (second yaxis)!
-# TODO: clean up code
+# use npz file to to plot sem error bars (determine certainty)
+# TODO: ask if theres diff for sem with n of rec or n of min per bin??
+# make rec count y axis in minutes
+# clean up code
+# TODO: write documentation for peaks_over_time function
+
+
 # TODO: make csv of metadata (automate this w LLM ?)!
 # TODO: check for correlations with external factors (e.g. temperature, salinity, time of day)
 # TODO: peaks over years, months, temp, leitfähigkeit, individuum
@@ -211,69 +225,12 @@ def peaks_over_time(
     )
 
 
-def normalize_eods(eods_per_min, rec_per_min):
-    """
-    Normalize eod count per minute by number of recordings per minute.
-    Input: eods_per_min, rec_per_min (lists of eod counts and rec counts per minute)
-    Output: normalized eod count per minute (array)
-    """
-    return np.array(eods_per_min) / np.array(rec_per_min)
-
-
-### approach to get eods_permin and rec_per_min from the other variables instead of from peaks_over_time function
-# def normalize_eods(eods_per_rec_and_min, minutes, num_bins):
-#     """
-#     Normalize eod count per minute by number of recordings per minute.
-#     Input: eods_per_min, rec_per_min (lists of eod counts and rec counts per minute)
-#     Output: normalized eod count per minute (array)
-#     """
-#     # initialize arrays
-#     eods_per_min = np.zeros(num_bins)
-#     recs_per_min = np.zeros(num_bins)
-
-
-#     # count occurance of each minute, this is the number of recordings per minute
-#     for i in range(num_bins):
-#         recs_per_min.append(minutes.count(i))
-
-#     # normalize eod counts per minute by number of recordings per minute
-#     normalized_eods = np.array(eods_per_min) / np.array(recs_per_min)
-
-#     return normalized_eods
-
-
-# reshape and sum bins to get eod count per desired bin size (e.g. hour)
-def bin_eods_recs(eods_per_min, rec_per_min, mins_per_timestep):
-    """
-    Bin eods per minute into desired timestep. Same for recs per minute
-    """
-    # reshape and sum bins to get hourly eod counts
-    binned_eods = eods_per_min.reshape(-1, mins_per_timestep).sum(axis=1)
-
-    # reshape and sum bins to get hourly rec counts
-    binned_recs = rec_per_min.reshape(-1, mins_per_timestep).sum(axis=1)
-
-    return binned_eods, binned_recs
-
-
-# calculate firing rate per bin/timestep
-def firing_rate_per_bin(eods_per_timestep, mins_per_timestep):
-    """
-    Calculates firing rate in Hz per bin.
-    """
-    return eods_per_timestep / (mins_per_timestep * 60)
-
-
 # save relevant variables from this script to npz file for plotting in diff script
 def save_intermediate(
     rec_path_ids,
     session_ids,
     minutes,
     eod_per_rec_and_min,
-    eods_per_min_norm,
-    eods_per_bin,
-    recs_per_bin,
-    rate_per_bin,
     save_path=None,
 ):
     """
@@ -287,15 +244,95 @@ def save_intermediate(
             session_id=session_ids,
             minute=minutes,
             eods_per_rec_min=eod_per_rec_and_min,
-            eods_per_min_norm=eods_per_min_norm,
-            eods_per_bin_norm=eods_per_bin,
-            recs_per_bin_norm=recs_per_bin,
-            rate_per_bin_norm=rate_per_bin,
         )
 
 
+# store eod counts of each rec that controbuted to a minute into a list of lists for all minutes
+def create_eods_per_min(eod_per_rec_and_min, minutes, num_bins):
+    """
+    Store the individual eod counts of each recording that contributed to a minute in a list.
+    Input:
+        - eod_per_rec_and_min (array of eod counts of all minutes one rec contributed to, sorted after rec no/idx),
+        - minutes (array of minute indices, sorted same as eod_per_rec_and_min),
+        - num_bins (number of bins)
+    Output:
+        - all_eods_per_min (list of length num_bins, each element is a list of eod counts for that minute)
+    """
+    # store eod counts of all recs per minute
+    all_eods_per_min = []
+
+    # iterate over all minutes and store a list of eod values at that minute in a list
+    for i in range(num_bins):
+        all_eods_per_min.append([eod_per_rec_and_min[minutes == i]])
+
+    return all_eods_per_min
+
+
+# sum eod counts and rec counts per minute
+def sum_eods_rec_per_min(all_eods_per_min):
+    """
+    Sum eod counts and rec counts per minute.
+    Input: all_eods_per_min (list of lists, each list contains eod counts for that minute)
+    Output:
+        - sum_eod_per_min (array of summed eod counts per minute),
+        - rec_per_min (array of number of recordings per minute)
+    """
+    # sum eod counts across recs per minute
+    sum_eod_per_min = np.array([sum(eods) for eods in all_eods_per_min])
+    # store number of recordings per minute
+    rec_per_min = np.array([len(eods) for eods in all_eods_per_min])
+
+    return sum_eod_per_min, rec_per_min
+
+
+# reshape bins to get eod count per desired bin size (e.g. hour)
+def bin_eods_recs(sum_eod_per_min, sum_rec_per_min, mins_per_timestep):
+    """
+    Bin eods per minute into desired timestep. Same for recs per minute
+    """
+    # reshape and sum bins to get hourly eod counts
+    binned_eods = sum_eod_per_min.reshape(-1, mins_per_timestep).sum(axis=1)
+    # reshape and sum bins to get hourly rec counts
+    binned_recs = sum_rec_per_min.reshape(-1, mins_per_timestep).sum(axis=1)
+
+    return binned_eods, binned_recs
+
+
+def sem_per_bin(binned_eods, binned_recs):
+    """
+    Calculate standard error of the mean (SEM) for eod counts per minute.
+    Input: eods_per_min, recs_per_min (arrays of eod counts and rec counts per minute)
+    Output: sem_eods_per_min (array of SEM values for each minute)
+    """
+    # initialize array to store SEM per bin
+    sem = np.zeros_like(binned_eods)
+    # TODO: binned recs is not actual amount of recordings per bin, rather number of minutes that contributed to this bin
+
+    # calculate SEM for each bin
+    for i in range(len(binned_eods)):
+        if binned_recs[i] > 0:
+            sem[i] = np.std(binned_eods[i]) / np.sqrt(binned_recs[i])
+        # set SEM to 0 if no recordings for this minute
+        else:
+            con.log(f"No recordings for minute {i}, setting SEM to 0.")
+            sem[i] = 0
+
+    return sem
+
+
+# calculate firing rate per bin/timestep
+def rate_per_bin(eods_per_timestep, sem, mins_per_timestep):
+    """
+    Calculates firing rate in Hz per bin.
+    """
+    # convert count data and count sem to rate in Hz
+    rate = eods_per_timestep / mins_per_timestep / 60
+    rate_sem = sem / mins_per_timestep / 60
+    return rate, rate_sem
+
+
 # Plot histogram of number of peaks per time bin
-def plot_eod_hist(binned_eods, recs_per_bin, eod_per_min, save_path=None):
+def plot_eod_hist(binned_eods, recs_per_bin, minute_eods, save_path=None):
     """
     Plot histogram of number of peaks per time bin with actual time on x-axis.
     """
@@ -303,7 +340,7 @@ def plot_eod_hist(binned_eods, recs_per_bin, eod_per_min, save_path=None):
 
     # Create a time axis for minute counts
     minute_time_axis = np.linspace(
-        0, len(binned_eods), len(eod_per_min), endpoint=False
+        0, len(binned_eods), len(minute_eods), endpoint=False
     )
 
     # Plot spike frequency over time
@@ -324,7 +361,7 @@ def plot_eod_hist(binned_eods, recs_per_bin, eod_per_min, save_path=None):
     ax = axs[1]
     ax.bar(
         minute_time_axis,
-        eod_per_min,
+        minute_eods,
         width=1 / 60,
         alpha=0.5,
         label="EOD Count per Minute",
@@ -344,7 +381,7 @@ def plot_eod_hist(binned_eods, recs_per_bin, eod_per_min, save_path=None):
         align="edge",
     )
     ax.set_title("Recording Count over Time")
-    ax.set_ylabel("Number of Recordings")
+    ax.set_ylabel("Number of Sampled Minutes")
     ax.set_xlabel("Time [h]")
     ax.set_xticks(list(range(len(binned_eods))))
 
@@ -360,19 +397,20 @@ def plot_eod_hist(binned_eods, recs_per_bin, eod_per_min, save_path=None):
 
 
 # Plot firing rate per time bin
-def plot_firing_rate(fr_per_bin, save_path=None):
+def plot_firing_rate(fr_per_bin, rate_sem, save_path=None):
     """
-    Plot line plot of firing rate per time bin with actual time on x-axis.
+    Plot firing rate per time bin with error bars.
     """
-    con.log("Plotting firing rates.")
+    con.log("Plotting firing rates with error bars.")
 
-    # Plot firing rate over time
+    # Plot firing rate over time with error bars
     fig, ax = plt.subplots()
-    ax.plot(
+    ax.errorbar(
         list(range(len(fr_per_bin))),
         fr_per_bin,
-        marker="o",
-        linestyle="-",
+        yerr=rate_sem,
+        fmt="o",
+        capsize=5,
         label="Firing Rate",
     )
     ax.set_title("EOD Firing Rate over Time")
@@ -401,21 +439,10 @@ def main():
         load_path="/home/eisele/wrk/mscthesis/data/intermediate/eellogger_session_paths.json"
     )
 
-    # calculate number of eods per minute
-    total_eod_counts, rec_counts, rec_paths, sessions, minute_idx, eod_counts = (
-        peaks_over_time(data_paths, session_ids, timescale_in_minutes, min_per_rec=5)
+    # get path, session id, minute and eod count for that minute for each recording
+    rec_paths, sessions, minute_idx, eod_counts = peaks_over_time(
+        data_paths, session_ids, timescale_in_minutes, min_per_rec=5
     )
-
-    # normalize eod counts per minute by number of recordings per minute
-    eod_counts_norm = normalize_eods(total_eod_counts, rec_counts)
-
-    # bin eod counts per minute into desired timestep (e.g. hour)
-    binned_eod_counts, binned_rec_counts = bin_eods_recs(
-        eod_counts_norm, rec_counts, minutes_per_bin
-    )
-
-    # calculate firing rate in Hz for each bin
-    firing_rates = firing_rate_per_bin(binned_eod_counts, minutes_per_bin)
 
     # save data
     save_intermediate(
@@ -423,220 +450,45 @@ def main():
         sessions,
         minute_idx,
         eod_counts,
-        eod_counts_norm,
-        binned_eod_counts,
-        binned_rec_counts,
-        firing_rates,
         save_path="/home/eisele/wrk/mscthesis/data/intermediate/intermediate_pulse_data.npz",
     )
+
+    # ---- put in seperate script ----
+    # store eod counts of all recs per minute in a list of lists
+    eod_counts_per_min = create_eods_per_min(
+        eod_counts, minute_idx, timescale_in_minutes
+    )
+
+    # sum up all individual eod counts and number of recs for each minute
+    eod_per_min, rec_per_min = sum_eods_rec_per_min(eod_counts_per_min)
+
+    # bin eod counts per minute into desired timestep (e.g. hour)
+    binned_eod_counts, binned_rec_counts = bin_eods_recs(
+        eod_per_min, rec_per_min, minutes_per_bin
+    )
+
+    # calcutate standard error of the mean (SEM) for eod counts per bin
+    sem_eod_counts = sem_per_bin(binned_eod_counts, binned_rec_counts)
+
+    # calculate firing rate in Hz for each bin
+    firing_rates = rate_per_bin(binned_eod_counts, minutes_per_bin)
 
     # ------------ put in seperate script ------------
     # plot eod count histogram
     plot_eod_hist(
         binned_eod_counts,
         binned_rec_counts,
-        eod_counts_norm,
+        eod_per_min,
         save_path="/home/eisele/wrk/mscthesis/data/processed/eod_count_min_hour_rec_count.png",
     )
 
     # plot firing rate over time
     plot_firing_rate(
         firing_rates,
+        sem_eod_counts,
         save_path="/home/eisele/wrk/mscthesis/data/processed/eod_firing_rate_over_time.png",
     )
 
 
 if __name__ == "__main__":
     main()
-
-
-# %%
-# # Count how many peaks happen per minute
-# def peaks_over_time(
-#     paths: list,  # list of paths to npz files
-#     num_bins: int,  # min
-#     min_per_rec: int,  # min
-# ):
-#     """
-#     Calculate number of peaks per minute.
-#     """
-#     # initialize array to store number of peaks
-#     eods_per_min = np.zeros(num_bins)
-
-#     # initialize array to store number of recordings
-#     rec_per_min = np.zeros(num_bins)
-
-#     ### iterate over each file path in path list
-#     # track progress with progress bar
-#     for file in track(paths):  # TODO: account for case (4:00 - 9:00 and 4:00 - 8:59)
-#         # TODO: save session idx, path idx (from json), minute, EOD count per minute per rec in npz file
-
-#         ## get start and end time of each rec
-#         start_time, _ = get_timestamps(file)
-
-#         # calculate start and end bin of rec
-#         start_bin = (start_time.hour * 60) + start_time.minute
-#         end_bin = start_bin + min_per_rec  # TODO: embed here to check end_time
-
-#         ## load current file
-#         valid_peaks, sample_rate = load_npz(file)
-
-#         # calculate data points per minute (sample rate in Hz * 60 sec/min)
-#         idx_per_min = sample_rate * 60
-
-#         # find start index within start bin
-#         start_idx = int(start_time.second * sample_rate)
-
-#         ### loop over all peaks in file
-#         for peak in valid_peaks:
-#             # assign peaks to bins
-#             global_peak_idx = int((start_idx + peak) // idx_per_min) + start_bin
-
-#             # reset global peak idx if it exceeds number of bins so it goes into bin 0 after max bin
-#             if global_peak_idx >= num_bins:
-#                 global_peak_idx = global_peak_idx - num_bins
-
-#             ### add peaks into the correct bin
-#             # if start of rec isn't at beginning of a minute ignore peaks in start and end bins
-#             if start_time.second != 0:
-#                 if global_peak_idx > start_bin and global_peak_idx < end_bin:
-#                     eods_per_min[global_peak_idx] += 1
-#             # if start of recording is at the beginning of a minute include whole recording length
-#             else:
-#                 if global_peak_idx >= start_bin and global_peak_idx < end_bin:
-#                     eods_per_min[global_peak_idx] += 1
-
-#         ### increment number of recordings per bin # TODO: improve this
-#         if start_time.second != 0:
-#             rec_per_min[start_bin + 1 : end_bin - 1] += 1
-#         else:
-#             rec_per_min[start_bin : end_bin - 1] += 1
-
-#     return eods_per_min, rec_per_min
-
-
-# def normalize_eods(eods_per_min, rec_per_min):
-#     """
-#     Normalize eod count per minute by number of recordings per minute.
-#     Input: eods_per_min, rec_per_min (lists of eod counts and rec counts per minute)
-#     Output: normalized eod count per minute (array)
-#     """
-#     return np.array(eods_per_min) / np.array(rec_per_min)
-
-
-# # reshape and sum bins to get eod count per desired bin size (e.g. hour)
-# def bin_eods_recs(eods_per_min, rec_per_min, mins_per_timestep=int):
-#     """
-#     Bin eods per minute into desired timestep. Same for recs per minute
-#     """
-#     # reshape and sum bins to get hourly eod counts
-#     binned_eods = eods_per_min.reshape(-1, mins_per_timestep).sum(axis=1)
-
-#     # reshape and sum bins to get hourly rec counts
-#     binned_recs = rec_per_min.reshape(-1, mins_per_timestep).sum(axis=1)
-
-#     return binned_eods, binned_recs
-
-
-# # calculate firing rate per bin/timestep
-# def firing_rate_per_bin(eods_per_timestep, mins_per_timestep=int):
-#     """
-#     Calculates firing rate in Hz per bin.
-#     """
-#     return eods_per_timestep / (mins_per_timestep * 60)
-
-
-# # Plot histogram of number of peaks per time bin
-# def plot_eod_hist(binned_eods, recs_per_bin, eod_per_min, save_path=None):
-#     """
-#     Plot histogram of number of peaks per time bin with actual time on x-axis.
-#     """
-#     con.log("Plotting histogram.")
-
-#     # Create a time axis for minute counts
-#     minute_time_axis = np.linspace(
-#         0, len(binned_eods), len(eod_per_min), endpoint=False
-#     )
-
-#     # Plot spike frequency over time
-#     fig, axs = plt.subplots(3, 1, figsize=(15, 12))
-#     ax = axs[0]
-#     ax.bar(
-#         list(range(len(binned_eods))),
-#         binned_eods,
-#         width=1,
-#         edgecolor="black",
-#         label="EOD Count",
-#         align="edge",
-#     )
-#     ax.set_title("EOD count per Hour")
-#     ax.set_ylabel("Number of Peaks")
-#     ax.set_xticks(list(range(len(binned_eods))))
-
-#     ax = axs[1]
-#     ax.bar(
-#         minute_time_axis,
-#         eod_per_min,
-#         width=1 / 60,
-#         alpha=0.5,
-#         label="EOD Count per Minute",
-#         align="edge",
-#     )
-#     ax.set_title("EOD count per Minute")
-#     ax.set_ylabel("Number of Peaks")
-#     ax.set_xticks(list(range(len(binned_eods))))
-
-#     ax = axs[2]
-#     ax.bar(
-#         list(range(len(recs_per_bin))),
-#         recs_per_bin,
-#         width=1,
-#         alpha=0.5,
-#         label="Recording Count",
-#         align="edge",
-#     )
-#     ax.set_title("Recording Count over Time")
-#     ax.set_ylabel("Number of Recordings")
-#     ax.set_xlabel("Time [h]")
-#     ax.set_xticks(list(range(len(binned_eods))))
-
-#     plt.tight_layout()
-
-#     # Save figure
-#     if save_path:
-#         con.log(f"Saving figure to {save_path}.")
-#         fig.savefig(save_path, dpi=300)
-
-#     # Show figure
-#     plt.show()
-
-
-# # Plot firing rate per time bin
-# def plot_firing_rate(fr_per_bin, save_path=None):
-#     """
-#     Plot line plot of firing rate per time bin with actual time on x-axis.
-#     """
-#     con.log("Plotting firing rates.")
-
-#     # Plot firing rate over time
-#     fig, ax = plt.subplots()
-#     ax.plot(
-#         list(range(len(fr_per_bin))),
-#         fr_per_bin,
-#         marker="o",
-#         linestyle="-",
-#         label="Firing Rate",
-#     )
-#     ax.set_title("EOD Firing Rate over Time")
-#     ax.set_xlabel("Time [h]")
-#     ax.set_ylabel("EODs per Second [Hz]")
-#     ax.set_xticks(list(range(len(fr_per_bin))))
-#     plt.tight_layout()
-
-#     # Save figure
-#     if save_path:
-#         con.log(f"Saving figure to {save_path}.")
-#         fig.savefig(save_path, dpi=300)
-
-#     # Show figure
-#     plt.show()
