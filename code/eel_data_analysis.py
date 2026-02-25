@@ -3,54 +3,10 @@ This script loads preprocessed data from eel_data_preprocessing script
 and calculates the number of detected peaks per minute/hour and plots the result as histogram.
 """
 
-# Monday:
-# calculate firing rate per bin
-# plot firing rate per bin
-# new script for plots
-# list that holds number of recs per minute
-# plot histogram of number of recs per minute infront of eod count distribution
-# plot eod counts of each minute infront of hourly count hist
-
-# Friday:
-# make progress bar more simple (track)
-# normalization in seperate function (account for amount of recordings that contribute to each bin)
-# use arrays instead of lists
-# change peaks_over_time function to store all necessary data in arrays
-# save session idx, path idx (from json), minute, EOD count per minute per rec in npz file
-
-# Monday:
-# plans for brazil
-
-# Tuesday:
-# test which resistor is best for eelgrid data recordings
-# ordered hardware for brazil
-# restructured code to calculate sem using new variables from peaks_over_time function
-# function that makes variables of len num_bins (e.g. 1440 for 24h) to store eod counts of each rec for each minute
-# first binning minutes variable into hourly bins then calculate sem per hour
-# got rid of normalizing step bc thats being done in calculating the std (mean) already (according to benda)
-# downloaded data from peter (may, wetransfer)
-# moved home directory to new big disk
-
-# Wednesday:
-# refine whats being saved
-# split script in 2 halves
-# use npz file to to plot sem error bars (determine certainty)
-# make rec count y axis in minutes
-# clean up code
-# killed variables eods_per_min and rec_per_min
-# sautered new resistors for eelgrid logger
-# fix progress bar in peaks_over_time function
-# check and  calibrate eelgrid logger
-# fixed that i have permissions to eels-mfn2021_peaks folder again after moving home dir to new disk
-# error in rec count hist: first bin had way too many counts - used np.full instead of np.zeros to initialize arrays
-# checked if other variable instead of binned_recs (rec_count_min) is better for errorbars ; no difference
-# put plot functions into eel_data_plots.py script, all seperate scripts now working
-
 # TODO: check which binned recs variable is true/best and why errorbars are so small
 # TODO: check if no normalization necessary if i do mean (bc that would be bdividing by n recs 2 time)??
 # TODO: write documentation for peaks_over_time function
 # TODO: write script that cleans up data from eelgrid and eellogger from sd cards in april
-# TODO: download peter data from 02-05 may (wetransfer), unzip it in eels-mfn2021/new/ folder, ./cleandata <folder in new/ of unzipped data>, rm -r zip folder from download in eisele home
 # TODO: make csv of metadata (automate this w LLM ?)!
 # TODO: check for correlations with external factors (e.g. temperature, salinity, time of day)
 # TODO: peaks over years, months, temp, leitfähigkeit, individuum
@@ -69,6 +25,7 @@ con = Console()
 
 
 # %%
+# TODO: implement this cahnge paths function (the code reappears in extract data function)
 def change_paths_in_json(load_path):
     """
     Change paths in a json file from old base path to new base path.

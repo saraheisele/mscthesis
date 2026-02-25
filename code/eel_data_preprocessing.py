@@ -12,10 +12,10 @@ dict_keys(['labels', 'peaks', 'channels', 'amplitudes', 'centers', 'start_stop_i
 peak_data contains as many entries/dicts as there are .npz files in the folder.
 
 The script consists of 4 steps:
-1. Acces and store paths of npz files and corresponding wav files in seperate sorted lists.
+1. Access and store paths of npz files and corresponding wav files in seperate sorted lists.
 2. Check both lists for missing, empty or corrupt files and exclude them from further analysis.
 3. Sort npz file paths into recording sessions based on the time stamps in the file names.
-This step is necessary because sometimes there are several recordings essions within the same folder.
+This step is necessary because sometimes there are several recording sessions within the same folder.
 This step produces a dictionary that contains as many keys as rec sessions,
 each key contains a list of npz file paths that belong to that session.
 4. Save the dictionary with the session paths to a json file for later use.
@@ -39,7 +39,6 @@ from rich.progress import Progress
 from pathlib import Path
 import numpy as np
 from datetime import datetime, timedelta
-import re
 import json
 # from audioio.audioloader import AudioLoader
 
@@ -49,83 +48,6 @@ con = Console()
 
 # %%
 ### Functions ###
-# Import corresponding wav file - currently this function is unnessecary bc minutes per rec is not relevant for new approach!
-def load_wav(datapath):
-    """
-    Load the corresponding wav file for the given npz file/s and returns recording length in min.
-    """
-    # Print status
-    con.log("Loading wav files.")
-
-    # Initialize list to store file paths globally
-    # wav_path_list = []
-
-    if datapath.is_file():
-        # check if file starts with eellogger # TODO: necessary here?
-        if datapath.name.startswith("eellogger") and datapath.suffix == ".npz":
-            # Get the filename from the npz file
-            filename = str(datapath.name).split("_")[0] + ".wav"
-
-            # Get the parent directory of the npz file
-            parent = "_".join(str(datapath.parent.parent).split("_")[:-1])
-
-            # Construct the path to the wav file
-            wavpath = Path(
-                datapath.parent.parent.parent / parent / datapath.parent.name / filename
-            )
-
-            # Load the wav file
-            # audio_data = AudioLoader(wavpath)
-
-            # add path to list for consistency with directory case
-            wav_path_list = [wavpath]
-
-    elif datapath.is_dir():
-        # Construct path to sup folder TODO: change this so not necessary to hardcode if its a sup/normal directory
-        new_path_name = "_".join(str(datapath.name).split("_")[:-1])
-        wavpath = Path(datapath.parent / new_path_name)
-
-        # # Construct path to normal directory
-        # parent = "_".join(str(datapath.parent).split("_")[:-1])
-        # wavpath = Path(datapath.parent.parent / parent / datapath.name)
-
-        # Match eellogger followed by any number, then -YYYYMMDDTHHMMSS
-        pattern = re.compile(r"^eellogger\d+-\d{8}T\d{6}$")
-
-        # Get all wav files of directory and store them alphabetically in a list
-        wav_path_list = sorted(
-            [
-                f
-                for f in wavpath.rglob("*.wav")
-                # only store if normal stem and not empty
-                if pattern.match(f.stem) and f.stat().st_size > 0
-            ]
-        )
-
-        # # Initialize emtpy list to store number of minutes for each recording - not used atm!!
-        # minutes_list = []
-
-        # for i, wav in enumerate(wav_path_list):
-        #     try:
-        #         # Load each wav file
-        #         audio_data = AudioLoader(wav)
-        #     except Exception as e:
-        #         con.log(f"Error loading: {e}")
-        #         continue
-        #     # Get sampling rate for this wav file
-        #     fs = audio_data.rate
-
-        #     # Get number of minutes per recording for this wav file
-        #     samples_per_rec = audio_data.shape[0]
-        #     minutes_rec = samples_per_rec / fs / 60
-
-        #     # # Store in peak_data
-        #     # npz_data[i]["minutes"] = minutes_rec
-
-        #     # save all minutes_rec in a list
-        #     minutes_list.append(minutes_rec)
-
-    return wav_path_list
 
 
 # Load npz files
@@ -243,7 +165,7 @@ def check_sessions(file_paths: list):
     Check if recordings are subsequent and store seperate recording sessions in a dictionary.
     """
     ## Pair each path with its extracted datetime or None
-    # initiate empty list to store tuples of (datetime, path)
+    # initiate empty list to store tuples of (datetime, path) --- TODO: make this for loop a seperate function
     dt_path_list = []
 
     for path in file_paths:
@@ -360,11 +282,10 @@ def main():
     datapath = Path("/mnt/data1/eels-mfn2021_peaks/")
 
     # load data
-    wav_paths = load_wav(datapath)
     npz_paths = load_peaks(datapath)
 
     # faulty files function
-    npz_paths_new = faulty_files(wav_paths, npz_paths)
+    npz_paths_new = faulty_files(npz_paths)
 
     # sort file paths into recording sessions
     session_paths = check_sessions(npz_paths_new)

@@ -189,7 +189,115 @@ Do, 15.05.25:
 # modularized and improved code (its way shorter and faster now)
 
 Fr, 16.05.25:
-# arbeit bei arbeit
+# arbeit bei ari
 
 ---WEEK 10---
 Mo, 19.05.25:
+# calculate firing rate per bin
+# plot firing rate per bin
+# new script for plots
+# list that holds number of recs per minute
+# plot histogram of number of recs per minute infront of eod count distribution
+# plot eod counts of each minute infront of hourly count hist
+
+Di-Do:
+# didn't feel well - holiday
+
+Fr, 23.05.25:
+# make progress bar more simple (track)
+# normalization in seperate function (account for amount of recordings that contribute to each bin)
+# use arrays instead of lists
+# change peaks_over_time function to store all necessary data in arrays
+# save session idx, path idx (from json), minute, EOD count per minute per rec in npz file
+
+---WEEK 11---
+Mo, 26.05.25:
+# plans for brazil w patrick
+
+Tue, 27.05.25:
+# test which resistor is best for eelgrid data recordings
+# ordered hardware for brazil
+# restructured code to calculate sem using new variables from peaks_over_time function
+# function that makes variables of len num_bins (e.g. 1440 for 24h) to store eod counts of each rec for each minute
+# first binning minutes variable into hourly bins then calculate sem per hour
+# got rid of normalizing step bc thats being done in calculating the std (mean) already (according to benda)
+# downloaded data from peter (may, wetransfer)
+# moved home directory to new big disk
+
+Wed, 28.05.25:
+# refine whats being saved
+# split script in 2 halves
+# use npz file to to plot sem error bars (determine certainty)
+# make rec count y axis in minutes
+# clean up code
+# killed variables eods_per_min and rec_per_min
+# sautered new resistors for eelgrid logger
+# fix progress bar in peaks_over_time function
+# check and  calibrate eelgrid logger
+# fixed that i have permissions to eels-mfn2021_peaks folder again after moving home dir to new disk
+# error in rec count hist: first bin had way too many counts - used np.full instead of np.zeros to initialize arrays
+# checked if other variable instead of binned_recs (rec_count_min) is better for errorbars ; no difference
+# put plot functions into eel_data_plots.py script, all seperate scripts now working
+
+Thur, 29.05.25:
+# National Holiday (Billie Eilish concert)
+
+Fri, 30.05.25:
+# worked at ari lab
+# BuFaTa
+
+---WEEK 12---
+Mo, 02.06.25:
+# Berlin w Jan and Patrick
+
+Di, 03.06.25:
+# Berlin w Jan and Patrick
+
+Mi, 04.06.25:
+# work at ari lab
+
+Do, 05.06.25:
+# finished ordering hardware for brazil
+# patrick showed me what I can and should do while he is on holiday
+# made some electrodes
+# looked at double peaked pulses in rec from 14022025
+# started writing script to extract those pulses
+
+Fr, 06.06.25:
+# not at lab bc of RIP Festival
+
+---WEEK 13---
+Mo, 09.06.25:
+# National Holiday
+
+Di, 10.06.25:
+# unpacked all ordered hardware parts
+# answered emails
+# gave yvonne stuff so she can give me money back for stuff we ordered
+# organized nextcloud access for david, douglas, micha
+# checked how waterproof sd card holder is
+# downloaded/transfered all remaining eel data
+# started sorting eel data into big dataset
+# set up remote desktop
+
+Mi, 11.06.25:
+# finished sorting data
+# wrote script that sorts .dat and .wav files that were unsorted on sd card into folders per recording session
+# tested mini amps, but honeytones are better than marshall
+# prepared retoure for mini amps (thomann)
+# ordered new mini amps (honeytones)
+# got uni vpn for remote desktop
+
+
+
+
+
+
+
+
+
+
+
+
+
+

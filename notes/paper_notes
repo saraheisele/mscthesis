@@ -275,10 +275,192 @@ usual hunting strategy of eel:
 - high V volley also used to very precisely sense prey location and confirm that is prey (electrosensory feedback necessary for feeding attempt)
 
 
+##################################################################
+The third form electric organ discharge of electric eels - Jun Xu 2021 (read on 11.06.25)
+- used electric eel pulses to electroporize(?) GFP DNA into 6dpf zebrafish larvae
+- gene transfer not successful w younger larvae or onecelled organisms, only in somatic cells
+- claim that electric eel shocks facilitate lateral gene transfer of eDNA to small organisms thereby ecological relevance
+- gene transfer was not congenital so questionable theory but cool paper
+
+
+##################################################################
+Electric organ discharge from electric eel facilitates DNA transformation into teleost larvae in laboratory conditions - Sakaki 2023 (read on 11.06.25)
+
+- why do we use edelstahl electrodes instead of carbon rod (w. lead wire)? catania also uses carbon
+- grounding approach feasible for us?
+- how to position electrodes ON eels head and tail?
+--> very sus paper, n=1 and only analyzed data of one burst i.e. 45s (no comparability, no statictical analysis, no citations, no real discussion)
+
+##################################################################
+Reproductive biology of the neotropical armoured catfish Hoplosternum littorale (Siluriformes - Callichthyidae): a synthesis stressing the role of the floating bubble nest - Gérard Hostache, Jan H. Mol (read on 30.01.26)
+
+- bubble nest crucial for reproductive behavior (synchronization signal) and for konkurrenz um females (almost half of the nests didnt have eggs in them)
+- males make bubble nest, 30 cm diameter, 6 cm high, topped with vegetation
+- triggers for nest building: beginn der regenzeit, anstieg wasserpegel um 30 cm ist notwendiger Reiz, reduktion der Leitfähigkeit kann nestbau induzieren
+- konstruktion passiert nachts und wird innerhalb einer nacht abgeschlossen
+- männchen baut nest in mitte von revier das er verteidigt, bleibt bei nest für 3 Tage bis larven schlüpfen und danach nochmal ca 3 Tage
+- wäjrend dieser zeit produziert männchen regelmäßig neuen schuam um nest instandzuhalten
+- unklar ob schaum aus mund, kiemen oder anus erfolgt
+- schaum hat amylase aktivität (wichtig?)
+- männchen macht erst nest, dann legt er pflanzen shit drauf
+- nester oft an grasbüscheln befestigt
+- pro nest ca 20.000 eier im schnitt, von 2-4 weibchen
+
+##################################################################
+Biology of the electric eel, Electrophorus electricus, Linnaeus, 1766 (Gymnotiformes: Gymnotidae) on the floodplain of the Curiaú River, eastern Amazonia - Mendes-Junior 2015 (read on 2.2.26)
+
+- lowkey boring basic info on how big they are as adults and when they sexually mature (app. 85 cm for females, males a bit bigger)
+- use this info to argue for government rules to protect el. eels in nature (min size to be caught 85 cm, dont hunt in rainy season bc of mating and offspring)
+- they took 1 eel per month over 2 (?) years from the wild and measured a bunch of physiological and anatomical stuff (gonad size, blood stuff, ...)
+
+##################################################################
+Electric Eels Inspired Iontronic Artificial Skin with Multimodal Perception and In-Sensor Reservoir Computing - Haizhou Pei (read on 2.2.26)
+
+- they made a really cool artificial skin
+- technology is new and based on electrocytes of eel smh
+- this skin can sense more various ranges of pressure and temp. than other artificial skins
+- first artificial skin that can sense temp without touching it
+
+##################################################################
+MEMBRANE POTENTIALS IN THE ELECTROPLATES OF THE ELECTRIC EEL - KEYNES 1952 (read on 06.02.26)
+
+- propose that mechanism behind high voltagte shocks are similar to impulse propagation in nerve and muscle
+- EOD consists of multiple layers of electroplates
+- electroplates consist of nervous and non--nervous face, nervous face points towards eels tail
+- non nervous face has extremely low resistance (0.23 Ohmcm**2) - this is important so pulse can flow thourhg those cells without too much resistance
+- electroplates are probably specialized muscle tissue
+- potentials during pulse are additive across all electroplates
+- used 2 microelectrodes and determined potential diff between them
+- using direct coupled differential amplifier
+- electrodes placed in small portion of electric tissue (~3 electroplates thick)
+- E. electricus, 11 animals
+- resting potential: -84 mV, same on both faces of electroplates (this verifies bernsteins hypothesis from 1912)
+- shock: action potential of 150 mV on nervous face of each electroplate (potential reversal/overshoot)
+- non-nervous face stays inactive
+- 1.7 m/s propagation
+- all or none response, i.e. spike only if enough potential there, otherwise no spike, threshhold potential at almost 12 mV
+- spike shapes depend on temp, longer spikes on cooling
+- avg. spike duration 2.4 ms at half peak amplitude
+- peaks that are drawn in this paper have a small peak before the main peak
+- small peak infront of big peak happens at the same time over the whole surface but the main pulse travels (fig. 15)
+- at peak of spike the potential between the two faces of the electroplate switches due to the massive depolarization and all potentials are in series (and thus added up)
+- head of eel becomes positive, tail negative, during discharge
+- sachs and main organ are physiologically very different, suggesting that sachs has a specialized function other than increasing main organs output
+- ALREADY showed that e. electricus can sense conductors in water & that search pulses originated from posterior end of el. organ (sachs organ?)
+
+- Synchronität: whole surface of electroplate activated at virtually same time in a spike
+- no meaningful propagation of the spike, therefore conceptually more similar to squid axon in voltage/space clamp than normal axon
+- eel electroplate reflects membrane dynamics, not cable propagation
+- upstream control of synchronization: Spinal electromotor neurons with very large, fast, myelinated axons, firing in highly synchronized bursts
+- electroplates activated by this synced firing
+- High density of voltage-gated Na⁺ channels on the innervated face, low excitability on the opposite face, prevents circular or traveling excitation
+- single, uniform dipole per plate, no internal waves running around the membrane
+
+##################################################################
+Ontogeny of the Electric Organs in the Electric Eel, Electrophorus electricus : Physiological, Histological, and Fine Structural Investigations - Horst O. Schwassmann 2014 (read on 10.02.26)
+
+- talk about how electric organs develop from embrionic to juveline states
+- e. electricus
+- main finding: electrocytes are not modified muscle cells but originate directly from electromatrix i.e. germinative region
+- first main organ develops, then sachs organ (at 12 cm length)
+- EOD onset at 7 days old larvae
+- adult EOD pattern at 45 mm length
+- electroplates are sperated by electrosepta (bindegewebe)
+- longitudinal electrosepta seperate columns of electrocytes
+- median septum seperates both halves of later main organ
+- electrosepta are necessary for correct innervation and electric activity
+- structural analysis also verifies that electrocytes are distinct from and dont originiate from muscle cells
+- actin like filaments in electrocytes (propably important to make them flat)
+- behavior changes drastically relating to ontogenesis of electric organs
+- swimming: oriented swwimming in larvae from 6-10 days, before that larvae sinnk to ground if they fall out of nest
+- first swimming like snake, from length 30-40mm on, they use anal fin and sideways movement of tail for swimming
+- high V burtsts from length of 35 mm
+- reaction to mechanical or electrical stimuli from 22-30 mm
+- high volume hum in nests (eachb larvae pulses normal but loud bc of group)
+- clear differentiation into low and high V pulses from 45 mm length (important point in development)
+
+##################################################################
+Unexpected species diversity in electric eels with a description of the strongest living bioelectricity generator - David de Santana (read on 11.02.26)
+
+- first paper that shows that there are 3 instead of 1 electrophorus species
+- based on genetic, morphological and ecological distribution
+- morphological: skull shape and depth, pectoral fin rays, cleithrum position
+- ecological: conductivity, oxygen level, rapids vs floodplains
+- e. voltai and varii described as new species in this paper
+- electricus:
+    - guiana shield
+    - u shaped head
+    - 88-101 lateral line pores
+    - 480 V discharge
+    - 2,03 bis 2,19 ms sachs organ waveform
+- varii:
+    - lowland flood plains , intercratonic basin
+    - low cond. blackwaters and high cond whitewaters, normoxic streams and hypoxic floodplains, slow flowing, no rocky substrate
+    - 572 V discharge
+    - 124-186 lateral line pores
+    - deepened skull
+    -  1,24 bis 1,78 ms sachs organ waveform
+    - breeds in dry period so offspring is independent in wet season
+- voltai:
+    - brazilian shield
+    - normal oxygen level, low conductivity, rocky ground/rapids/waterfalls
+    - egg shaped head
+    - 860 V discharge (strongest recorded)
+    - 1,72 ms sachs organ waveform (assumed)
+- voltai and varii cooccur in some streams in guiana shield
+- voltai and varii may have diverged due to adjustment to these different habitats (reflected by head morphology, different for difference in water speed)
+- there are differences in waveform but they dont correlate with phylogeny
+- langth of sachs organ pulse is different for each species, esp. for voltai and varii
+- reason for different length of EOD in varii and voltai might be their sympatric occurance (reproductive character displacement)
+
+##################################################################
+Nesting and Paternal Care in the Weakly Electric Fish Gymnotus (Gymnotiformes: Gymnotidae) with Descriptions of Larval and Adult Electric Organ Discharges of Two Species - Crampton & Hopkins (read on 11.02.26)
+
+- looked at gymnotus carapo (trinidad) and mamiraua (amazon whitewater floodplains)
+- males guard eggs and juveniles strongly
+- females absent from nests
+- estimated that offspring disperse on their on after 8-12 weeks
+- carapo has mouthbrooding
+- strong differences between juvenile and adult EODs
+- larval: monophasic, low power, low freq
+- adult: multiphasic waveform, higher peak power freq, higher freq at night than at day
+- airbreathing due to living in hypoxic waters
+- how much can I compare this to el. eel ???
+
+##################################################################
+HISTÓRIA NATURAL DE PORAQUÊS (ELECTROPHORUS SPP.) - DOUGLAS AVIZ BASTOS (read on 13.02.26)
+
+- first two chapters are in portuguese so I didnt get much of that
+- tracked several E. varii for 2 years in Ducke with PIT tags so they know where which animal was at all times
+- but interesting info like: species that are strongly intermittent electric fish
+- number and location of adult and juvenile eels in ducke
+- timeline for courtship, breeding behavior, reproductive period in different areas!! figure 2.7
+- up to 180 days of parental care!
+- high investment in each offsprings survival (eqilibrium strategist)
+- iteropar i.e. can have multiple offsprings in 1 lifecycle
+- E. varii reproduction cycle starts in dry season (very unsusual for amazonian fish) (june - august in manaus, sept-nov in marajo)
+- offspring is independent in wet season (more food in wet season for young eels)
+- when wet season starts young eels are 15 cm (after app. 4 months)
+- brooding places only accessible when water level is low enough
+- brooding places are in higher up smaller streams (headwaters) or at the edge of lakes
+- eels travel to brooding places in groups (reproductive migration)
+- same brooding places are being revisited by eels each year (its not known if these are the exact same eels right? maybe competition for best brooding places?)
+- males build bubble nests, these keep the eggs above the water surface but still moist
+- female feeds larvae with unfertilized eggs (trophische oozyten) twice during first days/weeks
+- eggs hatch at day 5
+- male guards nest
+- other species seem to reproduce during wet season and have less parental care time
+- e. varii wurde als sehr standorttreu beobachtet
+- somewhat linear growth of juvenile eels (fig 2.2)
+- detailed description of entwicklung from egg over larvae to juvenile eels
+- umweltparameter zu nestern der Zitteraale
+
 ---------------------------------------------------
 QUESTIONS:
-What does the third electric organ do?
 how do they mate?
+Whats the biggest threat to electric eel populations?
+definition stark vs schwach elektrisch?
+strongly electric intermittent fish: malapterurus, torpedo, astroscopus
 
 
 

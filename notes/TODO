@@ -1,22 +1,38 @@
 Today TODO:
 
 General TODO:
-  - ask why in msc_labbook file text is weirdly red and different saved symbol on tab?
   - read papers & summarize info from papers in .txt
-  - mit jan reden und brasilien sachen bestellen (16 kanal verstärker)
-  - gnatho daten aufnehmen? ob und wann??
   - adjust shortcuts in vs code!!
-  - open thunderfish and thunderlab
   - get headphones to work with audian
-  - look through word logging files and more data, make csv for metadata from word files
-  - sync script clean up and implement filter and improve plotting
+  - set up windows laptop to change video format
+  - look at more data
 
+Hardware TODO:
+  - kalibrieren mit verstärker der an netz hängt (ground)
+  - check and fix amplifiers (pin lötstellen)
+  - make 250 electrodes
+  - make kabelbäume
+
+Video Sync TODO:
+  - sync script clean up and implement filter and improve plotting
+  - check if new audio fits synced audio
+
+Eel Analysis TODO:
+  - look through word logging files and more data, make csv for metadata from word files
+  - do activity curve per electrodes,
+  - progress analysis script for other timescales & do correlations
+  - switch sem to std
+  - try 95 percentile
+  - plot median/mean statt counts
+  - check double pulse occurance in whole dataset w find peaks function
+
+  --------------------
 Open questions Eel:
   - which animal spikes with higher frequency
   - does one animal have bigger amplitude?
-  - how long do they sleep
-  - how does spike pattern change during day
-  - what type of spiking activity/spike shape do they display
+  [x] how long do they sleep
+  [x] how does spike pattern change during day
+  [x] what type of spiking activity/spike shape do they display
   - does spiking activity correlate to external factors
   - do they react to each other
   - is positive pole of electric field really at head of animal
