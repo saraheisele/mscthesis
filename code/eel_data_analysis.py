@@ -5,8 +5,6 @@ and calculates the number of detected peaks per minute/hour and plots the result
 
 # TODO: check which binned recs variable is true/best and why errorbars are so small
 # TODO: check if no normalization necessary if i do mean (bc that would be bdividing by n recs 2 time)??
-# TODO: write documentation for peaks_over_time function
-# TODO: write script that cleans up data from eelgrid and eellogger from sd cards in april
 # TODO: make csv of metadata (automate this w LLM ?)!
 # TODO: check for correlations with external factors (e.g. temperature, salinity, time of day)
 # TODO: peaks over years, months, temp, leitfähigkeit, individuum
@@ -25,7 +23,7 @@ con = Console()
 
 
 # %%
-# TODO: implement this cahnge paths function (the code reappears in extract data function)
+# TODO: implement change_paths_in_json function (the code reappears in extract data function)
 def change_paths_in_json(load_path):
     """
     Change paths in a json file from old base path to new base path.
@@ -140,6 +138,7 @@ def load_npz(file):
     return valid_peaks, sample_rate
 
 
+# TODO: this function is very umständlich and bloated, try to improve this
 # Count how many peaks happen per minute
 def peaks_over_time(
     paths: list,  # list of paths to npz files
@@ -150,7 +149,7 @@ def peaks_over_time(
     """
     Calculate number of peaks per minute.
     """
-    # initlialize array to store number of recordings per minute
+    # initialize array to store number of recordings per minute
     recs_per_min = np.zeros(num_bins)
 
     # initialize array to store recording path ids
@@ -218,7 +217,8 @@ def peaks_over_time(
                 fill_idx += 1
                 eod_counter = 0
 
-            ### add peaks into the correct bin
+            ### add peaks into the correct bin - TODO: does this work correctly? does th for loop really execute both if statements if they are both true
+            # or start a new loop after executing the first true if statement? check with print /embed()
             if global_peak_idx >= start_bin and global_peak_idx <= end_bin:
                 eod_counter += 1
 
@@ -288,7 +288,7 @@ def main():
         minute_idx,
         eod_counts,
         rec_count_min,
-        save_path="/home/eisele/wrk/mscthesis/data/intermediate/intermediate_pulse_data.npz",
+        save_path="/home/eisele/wrk/mscthesis/data/intermediate/intermediate_pulse_data.npz",  # TODO: make variable for file name of intermediate data file
     )
 
 

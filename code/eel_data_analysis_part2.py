@@ -29,6 +29,8 @@ def load_data(path):
 
 
 # store eod counts of each rec that controbuted to a minute into a list of lists for all minutes
+# TODO: maybe implement this in the previous script already (what do I need eods_per_rec_min for else?)
+# TODO: also maybe just sum up the gathered eod counts per min in this function instead of in the sum_eods_rec_per_min function
 def create_eods_per_min(eod_per_rec_and_min, minutes, num_bins):
     """
     Store the individual eod counts of each recording that contributed to a minute in a list.
@@ -63,7 +65,7 @@ def sum_eods_rec_per_min(all_eods_per_min):
     # store number of recordings per minute
     rec_per_min = np.array(
         [len(eods) for eods in all_eods_per_min]
-    )  # TODO: rename this array/check which rec count variable is correct!
+    )  # TODO: rename this array & check which rec count variable is correct!
 
     return sum_eod_per_min, rec_per_min
 

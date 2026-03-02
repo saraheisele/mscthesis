@@ -23,15 +23,9 @@ each key contains a list of npz file paths that belong to that session.
 The json file created in this script is loaded and used in the next step of this analysis (eel_data_analysis.py).
 """
 
-# TODO: modularize and improve code
-# TODO: make code work for single files ??
-# TODO: ask patrick if i should save Nones as placeholder for missing npz files in sessions dict?
-# TODO: ask patrick how he includes wav files in his code?
-# why no npz file for folder 20240913, 20240612, 20240517, 20240503, 20240502, 20240418, 20231201 ?
-# what to do in this case:
-# [12:03:49] Error loading eellogger1-20240503T051442_peaks.npz: tuple index out of range                                                                                                                                                        eel_data_analysis.py:228
-#            Error loading eellogger1-20240503T051943_peaks.npz: tuple index out of range                                                                                                                                                        eel_data_analysis.py:228
-#            Error loading eellogger1-20240503T052943_peaks.npz: tuple index out of range
+# TODO: get list of al hdf files and iterate through them
+# TODO: load wav files and extract sample rates
+# TODO: implement to kick hdf5 file out when it detects 0 predicted pulses (log: found # h5 files, # h5 files are being processed)
 
 # %%
 from rich.console import Console
@@ -40,56 +34,126 @@ from pathlib import Path
 import numpy as np
 from datetime import datetime, timedelta
 import json
+import nixio
+from thunderlab.dataloader import DataLoader
+# from IPython import embed
 # from audioio.audioloader import AudioLoader
 
 # Initialize console for logging
 con = Console()
 
-
-# %%
 ### Functions ###
 
 
-# Load npz files
-def load_peaks(datapath):
+def get_path_list(datapath):
     """
-    Load .npz files from the given path, directory or supdirectory.
+    Make a list fo all the paths of hdf5 files from the given file, directory or supdirectory.
     """
     # Print status
-    con.log("Loading detected peaks from npz files.")
+    con.log("Loading detected pulses from hdf5 files.")
 
     # Check if the path exists
     if not datapath.exists():
         raise FileNotFoundError(f"Path {datapath} does not exist.")
 
-    # Initiaize list to store file paths
-    npz_path_list = []
+    # Initialize list to store file paths
+    path_list = []
 
     # Check if the path is a directory, a file or a directory containing files
     if datapath.is_file():
-        # Check if the file is an npz file
-        if datapath.suffix == ".npz" and datapath.name.startswith("eellogger"):
-            con.log(f"Path {datapath} is a single npz file.")
+        # Check if the file is an hdf5 file
+        if datapath.suffix == ".h5":
+            con.log(f"Path {datapath} is a single hdf5 file.")
             # Store objects in list for consistency with directory case
-            npz_path_list.append(datapath)
+            path_list.append(datapath)
         else:
-            raise FileNotFoundError(f"File {datapath} is not an npz file.")
+            raise FileNotFoundError(f"File {datapath} is not an hdf5 file.")
 
-    # Recursively find all .npz files in the directory and subdirectories
+    # Recursively find all .h5 files in the directory and subdirectories
     elif datapath.is_dir():
-        for file in datapath.rglob("*.npz"):
-            # skip files that don't start with eellogger (wrong recording format)
-            if file.name.startswith("eellogger"):
-                npz_path_list.append(file)
+        for file in datapath.rglob("*.h5"):
+            path_list.append(file)
 
     else:
         raise FileNotFoundError(
             f"Path {datapath} is not a file, directory containing files or directory containing folders containing files."
         )
 
-    return sorted(npz_path_list)
+    return sorted(path_list)
 
 
+# %%
+
+
+def load_eods(file_paths):
+    # Print status
+    con.log("Loading hdf5 files.")
+
+    for fp in file_paths:
+        file = nixio.File.open(str(fp), nixio.FileMode.ReadWrite)
+        block = file.blocks["Average pulses"]
+        # data_array_names = [da.name for da in block.data_arrays]
+
+        pulses_center_idx = block.data_arrays["cluster_centers"]
+        pred_labels = block.data_arrays["predicted_labels"]
+
+        con.log(
+            f"Found total of {np.sum(pred_labels[:] == 1)} predicted pulses in file {fp}"
+        )
+
+    return pulses_center_idx, pred_labels
+
+
+# %%
+def get_wav(file_paths):
+    """
+    Takes the sorted path_list from get_path_list function, that contains one or several hdf5 files.
+    Builds the path to the corresponding wavfiles by iterating over h5 files.
+    Stores the first wav file of that recording session in a list and returns the list of wav file paths.
+    """
+    # Print status
+    con.log("Accessing corresponding wav files.")
+
+    # initialize empty list to store wav file paths
+    wav_path_list = []
+
+    # iterate through hdf5 paths and build path to corresponding wav files
+    for fp in file_paths:
+        new_path_name = "_".join(str(fp.name).split("_")[:-1])
+        wavpath = Path(
+            fp.parent.parent.parent.parent
+            / "raw/trial_dataset_new/fielddata_trial/inpa2025_trial/inpa_enclosure"
+            / new_path_name
+        )
+
+        # get the first wav file of directory and store the path to it in list
+        first_file = sorted(wavpath.rglob("*.wav"))[0]
+        wav_path_list.append(first_file)
+
+    return wav_path_list
+
+
+# %%
+# Extracts sampling rates in Hz from the first corresponding wav files of each hdf5 file and stores them in a list
+def get_fs(wav_path_list):
+    fs_list = []
+
+    # iterate through wav files
+    for wav in wav_path_list:
+        try:
+            audio_data = DataLoader(wav)
+        except Exception as e:
+            con.log(f"Error loading: {e}")
+            continue
+        # get sampling rate for this wav file
+        fs = audio_data.rate
+        # add sampling rate of each wav to list
+        fs_list.append(fs)
+
+    return fs_list
+
+
+# %%
 # Find files that are empty, missing or somehow corrupted
 def faulty_files(wav_path_list, npz_path_list):
     """
@@ -277,22 +341,28 @@ def save_session_paths(session_paths):
 
 
 # %% Main
-def main():
-    # Path to sup folder
-    datapath = Path("/mnt/data1/eels-mfn2021_peaks/")
+# def main():
+#     # Path to sup folder
+#     datapath = Path("/home/eisele/wrk/mscthesis/data/intermediate/inpa2025_peaks")
 
-    # load data
-    npz_paths = load_peaks(datapath)
+#     # make list containing all paths to hdf5 files in the given datapath
+#     path_list = get_path_list(datapath)
 
-    # faulty files function
-    npz_paths_new = faulty_files(npz_paths)
-
-    # sort file paths into recording sessions
-    session_paths = check_sessions(npz_paths_new)
-
-    # save session paths to json file
-    save_session_paths(session_paths)
+#     # load hdf5 files from path list and extract pulse centers and predicted labels
+#     pulses_center_idx, pred_labels = load_eods(path_list)
 
 
-if __name__ == "__main__":
-    main()
+#     # # faulty files function
+#     # path_list_new = faulty_files(path_list)
+
+#     # # sort file paths into recording sessions
+#     # session_paths = check_sessions(path_list_new)
+
+#     # # save session paths to json file
+#     # save_session_paths(session_paths)
+
+
+# if __name__ == "__main__":
+#     main()
+
+# %%
