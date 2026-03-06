@@ -31,8 +31,9 @@ from pathlib import Path
 import numpy as np
 import nixio
 from thunderlab.dataloader import DataLoader
-from datetime import datetime
-# from IPython import embed
+from datetime import datetime, timedelta
+from matplotlib import pyplot as plt
+from IPython import embed
 
 # Initialize console for logging
 con = Console()
@@ -81,6 +82,8 @@ def load_eods(file_paths):
     # Print status
     con.log("Loading hdf5 files.")
 
+    pulse_center_list = []
+
     for fp in file_paths:
         file = nixio.File.open(str(fp), nixio.FileMode.ReadWrite)
         block = file.blocks["Average pulses"]
@@ -93,7 +96,8 @@ def load_eods(file_paths):
             f"Found total of {np.sum(pred_labels[:] == 1)} predicted pulses in file {fp}"
         )
 
-    return pulses_center_idx, pred_labels
+        pulse_center_list.append(pulses_center_idx[pred_labels[:] == 1])
+    return pulse_center_list
 
 
 # %%
@@ -125,33 +129,33 @@ def find_wav(file_paths):
     return wav_path_list
 
 
-# %%
 # Extracts sampling rates in Hz from the first corresponding wav files of each hdf5 file and stores them in a list
-def load_wav(wav_path_list):
+def load_wav(wav_list):
+    # %%
     fs_list = []
     dt_list = []
     length_list = []
 
     # iterate through wav files
-    for wav in wav_path_list:
+    for wav in wav_list:
         # load wav file
         try:
             audio_data = DataLoader(wav)
         except Exception as e:
             con.log(f"Error loading: {e}")
             continue
-
+        # embed()
         ### get sampling rate in Hz for this wav file
         fs = audio_data.rate
         # add sampling rate of each wav to list
         fs_list.append(fs)
 
         ### get file name
-        filename = wav.name
+        filename = wav.stem
 
         # get start time of recording from first wav file name (str)
         start_time = filename.split("-")[1]
-
+        # %%
         # convert to datetime object
         dt_start = datetime.strptime(start_time, "%Y%m%dT%H%M%S")
 
@@ -165,28 +169,78 @@ def load_wav(wav_path_list):
 
         # add recording length in minutes to list
         length_list.append(minutes_rec)
-
+    # %%
     return fs_list, dt_list, length_list
 
-    # %% Main
-    # def main():
-    # Path to sup folder
-    datapath = Path("/home/eisele/wrk/mscthesis/data/intermediate/inpa2025_peaks")
 
-    # make list containing all paths to hdf5 files in the given datapath
-    path_list = get_path_list(datapath)
+# %% Main
+# def main():
+# Path to sup folder
+datapath = Path("/home/eisele/wrk/mscthesis/data/intermediate/inpa2025_peaks")
 
-    # load hdf5 files from path list and extract pulse centers and predicted labels
-    pulse_center_idc, pred_labels = load_eods(path_list)
+# make list containing all paths to hdf5 files in the given datapath
+path_list = get_path_list(datapath)
 
-    # make list of the first wav file of each recording session corresponding to the hdf5 files in path_list
-    wav_list = find_wav(path_list)
+# load hdf5 files from path list and extract pulse centers of pulses that were predicted as EODs
+pulse_centers = load_eods(path_list)
 
-    # get sampling rates from the first wav file of each recording session
-    sampling_rates, start_times, rec_lengths = load_wav(wav_list)
+# make list of the first wav file of each recording session corresponding to the hdf5 files in path_list
+wav_list = find_wav(path_list)
+
+# get sampling rates from the first wav file of each recording session
+sampling_rates, start_times, rec_lengths = load_wav(wav_list)
 
 
 # if __name__ == "__main__":
 #     main()
 
-# %%
+# create list to hold histogram
+time_range = 24 * 60  # min
+histogram_data = np.zeros(time_range)
+
+# TODO: pulse centers is only 1 long!!!
+# iterate through each of the lists in pulse_centers (one per hdf5 file)
+for i, rec in enumerate(pulse_centers):
+    # for each pulse list, iterate through the pulse indices
+    for idx in rec:
+        # divide the pulse idx with the sampling rate of the corresponding recording session to get the time of the pulse in seconds
+        pulse_time_sec = idx / sampling_rates[i]
+
+        # get absolute time of pulse by adding start time of recording session
+        pulse_time_abs = start_times[i] + timedelta(seconds=pulse_time_sec)
+
+        # get number of total minutes
+        minute = pulse_time_abs.hour * 60 + pulse_time_abs.minute
+
+        # append
+        histogram_data[minute] += 1
+
+embed()
+
+# roughly plot
+# x coordinates run 0…1439 (= minutes since midnight)
+x = np.arange(len(histogram_data))
+
+fig, ax = plt.subplots(figsize=(10, 4))
+ax.bar(x, histogram_data, width=1.0, align="edge", color="C0")
+
+# label the x‑axis in hours every 60 minutes
+hour_ticks = np.arange(0, 24 * 60 + 1, 60)
+hour_labels = [f"{h:02d}:00" for h in range(25)]
+ax.set_xticks(hour_ticks)
+ax.set_xticklabels(hour_labels, rotation=45)
+
+ax.set_xlim(0, 24 * 60)
+ax.set_xlabel("time of day")
+ax.set_ylabel("pulses per minute")
+ax.set_title("24‑h histogram (1‑min bins)")
+
+plt.tight_layout()
+plt.show()
+
+### TODO: continue here
+# save unix timestamp (float) in hdf5 format (w. compression) using nixio
+# first iteration make dataarray then append it in next iteration
+
+# Convert pulse index to Unix timestamp
+pulse_time_abs_unix = pulse_time_abs.timestamp()  # float64
