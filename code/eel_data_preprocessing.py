@@ -33,7 +33,7 @@ import nixio
 from thunderlab.dataloader import DataLoader
 from datetime import datetime, timedelta
 from matplotlib import pyplot as plt
-from IPython import embed
+# from IPython import embed
 
 # Initialize console for logging
 con = Console()
@@ -131,7 +131,6 @@ def find_wav(file_paths):
 
 # Extracts sampling rates in Hz from the first corresponding wav files of each hdf5 file and stores them in a list
 def load_wav(wav_list):
-    # %%
     fs_list = []
     dt_list = []
     length_list = []
@@ -169,8 +168,66 @@ def load_wav(wav_list):
 
         # add recording length in minutes to list
         length_list.append(minutes_rec)
-    # %%
+
     return fs_list, dt_list, length_list
+
+
+# TODO: maybe make seperate function for making list of unix timestamps of pulses
+# calculate number of pulses per time bin
+def make_histogram(pulse_centers, sampling_rates, start_times):
+    # create list to hold histogram
+    time_range = 24 * 60  # min
+    histogram_data = np.zeros(time_range)
+    timestamp_list = []
+
+    # iterate through each of the lists in pulse_centers (one per hdf5 file)
+    for i, rec in enumerate(pulse_centers):
+        # for each pulse list, iterate through the pulse indices
+        for idx in rec:
+            # divide the pulse idx with the sampling rate of the corresponding recording session to get the time of the pulse in seconds
+            pulse_time_sec = idx / sampling_rates[i]
+
+            # get absolute time of pulse by adding start time of recording session
+            pulse_time_abs = start_times[i] + timedelta(seconds=pulse_time_sec)
+
+            # get number of total minutes
+            minute = pulse_time_abs.hour * 60 + pulse_time_abs.minute
+
+            # append
+            histogram_data[minute] += 1
+
+            # Convert pulse index to Unix timestamp (float64) for later storage in hdf5 file
+            pulse_time_abs_unix = pulse_time_abs.timestamp()  # float64
+            timestamp_list.append(pulse_time_abs_unix)
+
+    return histogram_data, timestamp_list
+
+
+# create a hdf5 file with nixio to later save the timestamp of each pulse in it
+def open_nix_for_output(output_path: Path):
+    nix_file = nixio.File.open(str(output_path), nixio.FileMode.Overwrite)
+    nix_timestamps = nix_file.create_block(name="Timestamp", type_="datetime")
+
+    return nix_file, nix_timestamps
+
+
+## TODO: improve saving this (the array naming/structure of the h5 file is a mess)
+# save the unix timestamp of each pulse in the earlier created nix_timestamp block of nix_file
+def append_cluster_block(
+    time_stamp_block, time_stamp_list: list, created: bool
+) -> bool:
+    if not time_stamp_list:
+        return created
+
+    if not created:
+        time_stamp_block.create_data_array(
+            "timestamps", "timestamps", data=time_stamp_list
+        )
+
+    for time in time_stamp_list:
+        time_stamp_block.data_arrays["timestamps"].append(time)
+
+    return True
 
 
 # %% Main
@@ -190,39 +247,29 @@ wav_list = find_wav(path_list)
 # get sampling rates from the first wav file of each recording session
 sampling_rates, start_times, rec_lengths = load_wav(wav_list)
 
+# calculate histogram of number of pulses per minute for 24‑h period (0…1439 minutes)
+histogram, timestamps = make_histogram(pulse_centers, sampling_rates, start_times)
+
+# create a hdf5 file with nixio to later save the timestamp of each pulse in it
+nix_file, nix_block = open_nix_for_output(
+    Path(
+        "/home/eisele/wrk/mscthesis/data/intermediate/inpa2025_peaks/pulse_timestamps.nix"
+    )
+)
+
+# save the unix timestamp of each pulse in the earlier created nix_timestamp block of nix_file
+created = append_cluster_block(nix_block, timestamps, created=False)
 
 # if __name__ == "__main__":
 #     main()
 
-# create list to hold histogram
-time_range = 24 * 60  # min
-histogram_data = np.zeros(time_range)
-
-# TODO: pulse centers is only 1 long!!!
-# iterate through each of the lists in pulse_centers (one per hdf5 file)
-for i, rec in enumerate(pulse_centers):
-    # for each pulse list, iterate through the pulse indices
-    for idx in rec:
-        # divide the pulse idx with the sampling rate of the corresponding recording session to get the time of the pulse in seconds
-        pulse_time_sec = idx / sampling_rates[i]
-
-        # get absolute time of pulse by adding start time of recording session
-        pulse_time_abs = start_times[i] + timedelta(seconds=pulse_time_sec)
-
-        # get number of total minutes
-        minute = pulse_time_abs.hour * 60 + pulse_time_abs.minute
-
-        # append
-        histogram_data[minute] += 1
-
-embed()
-
-# roughly plot
+# %%
+### roughly plot
 # x coordinates run 0…1439 (= minutes since midnight)
-x = np.arange(len(histogram_data))
+x = np.arange(len(histogram))
 
 fig, ax = plt.subplots(figsize=(10, 4))
-ax.bar(x, histogram_data, width=1.0, align="edge", color="C0")
+ax.bar(x, histogram, width=1.0, align="edge", color="C0")
 
 # label the x‑axis in hours every 60 minutes
 hour_ticks = np.arange(0, 24 * 60 + 1, 60)
@@ -237,10 +284,3 @@ ax.set_title("24‑h histogram (1‑min bins)")
 
 plt.tight_layout()
 plt.show()
-
-### TODO: continue here
-# save unix timestamp (float) in hdf5 format (w. compression) using nixio
-# first iteration make dataarray then append it in next iteration
-
-# Convert pulse index to Unix timestamp
-pulse_time_abs_unix = pulse_time_abs.timestamp()  # float64
