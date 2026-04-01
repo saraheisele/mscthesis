@@ -1,0 +1,531 @@
+\chapter{Results} % (fold)
+\label{chap:results}
+
+The role of chirps as communication signals of wave-type weakly electric fish
+is still mysterious, partly because they are not easy to study. I have now
+introduced two neural networks that can be used to detect and assign chirps to
+their emitter. In the following chapter, we see how these models can be
+evaluated and integrated into a pipeline to automate chirp detection. This will
+allow us to detect chirps on a large dataset from a behavioral experiment to
+explore relationships between chirps, dominance status, and agonistic
+interactions in competitive contexts of \textit{A.~leptorhynchus}.
+
+\section{Architecture of the chirp detection pipeline} % (fold)
+\label{sec:the_pipeline}
+
+The chirp detection pipeline includes two feature extraction and two inference
+phases. Initially, spectrograms are extracted from EOD recordings and are
+passed into the detection model that returns time and frequency ranges, where
+it detected chirps. Following chirp detection, a second feature extraction
+phase gathers the temporal evolution of the powers of potential emitter
+EOD$f$s, which a subsequent model classifies in the final inference step. This
+way, each detected chirp is assigned to a fish. The full pipeline can be
+accessed as a \texttt{Python} package and all code necessary to detect chirps
+is freely available on GitHub
+(\url{https://github.com/weygoldt/chirpdetector}). The upcoming sections detail
+all processing steps and the models involved.
+
+\subsection{Detection feature extraction}
+
+The recordings from electrode grids have as many channels as there are
+electrodes. The initial feature extraction phase transforms raw electric
+recordings into spectrograms using a sliding window approach on every channel.
+These spectrograms are then combined into a sum spectrogram and converted to
+the decibel scale. Optimized for handling large datasets, these spectrograms
+are computed \enquote{on-the-fly} and discarded post-detection model analysis.
+To facilitate detection of small objects by the model and manage computational
+costs effectively, spectrograms are segmented into smaller tiles
+\parencite{huangTilingStitchingSegmentation2019}. Each tile spans
+\SI{15}{\second} with \SI{1}{\second} overlap, and covers a frequency range of
+\SI{1}{\kilo\hertz} with a \SI{500}{\hertz} overlap up to a maximum frequency
+of \SI{2}{\kilo\hertz}. For instance, a minute-long recording yields four
+time-axis windows and three frequency-dimension tiles, totaling 12 spectrograms
+processed concurrently.
+
+These spectrograms are then analyzed by the detection model to identify chirp
+bounding boxes, with parallel processing capacity constrained only by GPU
+memory. On a NVIDIA GeForce RTX 4080 with 16 GB of graphical memory, the system
+can process three minutes of data from 16 electrodes sampled at
+\SI{20}{\kilo\hertz} simultaneously. All performance-relevant parameters are
+adjustable depending on the available hardware.
+
+\subsection{Chirp detection}
+
+Inference is performed using a YOLOv8 model, encapsulated by a wrapper to
+standardize output formats, such as bounding boxes and confidence scores,
+across different model architectures. This wrapper, based on an abstract base
+class, facilitates easy model interchangeability and allows for the
+incorporation of new models as they become available.
+
+I tested the performance of all YOLOv8 versions as well as YOLOv9E. Both
+training and cross-validation indicated that YOLOv8XL outperforms others in
+precision, recall, and F1 score (figure \ref{fig:detector_performance} A-C).
+Precision, informative about how many of the  predicted chirps are actually
+real chirps, (equation \ref{eq:ap}), reaches above 99\% for the YOLOv8XL
+(figure \ref{fig:detector_performance} A). Recall, relating to how many of the
+chirps that are truly present in the dataset, are also detected (equation
+\ref{eq:ap}), also surpasses 99\% for YOLOv8XL (figure
+\ref{fig:detector_performance} B). Together, this shows that most of our
+predictions are trustworthy and that most chirps in the dataset will be
+detected. Only approximately 1\% of detections will be false positives and only
+approximately 1\% of existing chirps will be missed. Optimal detection
+thresholds to balance precision and recall are identified at around 50\% for
+all models by the F1 score (figure \ref{fig:detector_performance} C). YOLOv8XL
+was leading in average precision that reached up to 86\% (figure
+\ref{fig:detector_performance} D, E, equation \ref{eq:ap}). The average
+precision is a measure combining precision and recall into a single metric to
+make comparisons of models easier. This is lower to the previous metrics as
+here, the average precision is evaluated at AP@[.5:.01:.95] while the curves
+are evaluated at a single IoU threshold of 0.5 (see section \ref{sec:deteval}).
+Still, AP@[.5:.01:.95] of over 85\% can be regarded as a very precise object
+detector, surpassing the current state of the art benchmarks for multi-class
+detectors \parencite{wangYOLOv9LearningWhat2024}. Surprisingly, YOLOv9E, shows
+subpar performance despite beeing the newest model, potentially due to training
+instabilities (figure \ref{fig:yolo_crossval_training}). The performance
+metrics of YOLOv8M to XL are closely matched, with average precisions exceeding
+85\%. These medium sized models may suffice for less powerful devices or
+embedded systems.
+
+\begin{figure}[ht!]
+  \begin{center}
+    \includegraphics[width=1\textwidth]{../figures/kfold_modelsweep_performances.pdf}
+  \end{center}
+  \caption{
+    Performance metrics for detection models on the validation dataset,
+    including precision, recall, and F1 score. The F1 score serves as a
+    performance indicator to determine the optimal confidence thresholds.
+    Results, shown as median values from 5-fold cross-validation with
+    \ordinalnum{25} and \ordinalnum{75} percentiles, though variations are
+    minimal. Plots focus on areas where model performances diverge. Model
+    precision quickly stabilizes near 100\%, with YOLOv8N slower to plateau
+    (A). Model recall remains steady up to a 0.8 confidence, then declines (B).
+    YOLOv8M-XL exhibit higher recall, and are less affected by the confidence,
+    with YOLOv8XL leading. Optimal F1 scores occur around a confidence level of
+    0.5 for all models (C). Larger models score higher, with YOLOv8XL achieving
+    the top F1 score. Precision-recall curves, based on an IoU threshold of
+    0.5, largely overlap, with YOLOv8XL showing the greatest area under the
+    curve (D). Average precision, calculated across IoU thresholds from 0.5 to
+    0.95, indicates overall model efficacy (E). Larger models outperform, with
+    YOLOv8XL leading in average precision. YOLOv9E performs comparatively
+    poorly and exhibits strong variability, probably due to the instabilities
+    during training illustrated in figure \ref{fig:yolo_crossval_training}.
+  }
+  \label{fig:detector_performance}
+  \vspace{0.5cm}
+\end{figure}
+
+Detected bounding boxes undergo several post-processing steps: Initially,
+low-confidence detections are filtered out through thresholding. Subsequently,
+non-maximum suppression eliminates overlapping boxes using the \acrshort{IoU}
+metric, effectively reducing false positives and ensuring each chirp is
+represented by a single bounding box. These bounding boxes mark detected
+chirps, but we still do not know, which of the fish emitted these chirps. This
+is why we need a second processing stage that assigns the detected chirps to
+the emitting fish.
+
+\subsection{Feature extraction for chirp assignment}
+
+The second feature extraction, applied to each detected bounding box, begins by
+estimating the fundamental frequency of all the fish potentially emitting the
+chirp. This involves first interpolating the spectrogram within the bounding
+box to $100 \times 100$ samples and calculating the power spectral density by
+summing the resulting matrix along the time axis. Peaks in this spectrum
+indicate the fundamental frequencies of potential emitters. A \SI{10}{\hertz}
+window is used around each peak to sum power values in the spectrogram across
+the frequency axis. The result is array representing the power of the
+fundamental frequency over time for each potential emitter within a bounding
+box. This process identifies deviations in the power of the fundamental
+frequency associated with chirp emissions, where the power at the baseline
+frequency drops. In non-chirping instances the power remains approximately
+constant. The whole process is visualized in figure
+\ref{fig:assignment_feature_extraction}. This feature extraction is efficient,
+leveraging already computed spectrograms rather than having to go back to raw
+electric recordings.
+
+\begin{figure}[t]
+  \begin{center}
+    \includegraphics[width=\textwidth]{../figures/assignment_training.pdf}
+  \end{center}
+  \caption{
+    Training curves and performance evaluation of the assignment model across
+    5-fold cross-validation. The lines correspond to the median across the
+    cross-validation folds and the colored areas to the \ordinalnum{25} and
+    \ordinalnum{75} percentile respectively. The training as well as the
+    validation loss converges after 11 epochs (A). F1-scores peak at a model
+    confidence of approximately 82\% (B). The average precision of the model,
+    i.e., the area under the precision-recall curve reaches approximately 97\%
+    (C). The AUC of the ROC curve (D) reaches 99\% but a ROC evaluation has
+    been shown to be overly optimistic when datasets are imbalanced
+    \parencite{brancoSurveyPredictiveModelling2015}.
+  }
+  \label{fig:assignment_training}
+  \vspace{0.5cm}
+\end{figure}
+
+\subsection{Chirp assignment}
+
+For each bounding box, features are passed to the assignment model, which
+evaluates the probability of each power array representing a chirp emitted by a
+fish. The array with the highest probability identifies the emitter, assigning
+its frequency as the fundamental frequency at that moment. The assignment
+process, encapsulated by a wrapper, facilitates feature extraction and model
+inference, with an abstract base class defining the model interface. Similar to
+the detection model, this setup allows for easy model interchangeability and
+simplifies the integration of new models into the pipeline.
+
+The assignment model demonstrates high accuracy, achieving an F1-score of 91\%,
+average precision of 97\%, and a AUC of 99\%, indicating effective chirp
+assignment in most instances (figure \ref{fig:assignment_training} B-D). To
+better understand the model's performance, I visualized the decision boundary
+by reducing the 100-dimensional power traces to two dimensions using a simple
+auto-encoder model (figure \ref{fig:assignment_zspace}). This reduction was
+compared to results from \acrshort{PCA}, showing similar outcomes. The
+visualization reveals a transitional zone between arrays classified as chirp
+emitters and non-emitters, where ambiguous cases, likely representing short
+chirps with less noticeable power drops, are found. Chirps with distinct power
+reductions are clearly separated. The decision boundary, depicted with colors
+for intermediate prediction scores, resembles a parabola rotated to
+\SI{45}{\degree}. Most cases fall exactly onto the decision boundaries as
+illustrated by the marginal distributions. This is surprising, given the high
+performance metrics of the model. It indicates that the two-dimensional
+representation is likely too simple to represent the true multidimensional
+decision boundary and supports the used of a neural network, as a conventional
+machine learning classifier running merely on the principle components probably
+would have failed. But this remains to be verified.
+
+\begin{figure}[!t]
+  \begin{center}
+    \includegraphics[width=\textwidth]{../figures/z_space_assignment_nn.pdf}
+  \end{center}
+  \caption{
+    A visual simplification of the CNN classifier's decision boundary to a
+    two-dimensional view for the evaluation dataset. Each point represents a 2D
+    latent space mapping of power over time for a potential chirp emitter
+    frequency, derived using a fully connected auto-encoder neural network
+    trained on 20\% of the dataset. Points are colored based on the binary
+    classifier's score, revealing a clear emitter class cluster that
+    transitions into the non-emitter class. Insets highlight specific samples
+    and their 2D mappings, illustrating a clear separation with definite
+    emitters (top right) and non-emitters (bottom left) based on peak presence.
+    Marginal distributions on each axis correspond to the chirp emitters and
+    non-emitters after thresholding, based on an ideal 82\% score threshold
+    from the F1-curve (figure \ref{fig:assignment_training}). These show
+    overlapping distributions at the decision boundary. Despite this overlap,
+    the classifier achieves an impressive 97\% average precision, as detailed
+    in figure \ref{fig:assignment_training}.
+  }
+  \label{fig:assignment_zspace}
+  \vspace{0.5cm}
+\end{figure}
+
+\newpage
+\subsection{Postprocessing}
+
+The two-step inference pipeline returns bounding box coordinates and predicted
+fundamental frequencies of chirp-emitting fish. These outputs are integrated
+with the \texttt{wavetracker} package, which tracks fish fundamental
+frequencies over time on spectrograms and assigns identities to each frequency
+track \parencite{raabAdvancesNoninvasiveTracking2022}. This allows
+for estimating the number of recorded fish, approximating their positions, and
+maintaining their identities. By matching the detected chirps' fundamental
+frequencies with the closest fish frequency at the chirp time, chirps are
+attributed to specific fish. Detections not aligning with a frequency track,
+such as chirps detected on harmonics, are discarded.
+
+The refined dataset contains chirp times, their dimensions on the spectrogram,
+and the emitting fish's identity. Analysis of this dataset from staged
+competitions revealed notable temporal patterns between chirps and aggressive
+interactions, discussed in the following section.
+
+\section{Evaluation of the detected chirps}
+
+The chirp detector was applied to the Raab dataset, as published in
+\textcite{raabElectrocommunicationSignalsIndicate2021}, along with additional
+post-publication competition trials. This encompassed 69 trials in total, where
+two fish competed for shelter over six hours in each trial, including three
+hours of their active phase. To enhance signal clarity, a conservative
+detection threshold of 0.7 was chosen, likely increasing the number of missed
+chirps but minimizing false positives (figure \ref{fig:detector_performance}).
+Across a total of 17.25 days of competition data, the detector identified
+64,050 chirp instances.
+
+Before exploring the potential role of chirps in the competitions documented by
+\textcite{raabElectrocommunicationSignalsIndicate2021}, let us first assess
+chirp detection effectiveness in new data through some examples. The detection
+system successfully identifies and assigns most chirps, even when they
+overlap other baseline EOD$f$ frequencies (figures \ref{fig:chirp_detections_simultaneous}
+and \ref{fig:chirp_detections_bigchirps}). However, challenges arise in
+specific scenarios. For instance, figure
+\ref{fig:chirp_detections_simultaneous} illustrates a scenario where rapid
+chirp production by one fish leads to detection failures and unreliable
+assignments due to the spectrogram's limited temporal resolution. While such
+high chirp rates are uncommon, they could hold significant behavioral interest.
+Additionally, detecting chirps produced simultaneously by two fish poses
+difficulties when their frequency difference is small, which causes chirps to
+merge on the spectrogram. This often results in neural networks misidentifying
+them as a single, large chirp. Despite the initial assumption that those cases
+must be rare, figure \ref{fig:chirp_detections_simultaneous} presents two
+instances of simultaneous chirps; one correctly assigned, and the other
+falsely detected as a single chirp.
+
+\begin{figure}[t]
+  \begin{center}
+    \includegraphics[width=\textwidth]{../figures/chirp_detections_simultaneous.pdf}
+  \end{center}
+  \caption{
+    Detected and assigned chirps on an example spectrogram. Black lines
+    correspond to the tracked fundamental frequencies of two fish. White boxes
+    surround all detected chirps. The predicted fundamental frequency of the
+    chirp emitter is illustrated by the dot in each bounding box. Overall, most
+    chirps are detected well. The pipeline fails when chirps happen in too
+    rapid successions to be separable on the spectrogram or when fish chirp
+    simultaneously. The spectrogram was estimated using the same parameters
+    used for chirp detection (nfft=4096, hop length=410) and interpolated
+    (bicubic).
+  }
+  \label{fig:chirp_detections_simultaneous}
+  \vspace{0.5cm}
+  % 
+\end{figure}
+
+\begin{figure}[!h]
+  \begin{center}
+    \includegraphics[width=\textwidth]{../figures/chirp_detections_bigchirps.pdf}
+  \end{center}
+  \caption{
+    Assignment can completely fail for large and long chirps and produces false
+    assignment for large and short chirps. In one case, a large chirp is not
+    detected at all. But the majority is detected and assigned correctly. The
+    spectrogram was computed as described in figure
+    \ref{fig:chirp_detections_simultaneous}.
+  }
+  \label{fig:chirp_detections_bigchirps}
+  \vspace{0.5cm}
+  % 
+\end{figure}
+
+Detecting large chirps presents another challenge. Although the training
+dataset emphasizes these through sample duplication in histogram equalization,
+long chirps are still accurately detected (figure
+\ref{fig:chirp_detections_bigchirps}). However, assigning these chirps to the
+correct sender often fails. This issue may arise because long chirps gradually
+return to the baseline EOD$f$, which falls outside the detected bounding boxes.
+Since emitter frequencies are determined from the power spectrum within these
+boxes, long chirps might not exhibit distinct peaks at the emitter's EOD$f$.
+Essentially, the power dip at the baseline is so broad that the baseline
+frequency component becomes too faint to identify.
+
+Another issue remains assignment in general: While most large chirps are
+correctly assigned despite strongly overlapping with the baseline EOD$f$ of
+another fish in figure \ref{fig:chirp_detections_bigchirps}, it includes three
+examples of false assignments. Reasons could be amplitude troughs that
+coincidentally occur due to noise or movements of the bottom fish, and that
+resemble the troughs that happen during chirps. To conclude, while the great
+majority of chirps are detected well, small issues remain. In most cases
+however, they appear to be fixable.
+
+Now let us take a look at all the bounding boxes that were predicted on the
+dataset and are visualized in figure \ref{fig:all_boxes}. Predominantly, these
+bounding boxes encapsulate small chirps, with the majority measuring below
+\SI{200}{\hertz} in height and spanning \SI{100}{\milli\second} to
+\SI{200}{\milli\second} in width (figure \ref{fig:all_boxes} B1). Remember that
+the true chirp height and width does not directly map well to the dimensions on
+the spectrogram: The most commonly observed small chirp is usually just
+\SI{20}{\milli\second} in width but will be much wider on the spectrogram,
+dependent on the parameters the spectrogram was computed with. This is the
+reason of the compression of the width axis and the lack of chirps below
+\SI{100}{\milli\second} in width.
+
+Consistent with the training data in figure
+\ref{fig:chirp_overview_clustered_plot}, the vast majority of chirps fall below
+\SI{200}{\hertz} in height, as shown by the marginal distribution in figure
+\ref{fig:all_boxes}. Another pattern that we have already observed in the
+training data is that larger chirps tend to have stronger post-chirp
+undershoots (figure \ref{fig:all_boxes} B2). But this pattern only extends to
+short chirps, as the few long chirps that were detected do not show such strong
+troughs (figure \ref{fig:all_boxes} B4).
+
+In addition, two areas are visually separated from the main point cloud: Area
+B3 is shaped similarly to area B2 but contains much less data points and they
+appear to be moved up by \SI{100}{\hertz}. The simplest explanation would be
+that these are large chirps produced by the fish with the higher EOD$f$, which
+got falsely assigned because they overlapped with the frequency of the fish
+with the lower EOD$f$. This way, the chirp height is incremented by the
+frequency difference between the two fish, which often lies in a range between
+\SI{50}{\hertz} and \SI{100}{\hertz}. Three examples for such false assignments
+of large chirps are indicated in figure \ref{fig:chirp_detections_bigchirps}.
+The second indicator supporting this assumption is the fact that this point
+cloud has weaker post-chirp undershoots compared to area B2 in figure
+\ref{fig:all_boxes}. This would also be explainable by the false assignment:
+The trough is computed by subtracting the predicted baseline by the lower edge
+of the bounding box. If a fish with a lower EOD$f$ is falsely assumed to be the
+emitter, this difference becomes smaller.
+
+\begin{figure}[!t]
+  \begin{center}
+    \includegraphics[width=\textwidth]{../figures/plot_chirp_bbox_distributions.pdf}
+  \end{center}
+  \caption{
+    Statistics of all detected bounding boxes on the Raab dataset. Bounding
+    boxes are centered at the baseline EOD$f$ of the fish and colored by
+    density of the box type (A). Densities are estimated by Gaussian kernel
+    density estimate on the first principle component of the height, width and
+    trough parameters. The great majority of chirps are surrounded by bounding
+    boxes with a width of \SI{100}{\milli\second} to \SI{200}{\milli\second}
+    and a height below \SI{200}{\hertz}, which corresponds to small or type 2 
+    chirps (B1). Post-chirp undershoots of the frequency become increasingly
+    pronounced particularly for large but narrow chirps (B2). Chirps with a
+    width beyond \SI{250}{\milli\second} are sparsely represented (B4). Beyond
+    a height of \SI{500}{\hertz}, points appear to be a part of the point cloud
+    below but incremented along the height dimension by approximately
+    \SI{100}{\hertz}, which could be due to erroneous EOD$f$ predictions (B3).
+    Chirps at around \SI{200}{\hertz} in height include a surprisingly narrow
+    horizontal band that extends to durations of up to almost
+    \SI{400}{\milli\second} (B5). These are most likely bounding boxes around
+    chirps that happened in rapid succession, so that reliable chirp separation
+    on the here used spectrogram parameters was not possible anymore. Chirps
+    at a height range corresponding to this band are the only ones observed to
+    occur in such rapid succession in this dataset, which would support this
+    assumption.
+  }
+  \label{fig:all_boxes}
+  \vspace{0.5cm}
+\end{figure}
+
+The second visually distinct area corresponds bounding boxes that are at
+approximately \SI{200}{\hertz} in height but form a distinct band that extends
+along the width axis (figure \ref{fig:all_boxes} B5). These are most likely
+chirps that happen in such a rapid succession that they are inseparable on the
+spectrogram. Given the width of \SI{100}{\milli\second} of most chirps in
+figure \ref{fig:all_boxes}, rapid chirps that have a smaller inter-chirp
+interval this, cannot be separated on these spectrograms. The frequency range
+in which they occur supports this assumption, as chirps that are larger than
+\SI{200}{\hertz} have not been observed to happen in such rapid succession
+here. In some cases, the network still detects them as chirps but detection
+boundaries can become much wider as they usually encompass multiple chirps at
+once. Another interesting feature of this area is that it contains many chirps
+with strong undershoots. This is especially true for more realistic (smaller)
+chirp widths in this range. The most likely explanation is, that these are big
+chirps produced by fish with a lower EOD$f$, which got falsely assigned to the
+fish with the higher EOD$f$. This would drastically increase the trough while
+decreasing the chirp height. Usually, the post-chirp trough is not stronger
+than $1/3$ of the chirp height. In this area, the troughs are larger than the
+chirp heights, which is not realistic. A simple filter that limits the
+\enquote{chirp height to trough ratio} could remove these approximately 8,000
+suspicious data points. Despite these two areas, most of the 73,134 points fall
+into areas that are expected. In combination with the performance metrics, the
+two example spectrograms, and hundreds of additional hand-checked spectrograms
+the pipeline seems to detect chirps well enough to use the detections to
+conduct behavioral analyses.
+
+Now that we have demonstrated that the pipeline not only produces promising
+performance metrics but that these metrics are also reflected on real,
+previously unseen data, we can move on to analyze which fish produced chirps
+and when they produced them.
+
+% \newpage
+\section{Subordinates chirp the most}
+
+\textcite{raabElectrocommunicationSignalsIndicate2021} staged competitions
+between two fish for access to a shelter. During these competitions, fish
+partook in ritualized fights and chasing. In addition to video recordings, they
+also recorded the electric fields of both fish using electrode grids. As video
+recordings are not available for a large part of the dataset, and not annotated
+yet for another part of the dataset, only 19 unique pairings between two fish
+have annotated competitive behaviors. Figure
+\ref{fig:competition_trial_overview} shows an overview of the available data
+across one of these competition trials. A single trial consisted of three hours
+of darkness, where fish were active and usually competed. During the subsequent
+three illuminated hours, fish usually became inactive and sought shelter. The
+fish that stayed in the superior shelter at the onset of the inactive period
+was decided to be the winner of the competition or the \enquote{dominant}. In
+the example trial, particularly the competition loser produced chirps, all of
+which appear to visibly correlate with the chasing events.
+
+To quantify whether this observation is systematically observable, I compared
+the total number of chirps produced by dominants and subordinates. Overall,
+winners chirped much less compared to competition losers (p<0.0001, d=66.5), a pattern that could be observed for all trials (figure \ref{fig:stats} A).
+Losers produced chirps in an average of 29\% $\pm$ 23\% of all chasing
+events.
+
+As suggested in the literature, chirps could have been used as a submissive
+signal by competition losers to stop extended chasing by the competition winner
+or decrease the probability of future attacks by winners
+\parencite{henningerStatisticsNaturalCommunication2018}. Alternatively, they
+could serve as a signal of stress that is simply caused by extended chasing
+without influencing the behavior of the winner. If chirps communicated
+submission, leading to offset of chasing, the prediction would be that chasing
+events were chirps were produced should have been shorter. This is not the
+case, as the opposite could be observed: Chasing events, in which losers
+produced chirps lasted significantly longer (p<0.0001, d=19.3). In every trial
+in which the loser produced chirps during chasing, chirps were produced when
+the median of the chasing durations was increased (figure \ref{fig:stats} B). 
+An influence of chirping on the latency between the current and the next
+chasing could not be observed. This suggests that competition losers started to
+produce chirps as a response to beeing continuously chased by the competition
+winner.
+
+To understand with which particular behavior the chirps produced by the
+competition losers or winners correlated temporally, I approximated how the
+chirp rate changes during these events. As already implied in figure
+\ref{fig:competition_trial_overview}, chirping of the competition loser but not
+the competition winner was closely tied to chasing events (figure
+\ref{fig:stats} C \& D vs E \& F). Chirp rates of the competition loser
+significantly increased at the onset of being chased by the competition winner
+(figure \ref{fig:stats} E). This effect is even more pronounced during the time
+at which the chasing seizes: Here, the chirp rate of the competition loser
+almost tripled and remained elevated for approximately \SI{10}{\second} beyond
+the offset (figure \ref{fig:stats} F). This effect could not be observed for
+competition winners, which produced little chirps and if so, showed no
+correlations with the onsets or offsets of chasing events (figure
+\ref{fig:stats} C, D).
+
+\begin{figure}
+  \begin{center}
+    \includegraphics[width=\textwidth]{../figures/competition_trial_overview.pdf}
+  \end{center}
+  \caption{
+    Overview of a single competition trial. The spectrogram illustrates the
+    evolution of the discharge frequencies of both fish. Fish were left to
+    compete for three hours while the light was off. This is also the time in
+    which most of the frequency modulations are visible on the spectrogram. As
+    the light is turned off, frequency changes of either fish become much
+    rarer. Event plots show the times of the two annotated spatio-temporal
+    interactions between the fish, the chasing and contact events. The majority
+    of agonistic events are chasing events. Below are the event plots for the
+    communication signals produced by either fish, separated by the competition
+    status of the respective fish. Most rises but also most chirps are produced
+    by the fish that lost the competition and did not get access to the
+    shelter. Additionally, bouts of subsequent chirps produced by the loser
+    visibly correlate with the chasing events.
+  }
+  \label{fig:competition_trial_overview}
+  \vspace{0.5cm}
+\end{figure}
+
+\begin{figure}
+  \begin{center}
+    \includegraphics[width=\textwidth]{../figures/plot_behavioral_correlations_of_chirps.pdf}
+  \end{center}
+  \caption{
+    Statistical summary of the role of loser chirps during ritualized chasing
+    events. Points are connected according to the unique fish pairing in which
+    they were observed. Competition losers produced more chirps than the
+    competition winners (A). If the loser produced a chirp, chasing events
+    lasted longer (B). Most chirps of the loser are produced close to
+    the offset of the chasing event (figure \ref{fig:stats} F), which suggests
+    that it is more likely that being chased for a longer time causes the
+    losers to chirp. Chirp rates of competition losers centered around the
+    onset and the offset of chasing events respectively (C-F). The chirp rate
+    was estimated by convolving a Gaussian kernel with a binary chirp train.
+    The confidence intervals are estimated by jackknifing and the baseline by
+    bootstrap resampling. Chirp rates of the competition losers significantly
+    increase after a chasing events starts (E). Specifically, most of these
+    chirps that increase the chirp rate are precisely produced around the
+    offset of chasing events (F), where the chirp rate almost triples.
+  }
+  \label{fig:stats}
+  \vspace{0.5cm}
+\end{figure}
+
+% chapter Results (end)

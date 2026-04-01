@@ -1,0 +1,174 @@
+\cleardoublepage
+
+\pagestyle{empty}
+
+\pdfbookmark[0]{Substitutions}{pdf.features}
+
+\makeatletter
+\let\UCS@mincodepoint\@empty
+\let\UCS@maxcodepoint\@empty
+\def\UCS@blockname{OpenType Language Systems and Features}
+\makeatother
+
+\begingroup
+
+\def\tablestrut{\rule[-3pt]{0pt}{13pt}}
+
+\UCStextfont
+
+\section{OpenType Language Systems and Features}
+
+See
+the \href{https://docs.microsoft.com/en-us/typography/opentype/spec/featurelist}{OpenType
+Specification} for a description of the following features.
+
+\medskip
+
+\begingroup
+\parindent 0pt
+\begin{tabular*}{.8\textwidth}{@{}|l@{\extracolsep{\fill}}l*{6}{c}|@{}}
+\multicolumn{1}{l}{Script}&\multicolumn{1}{l}{Language}&c2sc&case&ccmp&dnom&frac&\multicolumn{1}{c}{liga}\\[2pt]
+\hline
+\tablestrut \textsc{dflt}
+& \textsc{default}&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$\\
+\hline
+\tablestrut cyrl
+& \textsc{default}&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$&\\
+\hline
+\tablestrut grek
+& \textsc{default}&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$&\\
+\hline
+\tablestrut latn
+& \textsc{default}&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$\\
+& \textsc{lth }&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$\\
+& \textsc{rom }&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$\\
+& \textsc{trk }&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$\\
+\hline
+\end{tabular*}
+
+\bigskip
+
+\begin{tabular*}{.8\textwidth}{@{}|l@{\extracolsep{\fill}}l*{6}{c}|@{}}
+\multicolumn{1}{l}{Script}&\multicolumn{1}{l}{Language}&numr&onum&pnum&smcp&subs&\multicolumn{1}{c}{sups}\\[2pt]
+\hline
+\tablestrut \textsc{dflt}
+& \textsc{default}&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$\\
+\hline
+\tablestrut cyrl
+& \textsc{default}&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$\\
+\hline
+\tablestrut grek
+& \textsc{default}&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$\\
+\hline
+\tablestrut latn
+& \textsc{default}&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$\\
+& \textsc{lth }&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$\\
+& \textsc{rom }&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$\\
+& \textsc{trk }&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$\\
+\hline
+\end{tabular*}
+
+\endgroup
+
+\medskip
+
+\subsection{The locl feature}
+
+\smallskip
+
+\begingroup
+\large
+\begin{tabular}{@{}ll>{\UCSchartfont}c@{${}\to{}$}>{\UCSchartfont}cl@{}}
+\textsc{rom} & U+015E &\char"015E & \char"0218 &U+0218\\
+             & U+015F &\char"015F & \char"0219 &U+0219\\
+             & U+0162 &\char"0162 & \char"021A &U+021A\\
+             & U+0163 &\char"0163 & \char"021B &U+021B\\[\jot]
+\textsc{trk} & U+0069 &\textsc{i} & \addfontfeature{Script=Latin,Language=Turkish}\textsc{i}
+             & small caps `i'
+\end{tabular}
+\endgroup
+
+\smallskip
+
+\section{Character Variants}
+
+\begin{tabular}{@{}|ll*{3}{c}|@{}}
+\multicolumn{1}{l}{Script}&\multicolumn{1}{l}{Language}&cv01&cv02&\multicolumn{1}{c}{cv03}\\[2pt]
+\hline
+\tablestrut \textsc{dflt}
+& \textsc{default}&$\checkmark$&$\checkmark$&$\checkmark$\\
+\hline
+\tablestrut cyrl
+& \textsc{default}&&&$\checkmark$\\
+\hline
+\tablestrut grek
+& \textsc{default}&&&$\checkmark$\\
+\hline
+\tablestrut latn
+& \textsc{default}&$\checkmark$&$\checkmark$&$\checkmark$\\
+& \textsc{lth }&$\checkmark$&$\checkmark$&$\checkmark$\\
+& \textsc{rom }&$\checkmark$&$\checkmark$&$\checkmark$\\
+& \textsc{trk }&$\checkmark$&$\checkmark$&$\checkmark$\\
+\hline
+\end{tabular}
+
+\bigskip
+
+\begingroup
+\large
+\noindent
+\begin{tabular}{@{}l>{\UCSchartfont}l@{${}\to{}$}>{\UCSchartfont}ll@{}}
+cv01
+     & \char"019B
+     & \addfontfeature{CharacterVariant=1}\char"019B
+     & U+019B LATIN SMALL LETTER LAMBDA WITH STROKE
+\\
+cv02
+     & \char"0264
+     & \addfontfeature{CharacterVariant=2}\char"0264
+     & U+0264 LATIN SMALL LETTER RAMS HORN
+\\
+cv03
+     & \char"2423
+     & \addfontfeature{CharacterVariant=3}\char"2423
+     & U+2423 OPEN BOX
+\end{tabular}
+\endgroup
+
+\clearpage
+
+\section{Substitutions}
+
+The following pages list all ``interesting'' glyph substitutions by
+feature.  A listing such as
+
+\smallskip
+\begin{substitutions*}
+U+0024 \char36\\
+\quad \texttt{c2sc} $\to$ \XeTeXglyph 1913
+\end{substitutions*}
+
+\smallskip
+\noindent means that the c2sc feature applies to all scripts and
+language systems.  A listing such as
+
+\smallskip
+
+\begin{substitutions*}
+\UCSchartfont
+U+0162 \char354\\
+\quad \texttt{c2sc.\textsc{dflt}} $\to$ \XeTeXglyph 873\\
+\quad \texttt{c2sc.latn} $\to$ \XeTeXglyph 873\\
+\quad \texttt{locl.latn.ROM} $\to$ \XeTeXglyph 198
+\end{substitutions*}
+
+\smallskip
+
+\noindent means that the c2sc substitution is only active for
+the \textsc{dflt} and latn scripts, but not for the cyrl or grek
+scripts, and the locl substitution is only active in the ROM language
+system of the latn script.
+
+\endgroup
+
+\endinput

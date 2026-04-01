@@ -1,0 +1,177 @@
+\chapter{Appendix} % (fold)
+\label{appendix}
+
+\begin{center}
+  \textsc{Extracting chirps for model fitting in full simulations}
+\end{center}
+
+I used the following pipeline to extract estimates on how the instantaneous
+frequency evolves during a chirp using the output of the sliding convolutional
+classifier as a prior on the Raab dataset:
+
+\begin{enumerate}
+
+  \item Electrode selection: By the power of the frequency band of the EOD of
+    the fish I extracted the signal on the electrode of the strongest power,
+    i.e., the electrode that the fish was closest to. For each chirp, I took a
+    full second, meaning 500 \si{\milli\second} before and after the chirp. The
+    result is a single voltage trace over one second, i.e. 20,000 samples, as
+    the signals were sampled at \SI{20}{\kilo\hertz}.
+
+  \item Band-pass filtering: I then applied a band-pass filter after
+    multiplying the snipped with a Tukey window ($\alpha=0.1$) to reduce edge
+    effects of the filter. The cutoff frequency below the EOD frequency
+    of the upper fish EOD$f_{\text{up}}$ was set relative to that of the lower fish EOD$f_{\text{low}}$ at $\text{EOD}f_{\text{low}} + 0.8 \times
+    \Delta\text{EOD}f$ and above the EOD $f_{\text{up}}$ at $1.9
+    \times$EOD$f_{\text{low}}$. The lower cutoff frequency was chosen to reduce
+    interference from the EOD of the other fish while not cutting off potential
+    down-modulations of the frequency that sometimes occur after chirps. The
+    upper cutoff was chosen to reduce the interference from the first harmonic
+    of the EOD of the lower fish while not cutting off the top of the chirp.
+
+  \item Standardization: I then standardized the filtered EOD to have a mean of zero
+    and a standard deviation of one.
+
+  \item Instantaneous frequency: I then computed the instantaneous frequency of
+    the signal using zero crossings. The instantaneous frequency was
+    additionally smoothed using a Gaussian kernel with a standard deviation of
+    5 samples. It was then linearly interpolated to the original sample rate of
+    the signal. The result is an estimate on how the EOD$f_{up}(t)$ evolved
+    over the course of one second EOD$f_{\text{inst}}(t)$ at the temporal
+    resolution of a single period of the EOD of the upper fish.
+
+  \item Centering baseline frequency: To center the baseline of this snippet of
+    the instantaneous frequency that contains a chirp to zero, I estimated the
+    baseline frequency from the largest peak of the distribution of all
+    frequencies in the snippet. To estimate it, I used a histogram of 100 bins
+    as this was much faster than using a kernel density estimate. The baseline
+    frequency estimate was then subtracted from the instantaneous frequency to
+    shift the baseline frequency to zero.
+
+  \item Peak detection: The most descriminating feature of chirps in
+    Apteronotids is the rapid increase of the EOD$f$ during a chirp. To
+    estimate the exact time of the chirp, I detected peaks in the instantaneous
+    frequency that exceeded the 99\th percentile of the centered instantaneous
+    frequencies using the \texttt{find\_peaks} function of the \texttt{scipy}
+    package \parencite{virtanenSciPyFundamentalAlgorithms2020}. Before
+    detecting the peaks, I applied another Tukey window ($\alpha=0.3$) to the
+    centered instantaneous frequencies to scale down fluctuations at the edges
+    of the snippet (as chirps are expected in the center of the snippet). I
+    only considered the largest peak and discarded the whole snippet to
+    continue with the next chirp when the peak was more than 250
+    \si{\milli\second} away from the center of the snippet. I also discarded
+    the whole snippet if included multiple peaks that where larger than $0.3
+    \times \max{\text{EOD}f_{\text{snip}}}$.
+
+  \item Centering chirp time: To estimate a center of the peak that is
+    independent of the shape of the peak, I descended both the left and right
+    flanks until I reached $0.1 \times \max{\text{EOD}f_{\text{snip}}}$. The
+    position of the chirp was then defined as the center of the two points on
+    the flanks. The snippet was then rolled to center the chirp position within
+    the snippet. As the edges could now be non-zero again, I applied another
+    Tukey window ($\alpha=0.3$) to scale down fluctuations at the edges of the
+    snippet. The result is a zero-centered estimate of how the frequency of the
+    EOD of the fish evolves over one chirp with EOD-period resolution.
+
+\end{enumerate}
+
+This was repeated for each chirp for six of the recordings in the competition
+dataset, in which the $\Delta\text{EOD}f$ was sufficiently large and resulted
+in a total of 615 chirps. Each snippet was linearly interpolated to the
+original sampling rate of \SI{20}{\kilo\hertz}.
+
+\newpage
+
+\begin{center}
+  \textsc{Extracting chirps for hybrid simulations}
+\end{center}
+
+The following steps were taken to extract the instantaneous frequency of the
+chirps for every recording in the chirp-chamber dataset and parts of the Oboti
+dataset:
+
+\begin{enumerate}
+
+  \item Signal preprocessing: To find the EOD$f$ of the fish I used peak
+    detection on the power spectrum between 300 and 1200 \si{\hertz}. The
+    signal was then band-pass filtered between $\text{EOD}f - 100\si{\hertz}$
+    and $\text{EOD}f + 1.9\text{EOD}f$. to remove all harmonics of the EOD.
+
+  \item Instantaneous frequency and envelope: To estimate the instantaneous
+    frequency of the EOD, I used the zero crossings of the signal to get the
+    start and stop times of each period of the EOD. The instantaneous frequency
+    was then computed as the inverse of the difference of the start and stop
+    times of each period. The envelope of the EOD was estimated by taking the
+    maximum value of each period of the EOD. Both the instantaneous frequency
+    and the envelope were then linearly interpolated to the original sample
+    rate of the signal.
+
+  \item Smoothing and detection: I smoothed the instantaneous frequency to
+    different degrees depending on the task: To detect peaks in the
+    instantaneous frequency as chirps, I used a Gaussian kernel with a standard
+    deviation of 30 samples. Peaks with a prominence between 20 and 400
+    \si{\hertz} as well as a width between 4 and 4000 samples were then
+    detected using the \texttt{find\_peaks} function of the \texttt{scipy}
+    package \parencite{virtanenSciPyFundamentalAlgorithms2020}. I then
+    extracted the snippet of the centered instantaneous frequency 200 ms before
+    and after the peak. The result is a 2D matrix were each row is a snippet of
+    the smoothed instantaneous frequency that contains a chirp. The same
+    applies to the envelopes. Meanwhile, I always also kept the original
+    instantaneous frequency and envelope.
+
+  \item Shifting and normalization: To make all instantaneous frequencies
+    relative to the EOD$f$ of the emitter, I shifted them to zero by
+    subtracting the first element of each row. I then normalized the
+    envelope by dividing it by the maximum value of each row. In the following,
+    the detected chirps passed a series of filters to remove false positives.
+
+  \item Filtering:
+    The following filters were applied to the detected chirps:
+    \begin{enumerate}
+
+      \item Median envelope: I removed all chirps that had a median envelope
+        lower than 0.2. Low median amplitudes indicate that the amplitude
+        modulation in the window contains a peak instead of a trough.
+
+      \item Frequency peak: I removed all chirps that had a peak frequency of
+        more than 550 \si{\hertz}.
+
+      \item Frequency trough: While an undershoot of the frequency does often
+        happen after a chirp, it does not usually go further than 100
+        \si{\hertz} below the baseline frequency. I removed all chirps that
+        had a trough frequency of less than 200 \si{\hertz}.
+
+      \item Baseline frequency: To look at how stable the baseline is in the
+        chirp snippet, I looked at the first and last 100 \si{\milli\second}
+        of each chirp, which should be the baseline frequency and mostly zero.
+        If the 5th percentile of this part of the snippet was lower than
+        \SI{-30}{\hertz}, I removed the chirp.
+
+      \item Baseline envelope: If the same window on the normalized envelope
+        had standard deviation of more than 0.2 I removed the chirp, as this
+        would correspond to a very noisy signal.
+
+      \item Envelope trough: I removed all chirps that had a trough of the
+        envelope of less than 0.1 because the lower the envelope of the signal,
+        the less precise the instantaneous frequency estimate. I encountered
+        many cases where peaks in the instantaneous frequency where just
+        artifacts that appeared when the amplitude of the signal approached
+        zero.
+
+      \item Chirp width: If the width of the chirp was less than 9
+        \si{\milli\second}, I removed the chirp.
+
+      \item If the width to height ratio was less than
+        \SI{0.001}{\second\per\hertz}, I removed the chirp.
+
+    \end{enumerate}
+
+  \item Centering time: To find the center of the chirp, I computed a Boolean
+    array that was true for all values above 20 \si{\hertz} and false for all
+    values below 20 \si{\hertz}. If the number of peaks in this array was more
+    than 1, or if the peak reached up to one edge of the snippet, I removed
+    the chirp. I then determined the center of the chirp as the center between
+    the two threshold crossings. To center the snippet, I then rolled the
+    snippet so that the center of the chirp was at the center of the snippet.
+
+\end{enumerate}

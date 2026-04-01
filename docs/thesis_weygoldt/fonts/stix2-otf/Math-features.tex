@@ -1,0 +1,560 @@
+\cleardoublepage
+
+\pdfbookmark[0]{Substitutions}{pdf.features}
+
+\makeatletter
+\let\UCS@mincodepoint\@empty
+\let\UCS@maxcodepoint\@empty
+\def\UCS@blockname{OpenType Language Systems and Features}
+\makeatother
+
+\begingroup
+
+\UCStextfont
+
+\newfontface{\stixmath}{STIX Two Math}
+
+\parskip\smallskipamount
+
+\section{OpenType Language Systems and Features}
+
+See
+the \href{https://docs.microsoft.com/en-us/typography/opentype/spec/featurelist}{OpenType
+Specification} for a description of the following features.
+
+\smallskip
+
+\def\tablestrut{\rule[-3pt]{0pt}{13pt}}
+\parindent 0pt
+\begin{tabular}{@{}|ll*{4}{c}|@{}}
+\multicolumn{1}{l}{Script}&\multicolumn{1}{l}{Language}&ccmp&dtls&flac&\multicolumn{1}{c}{ssty}\\[2pt]
+\hline
+\tablestrut math
+& \textsc{default}&$\checkmark$&$\checkmark$&$\checkmark$&$\checkmark$\\
+\hline
+\end{tabular}
+
+\smallskip
+
+\section{Character Variants}
+
+\begin{tabular}{@{}lll@{${}\to{}$}lll@{}}
+cv01
+     & U+019B
+     & \UCSchartfont\char"019B
+     & \UCSchartfont\addfontfeature{CharacterVariant=1}\char"019B
+     & LATIN SMALL LETTER LAMBDA WITH STROKE\\
+cv02
+     & U+0264
+     & \UCSchartfont\char"0264
+     & \UCSchartfont\addfontfeature{CharacterVariant=2}\char"0264
+     & LATIN SMALL LETTER RAMS HORN\\
+cv03
+     & U+2205
+     & \UCSchartfont\char"2205
+     & \UCSchartfont\addfontfeature{CharacterVariant=3}\char"2205
+     & EMPTY SET\\
+cv04
+     & U+2216
+     & \UCSchartfont\char"2216
+     & \UCSchartfont\addfontfeature{CharacterVariant=4}\char"2216
+     & SET MINUS
+\end{tabular}
+
+\smallskip
+
+\textbf{Note}: The default shape of the empty set symbol has not been
+     changed to preserve backwards compatibility.
+
+\section{Stylistic Sets}
+
+Version~1 of the STIX fonts contained a number of variant forms that
+are preserved in STIX Two as OpenType Layout stylistic set
+substitutions.  There are a limited number of such features available,
+so while an effort has been made to group like substitutions together,
+there is inevitably a ‘grab-bag’ feature (ss20) containing
+miscellaneous variants.  Sets 8 and~9 are included for compatibility
+with the XITS fonts.  The current repertoire may be extended in the
+future if there is sufficient interest.
+
+\raggedcolumns
+
+\begin{multicols}{3}
+
+\raggedright
+
+\subsection{Stylistic Set 1 <ss01>}
+
+\emph{Substitute roundhand for chancery Script Alphanumeric Symbols.}
+
+\begin{ssubs}{01}
+\U+1D49C\\  % A
+\U+212C\\   % B
+\U+1D49E\\  % C
+\U+1D49F\\  % D
+\U+2130\\   % E
+\U+2131\\   % F
+\U+1D4A2\\  % G
+\U+210B\\   % H
+\U+2110\\   % I
+\U+1D4A5\\  % J
+\U+1D4A6\\  % K
+\U+2112\\   % L
+\U+2133\\   % M
+\U+1D4A9\\  % N
+\U+1D4AA\\  % O
+\U+1D4AB\\  % P
+\U+1D4AC\\  % Q
+\U+211B\\   % R
+\U+1D4AE\\  % S
+\U+1D4AF\\  % T
+\U+1D4B0\\  % U
+\U+1D4B1\\  % V
+\U+1D4B2\\  % W
+\U+1D4B3\\  % X
+\U+1D4B4\\  % Y
+\U+1D4B5\\  % Z
+\end{ssubs}
+
+\def\D+#1\\{%
+    #1
+    &\stixmath\XeTeXglyph\XeTeXglyphindex"u#1.dotless"
+    &\stixmath\addfontfeature{StylisticSet=1}\XeTeXglyph\XeTeXglyphindex"u#1.dotless"\\}
+
+\begin{ssubs}{01}
+\U+1D4B6\\  % a
+\U+1D4B7\\  % b
+\U+1D4B8\\  % c
+\U+1D4B9\\  % d
+\U+212F\\   % e
+\U+1D4BB\\  % f
+\U+210A\\   % g
+\U+1D4BD\\  % h
+\U+1D4BE\\  % i
+% \D+1D4BE\\  % i.dotless
+\U+1D4BF\\  % j
+% \D+1D4BF\\  % j.dotless
+\U+1D4C0\\  % k
+\U+1D4C1\\  % l
+\U+1D4C2\\  % m
+\U+1D4C3\\  % n
+\U+2134\\   % o
+\U+1D4C5\\  % p
+\U+1D4C6\\  % q
+\U+1D4C7\\  % r
+\U+1D4C8\\  % s
+\U+1D4C9\\  % t
+\U+1D4CA\\  % u
+\U+1D4CB\\  % v
+\U+1D4CC\\  % w
+\U+1D4CD\\  % x
+\U+1D4CE\\  % y
+\U+1D4CF\\  % z
+\end{ssubs}
+
+\begin{ssubs}{01}
+\U+1D4D0\\  % A
+\U+1D4D1\\  % B
+\U+1D4D2\\  % C
+\U+1D4D3\\  % D
+\U+1D4D4\\  % E
+\U+1D4D5\\  % F
+\U+1D4D6\\  % G
+\U+1D4D7\\  % H
+\U+1D4D8\\  % I
+\U+1D4D9\\  % J
+\U+1D4DA\\  % K
+\U+1D4DB\\  % L
+\U+1D4DC\\  % M
+\U+1D4DD\\  % N
+\U+1D4DE\\  % O
+\U+1D4DF\\  % P
+\U+1D4E0\\  % Q
+\U+1D4E1\\  % R
+\U+1D4E2\\  % S
+\U+1D4E3\\  % T
+\U+1D4E4\\  % U
+\U+1D4E5\\  % V
+\U+1D4E6\\  % W
+\U+1D4E7\\  % X
+\U+1D4E8\\  % Y
+\U+1D4E9\\  % Z
+\end{ssubs}
+
+\subsection{Stylistic Set 1 <ss01> (continued)}
+
+\begin{ssubs}{02}
+\U+1D4EA\\  % a
+\U+1D4EB\\  % b
+\U+1D4EC\\  % c
+\U+1D4ED\\  % d
+\U+1D4EE\\  % e
+\U+1D4EF\\  % f
+\U+1D4F0\\  % g
+\U+1D4F1\\  % h
+\U+1D4F2\\  % i
+% \D+1D4F2\\  % i.dotless
+\U+1D4F3\\  % j
+% \D+1D4F3\\  % j.dotless
+\U+1D4F4\\  % k
+\U+1D4F5\\  % l
+\U+1D4F6\\  % m
+\U+1D4F7\\  % n
+\U+1D4F8\\  % o
+\U+1D4F9\\  % p
+\U+1D4FA\\  % q
+\U+1D4FB\\  % r
+\U+1D4FC\\  % s
+\U+1D4FD\\  % t
+\U+1D4FE\\  % u
+\U+1D4FF\\  % v
+\U+1D500\\  % w
+\U+1D501\\  % x
+\U+1D502\\  % y
+\U+1D503\\  % z
+\end{ssubs}
+
+\subsection{Stylistic Set 2 <ss02>}
+
+\emph{Variants of selected math italic lowercase letters.}
+
+\begin{ssubs}{02}
+\U+1D454\\
+\U+1D462\\
+\U+1D463\\
+\U+1D464\\
+\U+1D467\\
+\U+1D488\\
+\U+1D628\\
+\U+1D65C\\
+\end{ssubs}
+
+\subsection{Stylistic Set 3 <ss03>}
+
+\emph{Variants of characters with cross-bars.}
+
+\begin{ssubs}{03}
+\U+019B\\
+\U+210F\\
+\end{ssubs}
+
+\columnbreak
+
+\subsection{Stylistic Set 4 <ss04>}
+
+\emph{Larger, lower variants of prime, minute, second, etc.}
+
+\def\U+#1\\{#1&\stixmath\char"#1&\stixmath\addfontfeature{StylisticSet=4}\char"#1\\}
+
+\begin{ssubs}{04}
+\U+2032\\
+\U+2033\\
+\U+2034\\
+\U+2035\\
+\U+2036\\
+\U+2037\\
+\U+2057\\
+\end{ssubs}
+
+\subsection{Stylistic Set 5 <ss05>}
+
+\emph{Shorter variants of selected arrows.}
+
+\def\U+#1\\{#1&\stixmath\char"#1&\stixmath\addfontfeature{StylisticSet=5}\char"#1\\}
+
+\begin{ssubs}{05}
+\U+2190\\
+\U+2191\\
+\U+2192\\
+\U+2193\\
+\U+21D1\\
+\U+21D3\\
+\U+21E0\\
+\U+21E2\\
+\end{ssubs}
+
+\subsection{Stylistic Set 6 <ss06>}
+
+\emph{Narrower or shorter variants of assorted symbols.}
+
+\def\U+#1\\{#1&\stixmath\char"#1&\stixmath\addfontfeature{StylisticSet=6}\char"#1\\}
+
+\begin{ssubs}{06}
+\U+2208\\
+\U+220B\\
+\U+2223\\
+\U+2224\\
+\U+2225\\
+\U+2226\\
+\U+2AEE\\
+\end{ssubs}
+
+\subsection{Stylistic Set 7 <ss07>}
+
+\emph{Smaller versions of various operators.}
+
+\textbf{Note}: In version 2.0.0, the transformation
+       {\UCSchartfont\char"2205 ${}\to{}$
+         \addfontfeature{CharacterVariant=3}\char"2205} was
+       erroneously included in this stylistic set.  That
+       transformation has been moved to cv03.
+
+\smallskip
+
+\def\U+#1\\{#1&\stixmath\char"#1&\stixmath\addfontfeature{StylisticSet=7}\char"#1\\}
+
+\begin{ssubs}[1.2]{07}
+\U+2140\\
+\U+220F\\
+\U+2210\\
+\U+2211\\
+\U+221A\\
+\U+221B\\
+\U+221C\\
+\end{ssubs}
+
+\subsection{Stylistic Set 8 <ss08>}
+
+\emph{(XITS compatibility) Upright forms of integrals, including size
+         variants (not shown).}
+
+\def\U+#1\\{#1&\stixmath\char"#1&\stixmath\addfontfeature{StylisticSet=8}\char"#1\\}
+
+\begin{ssubs}[1.1]{08}
+\U+222B\\
+\U+222C\\
+\U+222D\\
+\U+222E\\
+\U+222F\\
+\U+2230\\
+\U+2231\\
+\U+2232\\
+\U+2233\\
+\U+2A0B\\
+\U+2A0C\\
+\U+2A0D\\
+\U+2A0E\\
+\U+2A0F\\
+\U+2A10\\
+\U+2A11\\
+\U+2A12\\
+\U+2A13\\
+\U+2A14\\
+\U+2A15\\
+\U+2A16\\
+\U+2A17\\
+\U+2A18\\
+\U+2A19\\
+\U+2A1A\\
+\U+2A1B\\
+\U+2A1C\\
+\end{ssubs}
+
+\newpage
+
+\subsection{Stylistic Set 9 <ss09>}
+
+\emph{(XITS compatibility) Vertical slash variants of
+some negated symbols.}
+
+\def\U+#1\\{#1&\stixmath\char"#1&\stixmath\addfontfeature{StylisticSet=9}\char"#1\\}
+
+\begin{ssubs}[1.1]{09}
+\U+0338\\
+\U+2209\\
+\U+220C\\
+\U+2241\\
+\U+2244\\
+\U+2246\\
+\U+2247\\
+\U+2249\\
+\U+2260\\
+\U+2262\\
+\U+2268\\
+\U+2269\\
+\U+226D\\
+\U+226E\\
+\U+226F\\
+\U+2270\\
+\U+2271\\
+\U+2274\\
+\U+2275\\
+\U+2278\\
+\U+2279\\
+\U+2280\\
+\U+2281\\
+\U+2284\\
+\U+2285\\
+\U+2288\\
+\U+2289\\
+\U+22E0\\
+\U+22E1\\
+\U+22EC\\
+\U+22ED\\
+\end{ssubs}
+
+\columnbreak
+
+\subsection{Stylistic Set 10 <ss10>}
+
+\emph{Slanted variants of selected greater/lesser relations.}
+
+\def\U+#1\\{#1&\stixmath\char"#1&\stixmath\addfontfeature{StylisticSet=10}\char"#1\\}
+
+\begin{ssubs}[1.1]{10}
+\U+2272\\
+\U+2273\\
+\U+22DA\\
+\U+22DB\\
+\U+2A9D\\
+\U+2A9E\\
+\U+2AAC\\
+\U+2AAD\\
+\end{ssubs}
+
+\subsection{Stylistic Set 11 <ss11>}
+
+\emph{Variant negated sub/superset relations.}
+
+\def\U+#1\\{#1&\stixmath\char"#1&\stixmath\addfontfeature{StylisticSet=11}\char"#1\\}
+
+\begin{ssubs}[1.2]{11}
+\U+228A\\
+\U+228B\\
+\U+2ACB\\
+\U+2ACC\\
+\end{ssubs}
+
+\subsection{Stylistic Set 12 <ss12>}
+
+\emph{Low-modulation, `sans serif'-like variants.}
+
+\def\U+#1\\{#1&\stixmath\char"#1&\stixmath\addfontfeature{StylisticSet=12}\char"#1\\}
+
+\begin{ssubs}{12}
+\U+221D\\
+\U+2322\\
+\U+2323\\
+\end{ssubs}
+
+\subsection{Stylistic Set 13 <ss13>}
+
+\emph{Horizontally-flipped sine-wave symbol.}
+
+\def\U+#1\\{#1&\stixmath\char"#1&\stixmath\addfontfeature{StylisticSet=13}\char"#1\\}
+
+\begin{ssubs}{13}
+\U+223F\\
+\end{ssubs}
+
+\columnbreak
+
+\subsection{Stylistic Set 14 <ss14>}
+
+\emph{Taller versions of two symbols.}
+
+\def\U+#1\\{#1&\stixmath\char"#1&\stixmath\addfontfeature{StylisticSet=14}\char"#1\\}
+
+\begin{ssubs}{14}
+\U+2A3C\\
+\U+2A3D\\
+\end{ssubs}
+
+\subsection{Stylistic Set 15 <ss15>}
+
+\emph{Slab-serif variants.}
+
+\def\U+#1\\{#1&\stixmath\char"#1&\stixmath\addfontfeature{StylisticSet=15}\char"#1\\}
+
+\begin{ssubs}{15}
+\U+2229\\
+\U+222A\\
+\U+2293\\
+\U+2294\\
+\end{ssubs}
+
+\subsection{Stylistic Set 16 <ss16>}
+
+\emph{Variant circled operators (note inconsistent sets).}
+
+\def\U+#1\\{#1&\stixmath\char"#1&\stixmath\addfontfeature{StylisticSet=16}\char"#1\\}
+
+\begin{ssubs}{16}
+\U+2295\\
+\U+2297\\
+\U+229C\\
+\end{ssubs}
+
+\subsection{Stylistic Set 20 <ss20>}
+
+\emph{Miscellaneous variants.}
+
+\def\U+#1\\{#1&\stixmath\char"#1&\stixmath\addfontfeature{StylisticSet=20}\char"#1\\}
+
+\begin{ssubs}{20}
+\U+223E\\
+\U+224C\\
+\U+2423\\
+\U+25A9\\
+\end{ssubs}
+
+\end{multicols}
+
+\clearpage
+
+\section{Mathematical Standardized Variants}
+
+Standardized Variants are described in section 22.5 of the
+\href{https://www.unicode.org/versions/Unicode12.0.0/ch22.pdf#G23168}{Unicode
+12.0 Core Specification} and in the
+\href{https://www.unicode.org/Public/12.0.0/ucd/StandardizedVariants.txt}{StandardizedVariants.txt}
+file in the Unicode Character Database.
+
+As noted below, most of the Standardized Variants are also accessible
+via Character Variants or Stylistic Sets.
+
+\medskip
+
+\tracinglostchars=0
+
+\begingroup
+
+\def\arraystretch{1.2}
+
+\newcommand{\variant}[2][]{U+#2&U+FE00 &\stixmath\char"#2&\stixmath\char"#2︀&#1\\}
+
+\begin{tabular}{@{}l@{\,}ll@{${}\to{}$}l@{\qquad}l@{}}
+\variant{0030}% short diagonal stroke form; # DIGIT ZERO
+\variant[cv03]{2205}% zero with long diagonal stroke overlay form; # EMPTY SET
+\variant[ss15]{2229}% with serifs; # INTERSECTION
+\variant[ss15]{222A}% with serifs; # UNION
+\variant[ss09]{2268}% with vertical stroke; # LESS-THAN BUT NOT EQUAL TO
+\variant[ss09]{2269}% with vertical stroke; # GREATER-THAN BUT NOT EQUAL TO
+\variant[ss10]{2272}% following the slant of the lower leg; # LESS-THAN OR EQUIVALENT TO
+\variant[ss10]{2273}% following the slant of the lower leg; # GREATER-THAN OR EQUIVALENT TO
+\variant[ss11]{228A}% with stroke through bottom members; # SUBSET OF WITH NOT EQUAL TO
+\variant[ss11]{228B}% with stroke through bottom members; # SUPERSET OF WITH NOT EQUAL TO
+\variant[ss15]{2293}% with serifs; # SQUARE CAP
+\variant[ss15]{2294}% with serifs; # SQUARE CUP
+
+\variant[ss16]{2295}% with white rim; # CIRCLED PLUS
+\variant[ss16]{2297}% with white rim; # CIRCLED TIMES
+\variant[ss16]{229C}% with equal sign touching the circle; # CIRCLED EQUALS
+
+\variant[ss10]{22DA}% with slanted equal; # LESS-THAN EQUAL TO OR GREATER-THAN
+\variant[ss10]{22DB}% with slanted equal; # GREATER-THAN EQUAL TO OR LESS-THAN
+\variant[ss14]{2A3C}% tall variant with narrow foot; # INTERIOR PRODUCT
+\variant[ss14]{2A3D}% tall variant with narrow foot; # RIGHTHAND INTERIOR PRODUCT
+\variant[ss10]{2A9D}% with similar following the slant of the upper leg; # SIMILAR OR LESS-THAN
+\variant[ss10]{2A9E}% with similar following the slant of the upper leg; # SIMILAR OR GREATER-THAN
+\variant[ss10]{2AAC}% with slanted equal; # SMALLER THAN OR EQUAL TO
+\variant[ss10]{2AAD}% with slanted equal; # LARGER THAN OR EQUAL TO
+\variant[ss11]{2ACB}% with stroke through bottom members; # SUBSET OF ABOVE NOT EQUAL TO
+\variant[ss11]{2ACC}% with stroke through bottom members; # SUPERSET OF ABOVE NOT EQUAL TO
+\end{tabular}
+
+\endgroup
+
+\endgroup
+
+\endinput

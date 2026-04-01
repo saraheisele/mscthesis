@@ -1,0 +1,43 @@
+% !TeX root = ../main.tex
+\clearpage
+\section{Appendix}
+
+
+\subsection{List of Abbreviations}
+\begin{tabular}{ll}
+
+    AM & Amplitude Modulation \\
+    CLS & Centrolateral Segment \\
+    CMS & Centromedial Segment \\
+    D1 & Dataset 1 \\
+    D2 & Dataset 2 \\
+    D3 & Dataset 3 \\
+    ELL & Electrosensory Lateral Line Lobe \\
+    EOD & Electric Organ Discharge \\
+    HOLF & Higher-order low-frequency \\
+    IM & Intermodulation \\
+    JAR & Jamming Avoidance Response \\
+    LIF & Leaky Integrate-and-Fire \\
+    LS & Lateral Segment \\ 
+
+
+\end{tabular}
+
+\makeatletter
+% Redefine \listoffigures to suppress its automatic heading
+\renewcommand{\listoffigures}{%
+  \@starttoc{lof} % just prints the list without title
+}
+\makeatother
+\subsection{List of Figures}                      
+\listoffigures
+
+\makeatletter
+\renewcommand{\listoftables}{%
+  \@starttoc{lot} % just prints the list without title
+}
+\makeatother
+\subsection{List of Tables}
+\listoftables
+
+\newpage

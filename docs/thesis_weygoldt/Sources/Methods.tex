@@ -1,0 +1,780 @@
+\chapter{Methods} % (fold)
+\label{chap:methods}
+
+Following our discussion on the nature of chirps and their detection methods,
+this chapter outlines the pipeline developed for chirp detection. This pipeline
+comprises four key components: 
+
+\begin{enumerate}
+  \item \textbf{Feature extraction from grid recordings:} This 
+        initial step involves generating spectrograms to identify chirps.
+  \item \textbf{Chirp detection:} In this phase, chirps are detected on the
+        spectrograms, undergoing various transformations and filters.
+  \item \textbf{Feature extraction for chirp assignment}: This involves
+        analyzing individual chirps on the spectrograms to extract features
+        necessary for assigning them to specific fish.
+  \item \textbf{Chirp assignment}: The final step reduces the assignment
+        problem into a binary classification task, addressed with another
+        neural network.
+\end{enumerate}
+
+The pipeline utilizes two separate feature extraction processes and two neural
+networks to detect and assign chirps. Training and evaluating these networks
+are important steps in the process. Therefore, before jumping into the
+pipeline's specifics, this chapter will first detail the training process for
+each neural network, including the data used for training.
+
+\section{Chirp detection}
+\label{sec:cpd}
+
+The issue of chirp detection is where most of the complexity of the pipeline
+lies and most of the training data had to be generated. The following sections
+will explore the different strategies I used to identify chirps in a set of
+simple recordings and how I used them to build a training dataset for complex
+grid datasets.
+
+\subsection{Datasets}
+\label{sec:rawdata}
+
+I used multiple datasets to extract training data for the object detection
+model. The first dataset was recorded during competition experiments by
+\textcite{raabElectrocommunicationSignalsIndicate2021} in \textit{A.
+leptorhynchus}. They staged competitions of two fish over access to a shelter
+in experimental tanks and recorded electric signals on an electrode grid as
+well as spatio-temporal behaviors using an near-infrared camera. The recordings
+were made with a grid of electrodes and fish were able to move freely in the
+tank. This provided to be vital for generating a diverse training dataset:
+While fish were competing, they produced a large number of chirps with a much
+higher diversity in their characteristics as compared to stationary
+chirp-chamber recordings. Additionally, the movement of the fish resulted in
+much more challenging spectrograms. This illustrated early on how diverse the
+chirps of \textit{A. leptorhynchus} can be and how movement increases the
+complexity of chirp detection. The disadvantage of this setup is that if I
+wanted to use this data to generate training data, computed spectrograms would
+have needed to be annotated by hand to extract the chirps. And in an ideal
+world, a dataset used to train an object detection model would contain multiple
+thousands of images, each with multiple instances of the object of interest.
+This is why I decided to add a second available dataset of chirp-chamber
+recordings.\label{sec:ccdata}
+
+The chirp-chamber recordings were produced from single individuals of
+\textit{A. leptorhynchus} that were restrained to a PVC tube using mesh on both
+ends, as described in \textcite{stocklEncodingSocialSignals2014}. The fish
+were stimulated by a pair of electrodes that were placed on the left and right
+side of the chamber. The two recording electrodes where positioned at the head
+and tail of the fish. Because the stimulation electrodes are isopotential to
+the field of the fish, the stimulus did not interfere with the EOD and hence
+was not recorded on the recording electrodes. The fish were then stimulated by
+a sine-wave mimicking the presence of a conspecific. The frequency of the sine-wave was varied between $\pm$ 30 \si{\hertz} around the EOD$f$ of the fish.
+While this dataset included a large number of chirps, the diversity of chirps
+was limited to mostly very short type 1 and type 2 chirps
+\parencite{englerSpontaneousModulationsElectric2000a}.
+
+Because of the lack of diversity in this dataset, I also included a third
+dataset of various experiments that mostly included two fish interacting. The
+dataset was recorded by \textcite{obotiWhyBrownGhost2023} and most fish were
+spatially restricted to a certain degree, meaning that the strongest signal on
+one of two recording electrodes was always the EOD of the fish of interest.
+This dataset includes a large variety of different experiments, all of which
+are documented in the original publication.
+
+\subsection{Training data acquisition}
+\label{sec:dettraindata}
+
+The first step in training the object detection model was to generate a large
+number of training images, i.e., spectrograms with chirps. As the datasets that
+I had access to at the beginning of the project were very large, converting all
+the data to spectrograms and annotating the spectrograms by hand was not
+feasible. This is why I decided to start by modeling chirps in simulated grid
+recordings. At least in theory, this provides the ability to generate an
+infinite amount of training data without the need of manual annotation.
+
+\subsubsection{Initial training on modeled chirps}
+
+To train an object detection model on spectrograms, merely modeling chirps is
+not enough. To get a realistic spectrogram, a simulated recording of multiple,
+moving and communicating fish is necessary. In this section, I will describe
+the process of generating such a simulated recording and how to extract
+training data from it. The first step was to model the frequency excursions
+that happen during chirps.
+
+\emph{Simulating a chirp.} To model chirps, I first needed to understand and
+parameterize the chirps that are present in the recordings. As the only dataset
+that I had access to at the time was the competition dataset of
+\textcite{raabElectrocommunicationSignalsIndicate2021}, I decided to use the
+chirps that were present in this dataset to model chirps. As a first step, I
+had to extract instantaneous frequency estimates of the EOD of a chirping fish.
+To do this, I used the chirps that were already sparsely detected by the
+previous chirp detection approaches as first estimates on where to look for
+more. I only considered the chirps of fish with the highest baseline EOD$f$.
+The chirps of the fish with the lower baseline EOD$f$ would cross the frequency
+band of the upper fish, rendering them unusable. I used a set of heuristics to
+extract the instantaneous frequency for each chirp, which are described in
+detail in the \hyperref[appendix]{appendix}.
+
+To model chirps, I then fitted a Gaussian frequency modulation to the centered
+instantaneous frequency of each chirp. The Gaussian modulation had a height
+$h$, a width $w$ and a kurtosis $k$. The standard deviation was then computed
+from the width and kurtosis:
+
+\begin{equation}
+  g(t) = h \exp\left(-\frac{1}{2}\left(\frac{t - \mu}{\sigma}\right)^{2}\right)^{k} \quad \text{with} \quad
+  \sigma = \frac{w / 2}{2 \log(10)^{k/2}}
+\end{equation}
+
+Where $t$ is the time, $\mu$ is the center of the chirp and $k$ is the
+kurtosis. A kurtosis of 1 corresponds to a perfect Gaussian. In addition to
+this rather simple model, I also experimented with mixtures of up to three
+Gaussian modulations. To achieve realistic type 1 and type 2 chirps, at least
+two Gaussian curves should be needed as these chirps often contain an
+undershoot or down modulation of the frequency at the end. The third Gaussian
+was introduced to allow facilitate degree of freedom. But as model complexity
+increases, so do the fitting errors, which is why I decided to stick with the
+simple Gaussian model. After fitting I then linearly interpolated the three
+parameters of the monophasic model. I sorted all parameter groups by the width
+of the Gaussian and then interpolated all parameters to fill the gaps in the
+parameter space. This allowed modeling chirps of any duration, height and
+kurtosis, limited by the minima and maxima of the real chirps in the dataset.
+
+\emph{Simulating a chirping fish.}\label{sec:simulatingachirpingfish} Moving
+from frequency space into the time domain, the next step involves simulating
+the EOD of \textit{A. leptorhynchus}, containing the simulated chirps. The EOD,
+a periodic signal with a fundamental frequency and harmonics, can be modeled as
+a sum of sinusoids, if its Fourier spectrum is known. Utilizing the
+\href{https://github.com/janscience/thunderfish/}{\texttt{thunderfish}}
+package, we can easily model an EOD, including specific amplitudes and phases
+for different taxa.
+
+To simulate an EOD's evolution over time, I start by selecting a baseline
+frequency between 600 and \SI{1100}{Hz} from a uniform distribution, reflecting
+the typical range for \textit{A. leptorhynchus}. To introduce chirps,
+parameters are randomly drawn from the previously described interpolated
+Gaussian model and  the resulting frequency curve is added to the EOD$f$
+vector. The simulation randomly determines the number of chirps, ensuring no
+more than one chirp per second and a minimum interval of
+\SI{200}{\milli\second} between chirps. To achieve this, a random number of
+chirps (constrained by the maximum rate) is randomly positioned onto the full
+frequency trace and chirps that are too close are discarded.  Notably, chirps
+also involve a change in EOD amplitude, typically a slight reduction. This
+effect is simulated by inverting the Gaussian used for frequency modulation,
+adjusting its scale, and multiplying it with the EOD. The resulting amplitude
+is randomly set between 100\% and 20\% of the EOD's maximum amplitude.
+Reconstructing the EOD as a sum of sine waves using the EOD$f$ vector and
+additional parameters for phases and amplitudes results in a semi-realistic
+simulation of a chirping fish that oscillates between negative one and one.
+
+At this point, the simulation resembles a recording one would get from a
+chirp-chamber setup: A single fish that is not moving and producing chirps,
+recorded on two electrodes positioned at its head and tail. This is not enough
+to emulate the complexity of a grid recording of multiple, moving fish. So as a
+next step, let's add movement to the artificial fish.
+
+\emph{Simulating a moving fish.} An electrode grid reduces the spatial
+information to a two-dimensional plane. Because the power of the EOD decays
+with distance, it is informative about the distance of the fish to the
+recording electrode. In such electrode grid recordings, the positions of fish
+in two dimensional space are reflected by the distribution of the EOD
+amplitudes on the electrodes. And when a fish moves, the amplitude of the EOD
+on each electrode changes. To simulate this, I first simulated the
+\enquote{true} movement of a fish over time, from which I then calculated the
+distances to all electrodes and the corresponding \acrfull{AM}. As the exact
+movement patterns do not matter for this simulation, I used a simple random
+walk. The algorithm gets a starting position, a target duration and two
+\acrfullpl{PDF}, one for the direction and one for the distance of a single
+discrete step. Manipulating the probability densities as well as the number of
+steps per time strongly influences how the simulated fish moves. The PDF of the
+step distance was a Gamma distribution normalized to the number of steps per
+second with a peak at \SI{0.2}{\meter\per\second}, which is equivalent to
+velocities observed in the field. The direction PDF was a sum of two Gaussian
+distributions with a peak at \SI{0}{\degree} and \SI{180}{\degree}. Increasing
+the width of the Gaussians for the direction PDF would make the movement
+trajectories much less smooth, as the fish would change direction more
+frequently. And \emph{vice versa}, narrowing both Gaussians would make them
+smoother. Increasing the weighting of the forward Gaussian, i.e., the one at
+\SI{0}{\degree} relative to the backward Gaussian, would decrease the number of
+times the fish moves backwards. The forward Gaussian was set to a standard
+deviation of 0.2 and 0.1 for the backward Gaussian on an angular unit circle.
+The PDF of the backward Gaussian was weighted as 20\% of that of the forward
+Gaussian. The chosen parameters ought to simulate the characteristic
+forward-backward movement of knife fish like \textit{A. leptorhynchus}. As a
+result, we get a vector that describes the position of a fish over time in a
+two-dimensional plane. Since the random walk often breached the boundaries of
+simulated space, I included boundaries that the fish could not cross. The
+resulting positions were \enquote{folded} back into the simulated space (figure
+\ref{fig:space_folding}) after generating the random walk.
+
+\begin{figure}
+  \centering
+  \includegraphics[width=\textwidth]{../figures/space_folding.pdf}
+  \caption{Simulated fish movements for three fish. The circles indicate
+  electrodes and the black border is the boundary of the virtual space. The
+  positions are simulated by a random walker that is capable of stepping into
+  any direction of a circle around it. The trajectory of each step underlies a
+  bimodal PDF as real fish mostly move forwards or backwards. The
+  distance of each step is drawn from a Gamma distribution limited by
+  velocities estimated from fish in their natural habitat with a peak at
+  \SI{0.2}{\meter/\second}. To maximize computational efficiency, the positions
+  are first simulated and then folded back across the boundaries of the virtual
+  space until they are contained in the boundaries.}
+  \label{fig:space_folding}
+  \vspace{0.5cm}
+\end{figure}
+
+From these $x$ and $y$ positions, the next step was to simulate the power of
+the EOD on each electrode depending on the position of the fish. For this, I
+defined a grid of 16 virtual electrodes spaced \SI{50}{\centi\meter} apart in
+the simulated space (figure \ref{fig:space_folding}). In the previous steps, we
+covered everything needed to simulate a fish that is recorded on a single
+electrode. To simulate how this fish would be recorded on the 16 virtual
+electrodes, we can simply duplicate the signal 16 times. We then
+retrospectively adjust the AM so that it is proportional to the distance between the fish and each of the 16 electrodes. By using Pythagoras' theorem
+and the known electrode positions as well as the known fish positions, we can
+calculate, for each point in time, the distance between the virtual fish and
+each virtual electrode. As the amplitude of the EOD decays with the squared distance, inverting, squaring and normalizing the distance gives us the
+amplitude of the EOD$f$ on each electrode. Normalization is necessary, as the
+simulated EOD is restricted between 1 and $-1$, while the distance
+can become much greater. To obtain an amplitude modulation that we can add to
+the EOD, this AM computed from the distances also has to be restricted to
+between 1 and $-1$. The main assumption here is that the power of
+the electric field decays equally in all directions around the fish. In
+reality, the field of the fish is an oscillating dipole with two lobes. But
+because I assumed, that this property is not reflected in the appearance of the
+sum spectrogram across all recording channels, I ignored it for now. Adding
+this distance transformed into an AM to every single EOD gives us a matrix that
+contains the EOD including position-dependent AMs. The result is a simulated
+electrode grid recording of a single, moving fish that produces chirps.
+
+\emph{Simulating multiple fish.} A single fish is not enough to emulate the
+complexity of a grid recording in the field. In reality, the frequencies of
+fish often overlap or cross each other, not to speak of the chirps that are
+produced. To simulate this, I simply repeated the process of simulating a
+single fish a random number of times (between one and five fish
+with a minimum $\Delta\text{EOD}f$ between two fish of \SI{20}{\hertz}).
+Combining the separate fish is then simply the sum of the matrices that contain
+the EOD over time on all electrodes. The result is a simulated grid recording
+of multiple, moving fish that produce chirps.
+
+\emph{Simulating noise.} The simulated recordings are very clean and do not
+resemble the complexity of a real recording. I added noise at different stages
+of the simulation pipeline. Before doing so, we first have to consider how this
+translates to spectrograms as this is the only feature that the model is able
+to consume. Adding noise to the EOD$f$ would make the frequency band of a
+single fish on a spectrogram broader. Adding noise to the EOD however, would
+change the \acrfull{SNR}, i.e., the contrast between the \enquote{background}
+and the frequency band of a single fish on a spectrogram. These sources of
+noise can be easily implemented, given that they are static over time. So as a
+first step, I added band-limited Gaussian noise to the baseline EOD$f$ of each
+fish (cutoff at 0.0 \si{\hertz} and 0.01 \si{\hertz}, $\sigma = 5
+\si{\hertz}$). With the frequency trace of each chirp, I multiplied
+band-limited Gaussian noise (cutoff at 600 \si{\hertz}, $\sigma = 1
+\si{\hertz}$) as the noisiness of the instantaneous frequency appeared to
+increase proportionally with the increase in frequency relative to the baseline
+EOD$f$. To the waveform of an EOD I additionally added Gaussian noise ($\sigma
+= 0.01$) to simulate its presence in the recordings of single fish. The part
+where it gets complicated is the noise that is non-stationary, meaning that it
+substantially changes over time. This kind of noise is particularly strong in
+laboratory recordings as many appliances, like lights, cables, and other
+equipment, introduce electromagnetic noise. Due to its heterogeneity, it is
+impossible to simulate \textit{ad-hoc}. It depends on the building, the room,
+the time of day and many other factors. So instead of simulating it, I used the
+noise floor from real recordings and added it to the simulated recordings. To
+achieve this, I selected areas from the Raab dataset which were known for
+either contain little or no chirps. I scaled the simulated recording so that it
+fits the units of the recorded snippet and added it to my simulated ensemble of
+fish to get a realistically noisy backdrop. This still contains the EODs of the
+real fish from the Raab dataset, but as they do not produce any chirps, they
+can be considered as additional noise.
+
+The result is an artificial grid recording that contains multiple, moving fish
+producing chirps and that has a realistic noise floor. As I have simulated
+them, I also know when which fish produced a chirp and what the chirp looked
+like. But this is not yet a dataset that can be used to train an object
+detection model. To train a detection model, we need spectrograms that contain
+the frequency bands of chirping fish and labels that contain the coordinates of
+bounding boxes around the chirps. So now is a good time to introduce the format
+of the training dataset and how spectrograms are computed.
+
+\emph{Spectrogram conversion.}\label{sec:spectrogramconversion} Computing
+spectrograms is a computationally expensive task, especially with weeks of
+recordings. The two factors that limit how much data of one recording should be
+converted to spectrograms at once are the available memory and the time it
+takes to compute. Using modern graphics cards can decrease computational time
+but limits the amount of data in terms of memory, as \acrshort{GPU}s usually
+have less memory than \acrshort{CPU}s. Using an NVIDIA GeForce RTX 4080 with 16
+GB of memory, I was able to convert three minutes of recordings from 16
+channels sampled at 20 \si{\kilo\hertz} at once (nfft=4096, hop length=410). Converting three minutes of recording takes
+approximately 300 \si{\milli\second}. All channels in a grid recording are
+converted to a sum spectrogram. Additionally, the spectrogram is transformed
+from the power scale to the decibel scale. The windows that I extracted from
+the recordings always had an overlap of one second. Another issue is that the
+resulting spectrograms are quite large: Finding an event of a few tens of
+milliseconds in three minutes of data is like finding a needle in a haystack.
+Additionally, the relevant part of the frequency spectrum only reaches up to 2
+\si{\kilo\hertz} of the available 10 \si{\kilo\hertz}. To make this data easier
+to process for the neural network, I split the spectrograms into 15
+\si{\second} chunks with 1 \si{\second} overlap. I also split them along the
+frequency dimension into the ranges 0-1000 \si{\hertz}, 500-1500 \si{\hertz},
+1000-2000 \si{\hertz}. To generate training data, each of these spectrogram
+chunks is saved to disk as a greyscale PNG image.
+
+\emph{Generating labels.} To train a model for predicting the position of
+chirps on spectrograms, we need labels that allow the model to learn. A common
+way to label the position of objects in images, or in this case, chirps on
+spectrograms, is, to use bounding boxes. A bounding box is a rectangular box
+around an object of interest that is defined by the coordinates of the four
+corners. In the case of simulated data, these labels can be generated from the
+known chirp times, widths and heights. To do this, I had to find a
+transformation that approximates the width and height of a chirp on a
+spectrogram given the same on the instantaneous frequency. As we have seen in
+figure \ref{fig:multifish_chirps}, chirps look different on spectrograms
+compared to their instantaneous frequency trace. I approximated the width of
+the chirp on the spectrogram by adding a term to the original width that is
+dependent on the sample rate $f_s$ and spectrogram: $\text{nfft} / f_{s} \times
+0.8$. This is necessary because the minimum possible width of a chirp is the
+width of the window that is used to compute the spectrogram. The upper boundary
+of the bounding box was then set to the maximum frequency of the chirp and a
+certain frequency padding given by $f_{s}/\text{nfft}\times5$. The lower
+boundary was set to the minimum frequency of the chirp minus the same frequency
+padding.
+
+\emph{Generating the dataset.} The dataset is then generated by converting the
+simulated grid recordings to spectrograms and saving them to disk as PNG images
+and generating labels from the known chirp times, widths and heights. The
+labels for each spectrogram were saved as \texttt{txt} files with the same
+file name as the image file and coordinates transformed relative to the image
+dimensions. This is the common dataset format for YOLO-style object detectors.
+The result was the first dataset that I used to train the object detection
+model. From now on, I will refer to this dataset as the \emph{simulated
+training dataset}.
+
+\subsubsection{Manual annotation with a human in the loop}
+
+In addition to simulated data, real data was also used to train the object
+detection model. To efficiently manage the annotation workload, subsets known
+to contain chirps were extracted from the Raab datasets. These subsets were
+pre-annotated using a faster R-CNN model, an established CNN for object
+detection that was fine-tuned on simulated data
+\parencite{renFasterRCNNRealTime2016}. The pre-annotations were imported into
+\href{https://labelstud.io/}{\texttt{label-studio}}, a web-based, open-source
+annotation tool designed for human-in-the-loop annotation processes
+\parencite{tkachenkoLabelStudioData2022}. This tool facilitated the refinement
+of pre-annotations and the addition of new ones by human annotators. The
+refined annotations, from now on termed the \emph{recorded training dataset},
+were exported and progressively expanded through cycles of model training,
+pre-annotation, human correction, and export. The final dataset comprised 537
+images of spectrograms with 14,832 annotations, averaging 27.6 chirps per
+image.
+
+\subsubsection{Hybrid simulations}
+
+The last and probably most important dataset that I used to train the object
+detection model is what I will refer to as the \emph{hybrid training dataset}.
+This is a combination of a fully simulated grid recording with the difference
+that the instantaneous frequency evolution of each chirp is not generated by a
+simple Gaussian model as it was previously, but extracted from real recordings.
+Previously, I introduced the \hyperref[sec:ccdata]{chirp-chamber dataset} which
+has the advantage that the fish are solitary and stationary, facilitating the
+extraction of the instantaneous frequency. Additionally, these recordings are
+differential, meaning that they contain just a single channel signal. Chirps
+were simply detected as peaks on the instantaneous frequency. I used a set of
+hand-tuned heuristics to extract chirps from these chirp-chamber recordings
+that are described in detail in the \hyperref[appendix]{appendix}. The number
+of peaks discarded in each filtering step are visualized in figure
+\ref{fig:chirp_baseline_smoothing} A.
+
+This resulted in 9,082 extracted chirps. The resulting chirps still had an
+often jittery baseline frequency. If I would put these chirps directly into the
+simulation pipeline, the area of the spectrogram around the chirp would be
+different from the rest of the baseline EOD$f$ band. This is a feature a neural
+network could learn but that is not present in real data. To prevent this, I
+had to find a way to make the baseline frequency, i.e., everything left and
+right of the chirp, as smooth as possible while keeping the natural variability
+of the EOD$f$ during a chirp.
+
+\begin{figure}
+  \centering
+  \includegraphics[width=\textwidth]{../figures/plot_chirp_baseline_crossfade_smoothing.pdf}
+  \caption{
+    Visualization of the filter contributions and frequency post-processing
+    steps. (A) Shows how many of the detected peaks in the EOD$f$ were
+    discarded by each filter threshold. The thresholds were chosen to remove
+    false positives and to keep the chirps that are most likely to be real. For
+    details see \hyperref[appendix]{appendix}. (B) Illustrates how the baseline
+    instantaneous frequency around a chirp was smoothed. I used the smoothed
+    baseline to find the beginning and end of the chirp and applied a
+    cross-fade to the instantaneous frequency to make the baseline around the
+    chirp as smooth as possible while retaining the natural variability of the
+    instantaneous frequency during a chirp. The result is a centered
+    instantaneous frequency that can be used to simulate a chirping fish.
+  }
+  \label{fig:chirp_baseline_smoothing}
+  \vspace{0.5cm}
+\end{figure}
+
+To achieve this, I used cross-faded concatenation of a smoothed baseline before
+and after the chirp (figure \ref{fig:chirp_baseline_smoothing} B). First, I
+estimated the baseline frequency EOD$f_{bl}$ by computing the median of all
+values in the boundaries $b_{lower}=\min{\text{EOD}f(t)}$ and
+$b_{upper}=\left|\min{\text{EOD}f(t)}\right|$. I then descended the left and
+right slopes of the smoothed chirp until I either reached the baseline or the
+sign of the derivative flipped, indicating that the slope goes up again. This
+is not as straight forward for the end of the chirp, as a chirp often has an
+undershoot. So here I descended the right slope until the sign of the
+derivative flipped twice: The first time when the slope goes up again after the
+undershoot and the second time when the jitter of the noisy baseline starts.
+The result is a start and stop time of a chirp, which includes the undershoot
+and. This can be used to extract the chirp from the centered instantaneous
+frequency. To get a smoother baseline, I applied a Gaussian filter ($\sigma=60
+\, \text{samples}$) to the instantaneous frequency. I then used the 120 samples
+after the chirp start and the 120 samples before the chirp stop as the
+cross-fade regions. In these regions, I combined the original instantaneous
+frequency EOD$f(t)_{\text{orig}}$ with the smoothed instantaneous frequency
+EOD$f(t)_{\text{smooth}}$ using a weighted mean with linearly increasing and
+decreasing weights $w(t)$ for the cross-fade regions respectively:
+
+\begin{equation}
+  \text{EOD}f(t)_{\text{cf}} = \frac{1}{2} \left((1 - w(t)) \text{EOD}f(t)_{\text{orig}} + w(t) \text{EOD}f(t)_{\text{smooth}} \right)
+\end{equation}
+
+Finally, the baseline frequency was subtracted from EOD$f_{cf}$. The result
+EOD$f_{\text{cf}}$ was now the instantaneous frequency of 9,011 chirps with a
+perfectly smooth baseline that retained the natural frequency variability of a
+real chirp. The remainder did not successfully pass the cross-fading and was
+discarded. This happened when the descent of the slopes on either flank never
+reached the baseline or a change of sign until the end of the snippet.
+
+The resulting distribution of chirp heights and widths was severely skewed
+towards small and short chirps as shown in figure
+\ref{fig:chirp_overview_clustered_plot}. As I wanted the model to explicitly
+learn to detect long and high chirps as well, I re-sampled the chirps to have a
+uniform distribution by using a histogram equalization algorithm on both the
+chirp heights and widths. This algorithm computed a 100-bin histogram for both
+the distribution of chirp heights and widths. It then filled all bins by
+duplicating random chirps from each bin to achieve a uniform distribution
+across the bins. After histogram equalization, the dataset contained 121,380
+chirps. Duplicating chirps is not ideal, as it introduces reduced variability
+of large chirps. On the other hand, how a chirp appears on a spectrogram is
+strongly dependent on the noise floor, how many other fish are present in the
+recording and what their EOD$f$ is. So while the same chirp might appear many
+times in the dataset, it will do so in many different contexts. This is much
+better than having strong class imbalance. The resulting instantaneous
+frequencies were then used as sources of chirps in the previously introduced
+\hyperref[sec:simulatingachirpingfish]{simulation pipeline} to generate grid
+recordings of multiple moving fish that produce chirps. Training data, i.e.,
+spectrograms and labels, were then generated from these simulated grid
+recordings as described in \hyperref[sec:spectrogramconversion]{spectrogram
+conversion} and following sections. Figure \ref{fig:annotated_chirps} shows two
+training samples. Each training sample is a single spectrogram image containing
+many bounding boxes for chirps.
+
+\begin{figure}
+  \centering
+  \includegraphics[width=\textwidth]{../figures/chirp_overview_clustered_plot.pdf}
+  \caption{
+    Extracted chirps for the hybrid training dataset. (A) Clustered
+    instantaneous frequencies of the chirps for visualization. Chirps were
+    clustered by fitting a \acrfull{GMM} by optimizing the \acrfull{BIC} on
+    the first three principle components of the instantaneous frequencies. The
+    upper panel shows the number of chirps per cluster. Below are the medians
+    and 25\% and 75\% percentiles of the instantaneous frequencies of the
+    chirps. Small and short chirps are disproportionally represented. (B) The
+    distribution of chirp heights and widths as well as the troughs after the
+    chirp indicated by the hue. The distribution is severely skewed towards
+    small and short chirps. There is also no apparent correlation between chirp
+    height and width and the trough after the chirp: Most small chirps have no
+    trough, while large chirps, particularly those at around 300 \si{\hertz},
+    have a trough. But chirps that are even larger or last longer have smaller
+    troughs again.
+  }
+  \label{fig:chirp_overview_clustered_plot}
+  \vspace{0.5cm}
+\end{figure}
+
+\begin{figure}
+  \centering
+  \includegraphics[width=\textwidth]{../figures/annotated_chirps.pdf}
+  \caption{
+    Two training samples from the hybrid grid datasets with real chirps. Each
+    sample contains \SI{15}{\second} of the signal and captures a frequency
+    range of \SI{1}{\kilo\hertz}. Bounding boxes are automatically computed by
+    respecting the width and height of each underlying chirp as well as the
+    \texttt{nfft} of the spectrogram to account for the artifacts introduced by
+    estimating the spectrograms.
+  }
+  \label{fig:annotated_chirps}
+  \vspace{0.5cm}
+\end{figure}
+
+\subsection{Model selection}
+
+Deep learning and computer vision have seen a rapid development in the last
+decade. This has led to a large number of different object detection models
+that are tailored to different tasks and have different trade-offs in terms of
+speed, accuracy and ease of use. The popular object detection models are the
+R-CNN and YOLO families
+\parencite{girshickRichFeatureHierarchies2014, redmonYouOnlyLook2016}. The
+R-CNN family is based on the \emph{region-based convolutional neural network}
+and consists of the original faster R-CNN, the R-FCN and the
+Mask R-CNN. The YOLO family is based on the \emph{You Only Look Once}
+model and consists of the original YOLOv1, the YOLOv2 up to
+YOLOv9 and various deviations such as YOLONas and PP-YOLO,
+which each have their own tweaks in model architecture and training process.
+
+To start off, I decided to use the faster R-CNN model as it is well
+documented and included in the \href{pytorch.org}{\texttt{PyTorch}} ecosystem.
+The faster R-CNN model is a two-stage object detection model that first
+generates a set of region proposals and then uses a region of interest pooling
+layer to extract features from each region proposal. The features are then used
+to predict the class and the bounding box of the object. I used the
+ResNet-50 as the backbone. The features extracted by the backbone are
+then used to generate the region proposals and to predict the class and the
+bounding box of the object. In this case, I implemented the model training loop
+using the \href{pytorch.org}{\texttt{PyTorch}} library. The model was trained
+using the \texttt{Adam} optimizer with a learning rate of 0.001 and a batch
+size of 8. This is the model used for the pre-annotation of the recorded
+training dataset.
+
+In addition to the faster R-CNN model, I also used the YOLOv8 and the
+YOLOv9 models. These models are single-stage object detection models
+that predict the class and the bounding box of the object directly from the
+input image. For the YOLO models, implenting a training loop was not nessecary,
+as the models were trained using the
+\href{https://ultralytics.com}{\texttt{ultralytics}} library
+\parencite{yolov8_ultralytics}. This includes many pre-trained models as well
+as features such as a memory dependent dynamic batch sizes and a model
+evaluation pipeline, which simplified the training process. All YOLOv8 as well
+as the YOL0v9E models were trained and can be used as the object detection
+backend in the chirp detection pipeline.
+
+\subsection{Training \& hyperparameters}
+
+In the final detection training dataset I combined the hybrid training dataset
+with the human annotated dataset resulting in 2,159 training images. YOLOv8 and
+YOLOv9 are the two main models that are used in the chirp detection pipeline,
+as they are the most accurate, fast and easy to fine-tune. The models were
+trained using the default hyperparameters of the \texttt{ultralytics} 8.1.23
+library except for setting the image size to (800x800). Each model was trained
+for 250 epochs and 5 cross-validation folds (figure
+\ref{fig:yolo_crossval_training}). The batch size had to be decreased for the
+larger models to fit into the memory of the GPU.
+
+\begin{figure}
+  \centering
+  \includegraphics[width=\textwidth]{../figures/yolo_crossval_training.pdf}
+  \caption{
+    Training curves for all models that are trained for the detection step.
+    Metrics were computed using 5-fold cross-validation for each model. The
+    line corresponds to the median across the folds and the colored area to the
+    \ordinalnum{25} and \ordinalnum{75} percentile respectively. In most case,
+    the percentiles are barely visible despite training on a different subset
+    of the dataset with the same random seed. Each row corresponds to a model
+    and each column corresponds to a combination of loss metric and performance
+    metric. The column header indicates which loss and which performance metric
+    is plotted and the line colors indicate on which data (training /
+    validation) the metric was evaluated. Losses decrease for all YOLOv8 models
+    without too strong deviations between the training and validation loss.
+    Losses and performance metrics of YOLOv9E also follow the predicted path
+    but show strong fluctuations after 100 epochs are trained.
+  }
+  \label{fig:yolo_crossval_training}
+  % \vspace{0.5cm}
+\end{figure}
+
+\subsection{Evaluation}
+\label{sec:deteval}
+
+To understand how object detection models can be evaluated, we first have to
+define what a true positive and what a false positive is. In other words, how
+close does a predicted bounding box have to be to the true bounding box to be
+considered a true positive? And how far does a predicted bounding box have to
+be from the true bounding box to be considered a false positive? To answer this
+question, we can use the \acrfull{IoU} metric. The IoU between a ground truth
+bounding box $y$ and a predicted bounding box $\hat{y}$ is defined as the area
+of the intersection of the two bounding boxes divided by the area of the union
+of the two bounding boxes:
+
+\begin{equation}
+  \text{IoU}(y, \hat{y}) = \frac{\text{area}(y \cap \hat{y})}{\text{area}(y \cup \hat{y})}
+  \label{eq:iou}
+\end{equation}
+
+Traditionally, the IoU is used by thresholding it in two ways: The simple
+approach is to assume that a predicted bounding box is a true positive if the
+IoU is greater than a certain threshold, in most cases 0.5. A more nuanced
+approach is to use a range of IoU thresholds and to compute the \acrfull{AP}
+over the range of IoU thresholds, e.g., in between 0.5 and 0.95 in steps of
+0.01. The average precision is defined as the area under the curve spanned by
+the precision $p$ and recall $r$ as a function of the detection threshold
+$\theta$, and is the most common metric to evaluate object detection models.
+Precision and recall are computed from the number of true positives
+($n_{\text{TP}}$), false positives ($n_{\text{FP}}$) and false negatives
+($n_{\text{FN}}$):
+
+\begin{equation}
+  \begin{aligned}
+    \text{p}(\theta) = \frac{n_{\text{TP}}(\theta)}{n_{\text{TP}}(\theta) + n_{\text{FP}}(\theta)} \quad \text{r}(\theta) = \frac{n_{\text{TP}}(\theta)}{n_{\text{TP}}(\theta) + n_{\text{FN}}(\theta)} 
+  \end{aligned}
+  \label{eq:ap}
+\end{equation}
+
+Naturally, the average precision at an IoU threshold of 0.5 (noted as
+AP@.5) will result in a higher average precision than the average precision at
+an IoU threshold of the previously mentioned steps (noted as
+AP@[.5:.01:.95]). The latter can be formulated as the following:
+
+\begin{equation}
+  \begin{aligned}
+    \text{AP@[.5:.01:.95]} = \frac{1}{N} \sum_{\theta}^{N} \text{AP}(\theta) \quad \text{where} \quad \theta \in [0.5, 0.95]
+  \end{aligned}
+  \label{eq:fancyap}
+\end{equation}
+
+\texttt{ultralytics} provides both metrics as the \acrfull{mAP}. This would be
+the means of the average precision over all detection classes. As I am just
+detecting a single class, the mAP is equivalent to the AP.
+
+As the output of the model is a bounding box as well as the confidence for each
+bounding box, I had to find the best confidence score to use as a threshold to
+minimize false positives missed chirps. To do this, I used the F1 score, which
+is the harmonic mean of the precision and recall.
+
+\section{Chirp assignment}
+
+In the assignment step, every detected bounding box needs to be attributed to a
+fish in the recording. To assign each detected chirp to the identifier of the
+emitter fish, I found the most informative feature to be the time dependent
+power of the EOD$f$ of fish which intersect with the bounding box.
+
+\subsection{Feature extraction}
+
+To identify which frequency bands in chirps on spectrograms might contain the
+EOD$f$ of fish, I estimated the baseline EOD$f$ of the emitter, which remains
+relatively constant over short time spans. By summing the spectrogram along the
+time axis to compute a power spectrum, I identified peaks representing the
+EOD$f$ frequency bands of potential chirp emitters. Around each peak, a
+\SI{10}{\hertz} wide band was used to calculate the average power within the
+bounding box's duration for each frequency band. This feature is informative
+because, during a chirp, the emitter's frequency increases, diverging from the
+baseline and resulting in a power trough at the chirp's location due to the
+frequency band shifting away from the baseline. However, this effect is only
+partially observed due to the spectrogram's temporal resolution. While a higher
+resolution would enhance this feature's utility, it would also reduce the
+ability to distinguish between multiple fish due to overlapping frequency
+bands. Despite this limitation, and the fact that this feature may be less
+effective for detecting small chirps, it proved sufficiently reliable for
+inclusion in the final pipeline. The feature extraction step is illustrated in
+figure \ref{fig:assignment_feature_extraction} for a small and large chirp
+respectively.
+
+\begin{figure}
+  \centering
+  \includegraphics[width=\textwidth]{../figures/assignment_feature_extraction.png}
+  \caption{
+    Visualization of the feature processing steps starting from the predicted
+    bounding boxes for a small chirp (A) and a big chirp (E) respectively. The
+    power spectrum, i.e., a summation across the time axis of a bounding box,
+    provides peaks at frequencies that could have been the fundamental
+    frequencies of potential emitter fish (B, F). For each of these
+    frequencies, the temporal evolution of the underlying power usually
+    contains a trough if the current baseline frequency is that of an emitter
+    fish (C, G). These power time series are then classified using a 1D
+    \acrshort{CNN} (D, H). For each bounding box, the candidate frequency with
+    the highest classification score is the fundamental frequency of the
+    emitter fish.
+  }
+  \label{fig:assignment_feature_extraction}
+  \vspace{0.5cm}
+\end{figure}
+
+\subsection{Training data acquisition}
+
+The issue with this feature is that (1) deciding to which fish a chirp belongs
+is not always clear on spectrograms and (2) the way this would be annotated is
+not implemented in any annotation tools. So to train the assignment model, I
+had to completely rely on my hybrid training dataset. To get the training data,
+I computed the power of the fundamental frequency for each fish in each
+bounding box during the extraction of the detection model training data. As the
+chirps are simulated, the resulting dataset is truly a ground truth.
+
+\subsection{Model selection}
+
+To assign the chirps, I trained a simple binary classification model. For each
+fish in a single bounding box, the model should return a score which indicates
+the probability that a chirp belongs to the fish. Chirps are then assigned by
+just accepting the fish with the highest score. As the model had to classify
+simple one-dimensional arrays, I experimented with different types of
+multi-layer perceptrons and 1D convolutional neural networks. The final model
+is a simple CNN with two convolutional layers followed by four fully connected
+layers, that are all followed by a \acrfull{ReLU} activation function except
+for the output neuron, which is passed through a sigmoid. The model was build
+and trained using the \href{pytorch.org}{\texttt{PyTorch}} package.
+
+\subsection{Training \& hyperparameters}
+
+The model was trained using the hybrid dataset. As I had much more
+\enquote{non-emitters} than \enquote{emitters} in the dataset, I used a
+weighted binary cross-entropy loss to balance the classes. The model was
+trained with the \texttt{Adam} optimizer with a batch size of 32 and a learning
+rate of 0.0001 over  11 epochs, after which the model converged (figure
+\ref{fig:assignment_training} A).
+
+\subsection{Evaluation}
+
+To evaluate the model performance I used the \acrfull{AUC} of the \acrfull{ROC}
+curve. The AUC is a metric that measures the ability of the model to
+distinguish between the two classes. The AUC is calculated by plotting the
+true positive rate (TPR) against the false positive rate (FPR) at various
+threshold settings $\theta$ for the model confidence. The AUC is then the area
+under this curve.
+
+\begin{equation}
+  \text{TPR}(\theta) = \frac{n_{\text{TP}}(\theta)}{n_{\text{TP}}(\theta) + n_{\text{FN}}(\theta)} \quad \text{FPR}(\theta) = \frac{n_{\text{FP}}(\theta)}{n_{\text{FP}}(\theta) + n_{\text{TN}}(\theta)} \label{eq:roc}
+\label{eq:aucroc}
+\end{equation}
+
+The AUC ranges from 0 to 1, where 0.5 corresponds to a model that randomly
+assigns the classes and 1 corresponds to a model that always assigns the
+correct class. The AUC is a good metric to evaluate the performance of the
+model as it is independent of the threshold setting and thus can also be used
+to choose the best threshold setting for the model in production. As the AUC
+can provide overly optimistic performance estimates for strongly imbalanced
+classes, I also used the average precision, i.e., the area under the
+precision-recall curve as well as the F1 scores (as explained in section
+\ref{sec:deteval}) to evaluate the models performance and find the best
+threshold.
+
+\section{Behavioral analyses}
+
+All behavioral analyses on the Raab dataset were conducted as described in
+\textcite{raabElectrocommunicationSignalsIndicate2021}. The agonistic
+interactions were annotated using
+\href{https://github.com/olivierfriard/BORIS}{\texttt{BORIS}}, a free and
+open-source software designed to facilitate the coding of behaviors in animal
+behavior studies. The EOD$f$s of the fish were tracked using the
+\href{https://github.com/tillraab/wavetracker}{\texttt{wavetracker}} package
+for \texttt{Python}. Annotated behaviors and tracked EOD$f$s were already
+available. I detected and assigned chirps to individual fish using the here
+introduced
+\href{https://github.com/weygoldt/chirpdetector/}{\texttt{chirpdetector}}
+package. The chirp rates during the time of agonistic events were computed by
+convolving the chirps of each fish with a Gaussian kernel with a standard
+deviation of one second and a height of one. The \ordinalnum{1} and
+\ordinalnum{99} confidence intervals were estimated by jackknife resampling
+corresponding of an $\alpha$-level of 1\%. The null hypothesis, which is that
+the chirp rates are independent of the on- and offset of agonistic events was
+tested using bootstrapping. These methods are introduced in detail in
+\textcite{raabElectrocommunicationSignalsIndicate2021}. Statistical analyses of
+chirp counts and chasing durations were performed using \acrfullpl{GLMM}
+implemented in the
+\href{https://cran.r-project.org/web/packages/lme4/index.html}{\texttt{lme4}}
+package in \texttt{R v4.3.3} with the pairing ID as a random factor
+\parencite{batesFittingLinearMixedEffects2015}. To test whether the competition
+status of two fish had an effect on the number of chirps each fish produced, I
+used a GLMM of the Poisson family with a logarithmic link function. To model
+the effect the duration of chasing had on whether loser produced chirps or not,
+I weighted each data point (duration of a single chasing and the presence of
+chirps) by (1) how many chasing events were produced by each pairing and (2)
+the fraction of chasings in which chirps were produced, to not bias the model
+to a specific trial. I then used a Binomial GLMM with a Logit link function.
+The effect size is reported as Cohen's $d$. 
+

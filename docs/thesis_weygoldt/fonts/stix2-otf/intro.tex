@@ -1,0 +1,76 @@
+\pdfbookmark[0]{Introduction}{pdf.intro}
+
+\noindent
+These charts compare the STIX 2.10 against Unicode 13.0.0.
+
+\ifSTIXMath
+
+\paragraph{Note}
+
+The STIX Two Math font includes duplicates of all characters supported
+in STIX Two Text Regular, but in some cases with different forms
+suited to use in math typesetting. This character coverage ensures
+that any character from this common subset that occurs within a math
+equation will be correctly displayed, even if it is not a math symbol
+with a generally recognised meaning.  However, use of the STIX Two
+Math font to typeset non-mathematical text is discouraged, and the
+Text font family should be used for this purpose.
+
+\fi
+
+\subsubsection*{Legend}
+
+\begin{itemize}
+
+\item Characters shown in black (e.g., U+0021) are supported directly by
+the font.
+
+\item Characters shown in \textcolor{red}{red} (e.g., U+01CE) are not
+  directly supported but can be synthesized by a Unicode-aware shaping
+  engine.  (These charts were generated
+  with \XeTeX\ \number\XeTeXversion\XeTeXrevision.)
+
+% \textbf{Note}: Many of the characters in this category are poorly
+%   rendered because of deficiencies in the font's \textsc{gpos} table.
+%   Plans are being made to address these problems.
+
+\ifshowghosts
+\item Characters shown in \textcolor{gray}{gray} are not supported by
+  STIX, but are borrowed from Cambria for demonstration purposes.
+\fi
+
+\item Grey squares (e.g., U+0380) indicate code points that are not
+    assigned a meaning in Unicode 13.0.
+
+\item Otherwise blank squares that contain a code point (e.g., U+0020)
+indicate characters with no visible representation.  These may or may
+not be zero-width characters; see the Unicode Standard for details.
+
+\item Completely blank squares (e.g., U+0181) indicate code points
+  correspondinng to characters that STIX 2.10 does not support.
+
+\item Black squares (e.g., U+FFFE) indicate noncharacter code points.
+
+\end{itemize}
+
+\subsubsection*{Notes}
+
+\begin{itemize}
+
+\item Not every composite character supported by the STIX fonts is
+  included in these charts; only characters that are assigned a code
+  point by Unicode~13.0 are shown.  For example, you will not find
+  ``x̣'' in these charts since Unicode does not assign a code point to
+  that character.  It can, however, be composed from the sequence U+0078
+  LATIN SMALL LETTER X followed by U+0323 COMBINING DOT BELOW.
+
+% \item Similarly, not every variant glyph of every character is displayed.
+%   See the STIX 2.10 release notes and accompanying documentation for
+%   more information on the OpenType font features and stylistic sets
+%   supported by STIX Two.
+
+\item Glyphs are shown at size 20\,pt unless otherwise indicated.
+
+\end{itemize}
+
+\endinput

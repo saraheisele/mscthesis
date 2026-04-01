@@ -1,0 +1,194 @@
+\chapter{Introduction}
+\label{chap:intro}
+
+Communication is a fundamental aspect of life on earth, essential for conveying
+information, coordinating behaviors, and establishing social relationships.
+From intricate visual displays to complex vocalizations, communication plays a
+crucial role in the survival and reproduction of species across the tree of
+life. In humans, communication takes on a myriad of forms, from spoken language
+over gestures and facial expressions to written text. The study of animal
+communication offers insights into the ecology and evolution of
+species, providing a window into the underlying mechanisms and functions of
+different communication signals used in various contexts. At the same time, it
+provides a platform that could help us understand how communication generally
+and our language specifically evolved and how it is produced and perceived in
+the brain.
+
+\ornament
+
+Electric fish offer a unique opportunity to study animal communication and
+social behavior but are rarely used as a model system outside the field of
+Neuroethology. Beyond utilizing their electric field for active sensing,
+wave-type electric fish have been used extensively to study the physiological
+underpinnings of the production and perception of communication signals. The
+most frequently observed, and hence studied, electrocommunicaion signal are
+so-called chirps. During a chirp, electric fish briefly and transiently
+increases the frequency with which it discharges its electric organ, a
+phenomenon found in many species
+\parencite{petzoldCoadaptationElectricOrgan2016,
+smithEvolutionElectricCommunication2016,
+freilerElectrocommunicationSignalsAggressive2022,
+zhouStructureSexualDimorphism2006, hoSexDifferencesElectrocommunication2010}.
+
+Understanding chirps necessitates a introduction of the \acrfull{EOD} in
+wave-type weakly electric fish. The EOD, a quasi-sinusoidal waveform similar to
+a constant-pitch tone in audio, features a fundamental frequency
+\acrshort{EOD$f$} and harmonics. Its amplitude decays dependent on the fish's
+orientation, body curvature, and distance relative to the recording electrode
+\parencite{bendaPhysicsElectrosensoryWorlds2020}. While EOD$f$ differs among
+individuals, it's generally stable, with variations mainly due to water
+temperature changes \parencite{moortgatSubmicrosecondPacemakerPrecision1998}.
+Frequencies range from less than \SI{50}{\hertz} to over \SI{2}{\kilo\hertz},
+with each species occupying a characteristic frequency range
+\parencite{bendaPhysicsElectrosensoryWorlds2020,
+evansTaxonomicRevisionDeep2017a}. Despite its simplicity, the EOD waveform can
+reveal species-specific traits under standardized recording conditions.
+
+Wave-type weakly electric fish can modulate the frequency of their EOD on time
+scales of milliseconds to minutes to produce various communication signals
+\parencite{zakonEODModulationsBrown2002a}. In most cases, the chirps of
+\textit{A.~leptorhynchus} are \enquote{simple} up-modulations of the EOD$f$
+that last between \SI{20}{\milli\second} and \SI{500}{\milli\second} and can
+reach between \SI{20}{\hertz} and \SI{500}{\hertz} above the baseline EOD$f$.
+From now on, when I refer to a chirp as \enquote{short} or \enquote{long}, I
+will refer to the duration of the chirp. When mentioning the properties
+\enquote{small} or \enquote{large}, I will refer to the frequency up-modulation
+from baseline. Chirps can come in many shapes: Small and short chirps are
+usually approximately shaped like a Gaussian as illustrated in figure
+\ref{fig:multifish_chirps} A. If they become larger, this Gaussian can be
+followed by a brief undershoot. In contrast, the shape of long and large chirps
+usually vaguely resembles a square wave as in figure \ref{fig:multifish_chirps}
+E. If we now take a look at the signal that underlies this change in frequency,
+so the signal that we could record, we can see, that the third feature of a
+chirp, in addition to the duration and the frequency change, is the change in
+amplitude. For small chirps (figure \ref{fig:multifish_chirps} B) this trough
+in amplitude is usually not as pronounced as it is for larger chirps (figure
+\ref{fig:multifish_chirps} F).
+
+\begin{figure}
+  \centering
+  \includegraphics[width=\textwidth]{../figures/multifish_chirps.pdf}
+  \caption{
+    Overview of how chirps as changes in the EOD$f$ of a fish can be recorded
+    in different settings if other fish are around, simulated from the
+    instantaneous frequency evolutions from chirps of real fish. Chirps are
+    defined as a brief elevation of the EOD$f$ of one fish. They can be
+    relatively small and short (A) or long with a high up-modulation (E). If
+    only the chirping fish would be recorded in a chirp-chamber-like setup, a
+    small chirp is already hardly visible by just the EOD alone (B) while a
+    larger chirp might appear a bit clearer (F). In the field however, the EODs
+    of multiple fish superimpose, which makes chirp detection but also chirp
+    assignment much harder without a frequency spectrum (C, G). Because of
+    this, we need a \acrfull{STFT} to convert the recordings to spectrograms,
+    which allows an approximation of the underlying discharge frequencies (D,
+    H). As this is just an approximation, the resolvability of chirps and the
+    separability of fish forms a trade-off: The temporal resolution of the
+    spectrogram, if sufficient to separate fish, is not sufficient to resolve a
+    full chirp (D) but rather produces an \enquote{artifact} caused by the
+    presence of the chirp which is usually much longer than the underlying
+    chirp, particularly for small chirps. For long chirps (H), this is not so
+    much of a problem.
+  }
+  \label{fig:multifish_chirps}
+  \vspace{0.5cm}
+\end{figure}
+
+Chirps offer a unique opportunity to link advances in animal behavior to the
+underlying neural mechanisms: They are extensively studied in controlled
+conditions and the endocrinological as well as neurological mechanisms to
+produce and perceive them are comparatively well understood
+\parencite{hupeEffectDifferenceFrequency2008,
+zupancElectrogenesisElectroreceptionOverview2005,
+smithSerotonergicActivation5HT1A2008, dunlapGlucocorticoidReceptorBlockade2011,
+dulkaTestosteroneModulatesFemale1994, kellerControlPacemakerModulations1991,
+kraheNeuralMapsElectrosensory2014, marsatCellularCircuitProperties2012,
+dunlapVocalElectricFish2021, bendaSpikeFrequencyAdaptationSeparates2005,
+bendaSynchronizationDesynchronizationCodeNatural2006}. But the role of chirps
+produced in various naturalistic behavioral contexts is still mysterious.
+Functionally, chirps as a communication signal have been attributed to roles in
+courtship as well as signaling dominance and submission, the latter two seeming
+contradictory \parencite{batistaNonsexbiasedDominanceSexually2012,
+hagedornCourtSparkElectric1985a, englerDifferentialProductionChirping2001,
+henningerStatisticsNaturalCommunication2018}. On the other hand, recent work
+suggested that chirps might not serve as a means of conventional communication
+at all but as a form of autocommunication to increase the capabilities of the
+active electric sense in social contexts \parencite{obotiWhyBrownGhost2023}.
+Except for the work by \textcite{henningerStatisticsNaturalCommunication2018},
+most work underlying proposals for various functional roles of chirps rely
+heavily on data recorded in artificial conditions and none of them provide
+causal evidence. But to correctly interpret physiological results holistically,
+we must include a species ecology and evolution
+\parencite{tinbergenAimsMethodsEthology1963}. A dramatic example is the work by
+\textcite{henningerStatisticsNaturalCommunication2018}, who showed that the
+stimulus regimes commonly used in controlled conditions to study the neural
+mechanisms underlying electric communication are not representative of the
+natural environment. I argue that before probing for potential explanations for
+a specific behavior in highly controlled conditions, we should aim to first
+\emph{observe} correlations that suggest causal relationships to generate
+\emph{informed} hypotheses before we test them with controlled experiments. In
+other words: We need to observe which fish chirps at what time and during which
+kind of social interactions in a naturalistic context. 
+
+The biggest challenge preventing these approaches to studying chirping is that
+chirps are hard to detect automatically in behaviorally relevant settings.
+Currently, chirps can be automatically detected in cases where the fish are
+separated from each other so that their electric fields do not superimpose
+\parencite{lehotzkySupervisedLearningAlgorithm2023,
+eskeEffectUrethaneMS2222023, fieldJARChirpsGymnotiform2019}. But studies where
+fish are kept together are much more informative about their natural behavior
+and often uncover behaviors that challenge common assumptions from previous
+literature \parencite{henningerStatisticsNaturalCommunication2018,
+fortuneSpookyInteractionDistance2020a}. In these cases, the electric fields of
+the fish superimpose and the chirps are much harder to detect
+\parencite{obotiWhyBrownGhost2023,henningerStatisticsNaturalCommunication2018}.
+This is either not studied at all, or if so involves a lot of manual
+annotation, which is a labor-intensive and error-prone process and not feasible
+for large datasets, such as the ones recorded in the field. But it is not the
+problem that we do not have the tools to detect chirps in these cases. As an
+example, smartphone apps can automatically recognize bird songs and classify
+the species just from comparatively poor-quality phone recordings
+\parencite{kahlBirdNETDeepLearning2021}. Despite this, many studies still rely
+on manually labeling communication signals of all kinds of species. Also,
+software such as
+\href{http://www.mackenziemathislab.org/deeplabcut}{\texttt{DeepLabCut}} and
+\href{https://sleap.ai/}{\texttt{SLEAP}} enables automated tracking of
+individual body parts of most animals \parencite{pereiraSLEAPDeepLearning2022a,
+lauerMultianimalPoseEstimation2022}. This provides the possibility of high
+throughput in behavioral experiments and frees time that can be allocated to,
+for example, recording more data. Algorithms to automate the conversion of
+unstructured data (such as video, audio or electric recordings) into structured
+data (such as tables to do statistics on) are widely available, they just need
+to be embedded into software packages to make them accessible to researchers.
+
+In this thesis, I want to provide a demonstration of such a fully automated
+pipeline. Here, I aim to implement a first proof of concept for fully automated
+chirp detection in large datasets recorded in the field for \textit{A.
+leptorhynchus}, although the pipeline can be extended to any chirping species
+of wave-type electric fish. As you are about to see, this does not require
+inventing new technologies but simply connecting existing, openly available and
+well documented tools into a data pipeline to fully automate the detection of
+chirps in large datasets for quantitative research in electrocommunication.
+This will not only enable to observe and hence analyze chirps in field
+recordings but could also be an important building block for electric fish
+monitoring.
+
+To understand the features that are useful to detect chirps, I will first
+introduce the physical properties of the \acrfull{EOD} of weakly electric and
+how chirps change it in the \hyperref[chap:background]{next} chapter. We will
+then transition to a brief introduction on neural networks and how they can
+applied to the problem of chirp detection. In the
+\hyperref[chap:methods]{following} chapter, I will introduce the training data
+generation pipelines for machine learning models, how the models are trained
+and how their performance is evaluated. I will also explain how the detector
+can be applied to a large dataset of electric recordings and how I analyzed
+behaviors associated with chirps. In the \hyperref[chap:results]{results}, we
+will look at the full architecture of the chirp detection pipeline, the
+performance of the neural networks and the results of the analysis of the large
+dataset of weakly electric fish recordings. And finally, in the
+\hyperref[chap:discussion]{discussion} chapter, we will discuss the
+implications of the results and the limitations of the pipeline. We will also
+discuss how the pipeline can be improved and how it can be applied to other
+species and other tasks beyond analyzing animal communication, such as
+environmental monitoring. For now, let's start with the fundamentals: How do we
+record the electric fields of weakly electric fish?
+

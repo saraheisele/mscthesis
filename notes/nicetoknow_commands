@@ -26,6 +26,8 @@ bash:
 - ctrl + r: reverse search for previous bash commands
 - auf brasilien daten auf patricks pc zugreifen: sshfs efish@polarbear.am28.uni-tuebingen.de:/mnt/data1/efish /home/eisele/wrk/mscthesis/data/
 - to call audian w thunderlab extension/function: call audianthunder (instead of audian)
+- sudo apt update: adds everything that needs to be updated to list
+- sudo apt upgrade: updates everything on that list
 
 
 put downloaded/new eel files into file system:
@@ -77,9 +79,23 @@ shortcuts:
 - alt + backspace: delete whole last word before cursor
 
 vscode:
-- crl + I: get inline copilot
-- shift + enter: run code (if there are cells only runs current cell)
+- ctrl + I: get inline copilot
+- ctrl + shift + up/down arrow: move line/current selection up or down
+- alt + up/down arrow: cursor in multiple lines
+- ctrl + 1: add comment on current line/selection
+- ctrl + shift + 1: remove comment on current line/selection
+
+- ctrl + enter: run current cell in interactive window
+- ctrl + shift + enter: run all cells in interactive window
+- alt + enter: run python file in terminal
 - F5: run code in seperate terminal (not interactive)
+- run script in terminal: cd to where script is saved, type: python3 <nameofscript.py>
+
+- ctrl + J: toggle terminal
+- ctrl + 0: focus on terminal
+- ctrl + 2: focus on primary sidebar
+- ctrl + 3: focus on first editor window
+- ctrl + 4: focus on second editor window
 
 - # %%: to make a cell
 - select all cells, then shift + enter: run all cells/whole code in interactive/jupyter kernel so variables and packages are remembered

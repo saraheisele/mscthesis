@@ -1,0 +1,115 @@
+% !TeX root = main.tex
+\documentclass[12pt, a4paper]{article}
+\usepackage[utf8]{inputenc} % if using LaTeX
+\usepackage[T1]{fontenc}  
+\usepackage{lmodern}  
+%\usepackage{cite}
+\usepackage{parskip}
+\usepackage{setspace}
+\usepackage{makecell}
+\usepackage{fancyhdr} 
+\setlength{\headheight}{15pt}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{tabularx}
+\usepackage{xcolor}
+\usepackage{verbatim}
+\usepackage{float}
+\usepackage{comment}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\renewcommand{\familydefault}{\sfdefault} % sets document to sans-serif
+\usepackage[font=small,labelfont=bf]{caption}
+\usepackage[
+    backend=biber,
+    style=apa,
+    citestyle=authoryear,
+    maxcitenames=1,
+    mincitenames=1,
+    uniquelist=false,
+    uniquename=false
+]{biblatex}
+
+\DeclareLanguageMapping{american}{american-apa}
+\addbibresource{references.bib}
+
+%\renewcommand{\familydefault}{\sfdefault}
+
+% Formatting pages to the right layout
+\usepackage[a4paper,top=30mm,bottom=30mm,columnsep=6mm,left=20mm,right=20mm]{geometry}
+\usepackage[hidelinks]{hyperref}
+\newcommand{\note}[2][]{\textbf{[#1: #2]}}
+\newcommand{\notels}[1]{\note[SE]{#1}}
+% title page stuff
+\newcommand{\papertitle}{Social and courtship behavior of the electric eel \\ (Electrophorus voltai) in its natural habitat}
+% Full name of the author(s)
+\newcommand{\authorname}{Sarah Eisele}
+% Date
+\newcommand{\wrdate}{\today}
+
+% Kopf- und Fußzeile, if needed
+
+\pagestyle{fancy}
+\fancyhead{}
+\fancyfoot{}
+\fancyfoot[R]{\thepage}
+% \fancyfoot[L]{\textsc{\acmodulename}}
+
+% Define commands to update headers
+\renewcommand{\subsectionmark}[1]{\markright{\thesubsection\ #1}}
+
+% Custom header
+\fancyhead[R]{\leftmark} % For sections
+
+% Add header and footer rules
+\renewcommand{\headrulewidth}{0.6pt}  % Width of the line separating header from the text
+\renewcommand{\footrulewidth}{0.6pt}  % Width of the line separating footer from the text
+
+% adjust spacing around equations
+\setlength{\abovedisplayskip}{6pt}
+\setlength{\belowdisplayskip}{6pt}
+\setlength{\abovedisplayshortskip}{0pt}
+\setlength{\belowdisplayshortskip}{0pt}
+
+\title{\papertitle}
+\author{\authorname}
+
+\begin{document}
+\begin{spacing}{1.5}
+
+\input{sections/1_titlepage}
+\newpage
+\pagenumbering{Roman}
+
+\input{sections/2_Eigenstaendigkeitserklaerung}
+\newpage
+\tableofcontents
+\newpage
+\pagenumbering{arabic}
+\setcounter{page}{1}
+%\addtocontents{toc}{\vspace{0.1cm}}
+\input{sections/3_1_Abstract}
+\input{sections/3_2_Zusammenfassung}
+%\input{sections/4_Abbreviations}
+\input{sections/5_Introduction}
+\input{sections/6_MatMet}
+%\addtocontents{toc}{\newpage}
+\input{sections/7_Results}
+\input{sections/8_Discussion}
+\input{sections/09_Appendix}
+\input{sections/10_acknowledgements}
+%\input{sections/tables.tex}
+
+\end{spacing}
+
+%references
+\newpage
+\addcontentsline{toc}{section}{References}
+% \bibliography{references.bib}
+% \bibliographystyle{apacite}
+% \printbibliography
+
+
+\end{document}

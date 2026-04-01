@@ -1,0 +1,549 @@
+\chapter{Discussion}
+\label{chap:discussion}
+
+The results indicate that chirps might play a role in mediating competitive
+interactions among Brown Ghost Knifefish. By developing and implementing a deep
+learning pipeline for automated chirp detection, I was able to observe and
+analyze over 73,000 chirps during unconstrained interactions, surpassing any
+previous study in similar conditions. These findings reveal that subordinate
+fish emit chirps, which are correlated with the cessation of aggressive
+behaviors. This suggests a communicative function beyond active sensing.
+
+The introduction of this deep learning pipeline represents a significant
+advancement in the methodology for studying electrocommunication, as this fully
+automated approach enables the detailed analysis of large datasets and the
+study of freely interacting animals in both laboratory and field settings. This
+marks a step towards quantitative ethology of electrocommunication.
+
+This following chapter will unfold in two segments: Initially, I will discuss
+the implications and limitations of the behavioral correlates with the chirps
+of \textit{A.~leptorhynchus}. The focus will then shift to the chirp detection
+pipeline itself—evaluating its efficacy, possibilities for enhancement, and
+applications in research.
+
+\section{Are chirps a signal of submission?}
+
+Chirps are produced in a variety of behavioral contexts. They can occur
+spontaneously without any obvious external stimuli
+\parencite{englerSpontaneousModulationsElectric2000a}. They can also be induced
+by playing back a sine wave that mimics the electric organ discharge (EOD) of a
+conspecific. Although the chirp rate decreases if the simulated conspecific
+also produces chirps \parencite{walzNeuroethologyElectrocommunicationHow2013}.
+Studies both in field and laboratory settings have also documented
+echo-responses to chirping
+\parencite{henningerStatisticsNaturalCommunication2018,
+hupeEffectDifferenceFrequency2008, gamasalgadoEchoResponseChirping2011}. In the
+context of mating, chirps have been observed both in the laboratory and the
+field, suggesting a role in courtship and synchronization of spawning.
+\textcite{hagedornCourtSparkElectric1985a} reported that a playback of male
+chirps could trigger spawning in females, even without the presence of a real
+male. \textcite{henningerStatisticsNaturalCommunication2018} demonstrated
+stereotyped chirping patterns during courtship for two species, one recorded in
+the laboratory and one in the field. They also provided observations of
+chirps produced by retreating intruders that disturbed courting pairs.
+Competitive interactions recorded in controlled conditions suggest opposing
+functions of chirps. They have been correlated with a reduction in attack
+rates, implying they might serve as a submissive signal
+\parencite{hupeElectrocommunicationSpeciesWeakly2012}. In another cases,
+dominant individuals were observed to produce more chirps, suggesting a role in
+signaling dominance or aggression
+\parencite{triefenbachChangesSignallingAgonistic2008b}. This inconsistency
+along with the lack of clear behavioral correlates led
+\textcite{obotiWhyBrownGhost2023} to propose that chirps might serve as probing
+signals, a form of autocommunication to enhance sensory information during
+social interactions.
+
+In line with the findings of
+\textcite{hupeElectrocommunicationSpeciesWeakly2012,
+henningerStatisticsNaturalCommunication2018}, I have shown that in the context
+of shelter competitions in \textit{A. leptorhynchus}, chirps are
+disproportionally produced by fish that lost the competitions. For a signal to
+be classified as communication, it needs to be a deliberate action, structure,
+or trait produced by one animal (the sender) to convey information to another
+animal (the receiver), influencing the receiver's behavior in a way that
+typically benefits the sender
+\parencite{bradburyPrinciplesAnimalCommunication2011, bergstromEvolution2016,
+alcockAnimalBehavior2019}. As the chirps produced by the subordinate fish
+strongly correlate with the offset of chasing events, similar to observations
+by \textcite{henningerStatisticsNaturalCommunication2018}, we hypothesized that
+chirps might be a means of communicating submission, and thus stopping the
+chasing of the dominant. But in this case, chirps should not have correlated
+precisely \emph{with} the offset of chasing, but with a point in time that is
+shortly \emph{before} the offset. Additionally, ritualized chasing events
+lasted longer when the loser fish produced chirps (although we cannot rule out
+that the chasing events, in which chirps were produced, could have been longer
+if no chirps were emitted). Because most of these chirps were produced
+precisely at (or around) the end of chasing, it is sensible to assume that
+prolonged chasing caused the subordinate to emit chirps, instead of the other
+way around. Another explanation could be that chirps might not alter the
+dominants behavior in the current competition, but increase the time it takes
+for the dominant to attack again. But chirps produced by the submissive during
+chasing showed no effect on the latency between attacks by the dominant.
+Whether chirps of the submissive have an effect on the probability of getting
+bit by the dominant has yet to be explored. Following the previous definition
+of a communication signal, the reports of echo responses strongly suggest that
+chirps serve as such because they change the behavior of the receiver
+\parencite{henningerStatisticsNaturalCommunication2018,
+hupeEffectDifferenceFrequency2008, gamasalgadoEchoResponseChirping2011}. But in
+the context of the competitions analyzed here no such change in the behavior
+of the receiver could be found. So while we observed clear correlations between
+chirping and social status as well as with a specific phases of a ritualized
+competition, it remains unclear what function chirps might serve in this
+context.
+
+The lack of evidence on the function of chirps as communication signals in this
+setting does not automatically support the assumption that they do not serve a
+communicative function at all. The correlations not only with social status but
+also with specific spatio-temporal interactions stand in contrast with the
+interpretation of \textcite{obotiWhyBrownGhost2023}, which argue that chirps
+might rather be a means of active sensing through autocommunication that
+enhance the perception of conspecifics. In the experiment of
+\textcite{raabElectrocommunicationSignalsIndicate2021}, fish competed in
+absolute darkness, leaving mainly the lateral line and electrolocation as
+reliable sensory inputs. During chasing, fish stay close to each other for
+prolonged times and under high velocities. The chasing fish and the one being
+chased require temporally and spatially precise sensory inputs to coordinate
+this movement. If chirps were emitted to perceive a conspecific, there is no
+obvious explanation to why only the subordinate individual would require to do
+so, specifically at the time where chasing ends. At the same time, the option
+that chirps might explicitly transmit information to conspecifics does not rule
+out \textcite{obotiWhyBrownGhost2023} proposal that chirps could be used for
+active sensing. As suggested in other systems, such as in bats and whales,
+signals that are used for active sensing could be used for communicating in
+different contexts \parencite{mossAdaptiveEcholocationBehavior2023}.
+
+The largest limitation of the competition arena by
+\textcite{raabElectrocommunicationSignalsIndicate2021} is arguably that it is
+confined in space. Observations of competitions in the field are constrained to
+a few events observed by
+\textcite{henningerStatisticsNaturalCommunication2018}, where an intruder male
+interrupts a courting dyad. In response, the courting male interrupts
+courtship, and approaches the intruder from a distance of more than a meter, to
+which the intruder reacts with chirps and retreats. Retreat was not an option
+in this study, as the fish were constrained to the aquarium. This could also be
+an explanation to why competitions lasted the full three hours of the active
+period in this setting. \textcite{raabElectrocommunicationSignalsIndicate2021}
+showed that similar to chirps so-called frequency rises, another type of
+electrocommunication signal evolving on a time scale of seconds, are
+predominantly produced by subordinates and strongly correlate with the
+\emph{onset} of competitions. This was interpreted in the way, that rises are
+used by the subordinate to continue conspecific assessment by motivating the
+dominant to compete. But while this temporal correlation of rises and chasing
+onsets is strong, only 10\% of the chasing events were actually preceded by a
+rise emitted by a subordinate. So the majority of competition events were
+probably not initialized by electrocommunication signals but either by spatial
+interactions or just spontaneously motivated by the sheer presence of another
+fish in the perceivable range of the dominant individual. In the field,
+territories of single fish could be larger than the experimental tank and a
+scenario, in which fish are forced to compete for prolonged time, would not
+occur. Following this assumption, chirps in combination with a retreat could
+still signal submission in naturalistic conditions. The missing physical
+possibility of retreat in the dataset could explain a lack of an effect of the
+subordinate chirps onto the dominants behavior. Such multimodalities in
+communication signals are extensively demonstrated for courtship signaling in
+many systems and may also apply to competitions for shelter
+\parencite{ronaldMaleMiceAdjust2020,
+ronaldWhatMakesMultimodal2017,uetzComplexSignalsComparative2017,
+redingContextdependentPreferencesVary2017,
+mitoyenEvolutionFunctionMultimodal2019}. To further explore this possibility,
+we either need to go back to the field to record competition scenarios in
+naturalistic settings or stage competitions with the possibility of retreat.
+
+\section{Automated detection of communication signals}
+
+Deep learning tools for analyzing animal communication signals have been
+demonstrated for the vocalizations of a wide variety of taxa including
+primates, whales, rodents, bats, birds, frogs, and fish
+\parencite{coffeyDeepSqueakDeepLearningbased2019,
+cohenAutomatedAnnotationBirdsong2022, bellafkirBatEcholocationCall2022,
+berglerORCASPOTAutomaticKiller2019, lawsonAutomatedAcousticDetection2023a,
+kimuraEvaluationDeepLearningBased2023,
+waddellApplyingArtificialIntelligence2021, erbsAutomatedLongtermAcoustic2023}.
+In all previous cases, the models are trained entirely on tediously
+hand-labeled data. The problems they solve can usually be classified into two
+categories: The first one are species classifiers used on soundscape
+recordings from the field, typically trained to classify spectrogram snippets
+of animal vocalizations into different species during \acrfull{PAM}. These
+systems often employ \acrshortpl{CNN} \parencite{kahlBirdNETDeepLearning2021,
+kimuraEvaluationDeepLearningBased2023,
+waddellApplyingArtificialIntelligence2021} or transformers
+\parencite{bellafkirBatEcholocationCall2022}. The second category encompasses
+song detectors, usually applied to some focal species in laboratory
+experiments. Here, the focus is on locating the vocalizations in time (and
+frequency) rather than identifying the species. Detection can be addressed
+using standard CNNs \parencite{berglerORCASPOTAutomaticKiller2019}, but more
+complex tasks, such as call segmentation and classification, often utilize RCNN
+or YOLO models \parencite{coffeyDeepSqueakDeepLearningbased2019,
+katherDevelopmentMachineLearning2024, lawsonAutomatedAcousticDetection2023a}.
+An exception is TweetyNet, which incorporates \acrfull{LSTM} layers
+\parencite{cohenAutomatedAnnotationBirdsong2022}.
+
+All systems mentioned are limited to \emph{detection}. In electric fish, the
+produced continuous electric field serves as an electric tag, enabling the
+tracking of individuals over time \parencite{hagedornCourtSparkElectric1985a,
+henningerTrackingActivityPatterns2020,
+madhavHighresolutionBehavioralMapping2018,
+raabAdvancesNoninvasiveTracking2022}. Since fish can be separated by frequency
+and chirps are constrained to a specific relative frequency range, merely
+detecting the time of chirps is insufficient. So I chose a model that predicts
+chirp boundaries on the frequency axis, as previously demonstrated for rodents
+\parencite{coffeyDeepSqueakDeepLearningbased2019}. Associating detected signals
+with the emitting individual is a problem of \emph{assignment}. Because most
+other system lack a robust passive tag, this problem remains unaddressed in any
+of the presented applications. This thesis presents a first approach to emitter
+assignment using feature engineering and a simple CNN for electric fish.
+Together, the detection and assignment model form a continuous pipeline for
+automatic chirp detection and assignment in large datasets. Instead of relying
+on large hand-labeled training datasets, I additionally developed a simulation
+routine to generate artificial recordings of electric fish. This way, I can
+automatically generate training data from a small representative sample of
+communication signals. This reduces the need for the error-prone process of
+hand-labeling large amounts of training data.
+
+\subsection{Performance of the detection and simulation pipeline}
+
+In terms of performance, both the metrics used to evaluate the detection model
+as well as the assignment step are promising: The average precision reaches
+more that 85\% (AP@[.5:.01:.95], figure \ref{fig:detector_performance}) for
+detection and 97\% for assignment (figure \ref{fig:assignment_training}). From
+these metrics, detection and assignment errors are expected to be quite rare.
+But it is important to emphasize that the detection performance is evaluated
+partially on simulated data and the assignment model fully on simulated data,
+which probably leads to overestimating the performance of the pipeline. For
+this reason, I manually checked hundreds of spectrograms in addition to the
+performance metrics, two of which are introduced in detail in figures
+\ref{fig:chirp_detections_simultaneous} and
+\ref{fig:chirp_detections_bigchirps}. These spectrograms illustrate that for
+most cases and in recordings with an adequate \acrfullpl{SNR}, the detection
+pipeline performs much better compared to previous implementations,
+particularly for longer and larger chirps. First applications on field data
+should paint a clearer picture on how usable this approach is and what needs to
+be improved. A promising approach to further increase the performance of the
+detection model could be through active learning. Here, the model labels
+previously unseen data. From these detections, uncertain samples, such as those
+with low confidence scores, are picked, manually annotated and the model is
+retrained on those. This is a thoroughly tested method of increasing the
+performance of machine learning algorithms
+\parencite{zhanComparativeSurveyDeep2022}.
+
+In addition to a thorough evaluation of the detection pipeline it is equally
+important to evaluate and improve the simulation pipeline. Electric fish offer
+the unique opportunity to capture their full behavior by electric recordings
+but also to simulate a complete scene of multiple interacting fish. In such
+scenarios, even a trained human observer struggles to assign fish to the
+correct emitter. This makes the availability of \emph{true} ground-truths that
+do not rely on human annotators indispensable. The current simulation routine
+is merely a first proof of principle, where many aspects of natural electrode
+grid recordings are still missing.
+
+Currently, it starts by generating EOD$f$ traces that include communication
+signals such as chirps and rises. Based on those frequency traces, the EOD is
+generated from Fourier components to resemble that of \textit{A.
+leptorhynchus}. A separate pathway generates movement of this simulated fish
+and the EOD is then amplitude-modulated on each simulated electrode to reflect
+the current distance between the fish and each electrode.
+
+To improve this pipeline, we can start at the simulation of communication
+signals. Chirps are currently generated by extracting the evolution of the
+EOD$f$ from chirps of real fish and inserting them into the simulated EOD$f$ of
+the simulated fish. This way, the diversity of the simulations of chirps is
+constrained by the available data. Instead of using the extracted instantaneous
+frequencies of chirps directly, we could train a learning
+algorithm to generate artificial EOD$f$s of chirps. Algorithms such as
+\acrfullpl{VAE} \parencite{nishikimiVariationalAutoencoderBased2024} or
+\acrfullpl{GAN} \parencite{dissanayakeGeneralizedGenerativeDeep2023,
+hazraSynSigGANGenerativeAdversarial2020} are already used in medical
+applications to synthesize EEG, EMG and ECG signals and could be applied in a
+similar fashion to synthesize the frequency evolution of the EOD during chirps
+or rises. Instead of the real EOD$f$ traces, we could then use the synthetic
+communication signals to simulate fish.
+
+The second step would be the improvement of the simulation on the level of the
+EOD itself. In the current simulation, the fish is an oscillating monopole and
+the electric field decays equally in all directions. But in reality, the
+electric field is an oscillating dipole with two lobes, which does not decay
+equally in all directions \parencite{bendaPhysicsElectrosensoryWorlds2020}.
+This difference would not be visible on the sum spectrograms I used for chirp
+detection, which is why I ignored it for now. But when future versions of chirp
+detectors incorporate spatial information into the assignment step, this
+feature could become important. Multiple models of such an electric field
+already exist and could be implemented and incorporated into the current
+pipeline \parencite{babineauModelingElectricField2006,
+nelsonPreyCaptureWeakly1999, wallachInternalModelCanceling2023}. As a result,
+the way in which the field decays would not just depend on position, but on
+body size and curvature of the fish.
+
+After adding realistic simulation of the dipole, we should also generate the
+fish movement based on the statistics of real movements. This is
+important, because these motions substantially influence the amplitude
+modulations of the EOD. These are visible on spectrograms and perceivable by
+other fish \parencite{yuElectrosensoryContrastSignals2019,
+fotowatStatisticsElectrosensoryInput2013a}. In the current simulation, only the
+distribution of swimming velocity is taken from approximations from field
+recordings. Other patterns, such as forward-backward motions and heading
+directions, are hand-tuned only to \emph{resemble} those of a real fish.
+Instead, we should use data from experiments where animals were video-tracked.
+This would allow us to generate models that not only produce realistic
+velocities but also trajectories, body curvature, and maybe even behavioral
+patterns such as foraging, fighting or resting. All of those would bring us
+closer to reliably recreate the full statistics of natural recordings and hence
+closer to true ground truths to build and benchmark analysis algorithms such as
+the chirp detector.
+
+One of the most important aspects of the present simulation pipeline is the
+augmentation with real noise. Adding realistic noise to simulated recordings is
+not only essential to enable the transfer to real data but also provides
+endless possibilities to \emph{augment} the simulations. The same simulation on
+many different \enquote{noise backdrops} can drastically increase the number of
+training samples for learning algorithms
+\parencite{salamonScaperLibrarySoundscape2017}. Currently, this noise is taken
+from another recording of fish in the laboratory. Instead, we should aim to
+create a library of noise backdrops from different settings in the lab an in
+the field. This would not require much effort, since the recording hardware
+already exists and fish would not be needed. Not just the background noise
+itself but also the \acrfull{SNR} is crucial. The current simulation pipeline
+is restricted to a single SNR. Instead, we could use various levels of SNRs to
+generate many training samples for a single simulation-noise combination, which
+would make the model more robust to weak EOD amplitudes or fish that are far
+away from the electrodes.
+
+The last step would be to incorporate the complexity of the environment in such
+simulations. Many objects substantially distort the electric field
+\parencite{zlenkoVisualizationElectricFields2023,
+pereiraContextualEffectsSmall2005, bacherNewMethodSimulation1983} and the
+natural habitat of \textit{A. leptorhyncus} is a complex three dimensional
+labyrinth of stacked rocks \parencite{hagedornCourtSparkElectric1985a}. The
+surface structure of such habitats could be reconstructed using underwater
+photogrammetry \parencite{franciscoHighresolutionNoninvasiveAnimal2020}. The
+problem with this approach is that fish prefer to hide in crevices between
+those rocks, which are usually not picked up well by conventional
+photogrammetry approaches. How such a complex 3D environment could be included
+in these simulations is yet to be explored.
+
+Improving the simulation pipeline would also facilitate a comparison between
+the chirp detector's and human-level performance, the gold-standard in
+supervised detection and classification tasks. This way of evaluating
+performance is hardly ever viable, because in most cases, the ground truth is
+generated by human annotators. This way, a model logically never achieves to
+surpass human level performance. But in a case where the actual ground truth is
+accessible, such as in simulations, human level performance can be compared to
+the detectors performance. Under noisy conditions, this could enable the
+training of detection pipelines that could surpass the performance of human
+annotators.
+
+\subsection{Convolutional neural networks versus transformer architectures}
+
+RCNN and YOLO architectures, such as the ones used in this pipeline, have
+already been used successfully for the automatic detection of ultrasonic
+vocalizations of rodents \parencite{coffeyDeepSqueakDeepLearningbased2019}.
+Here, I provide another successful application of object detection models to
+the detection of electric signals. But in the last years, the development of
+CNNs for computer vision and audio analysis has slowed down due to the rise of
+transformer-based architectures. Transformers were mainly developed for natural
+language processing and became popular through the public demonstration of the
+\acrfull{GPT}. Since then, transformer-based architectures have been
+successfully applied to vision tasks and usually outperform convolution-only
+architectures in terms of accuracy and precision
+\parencite{shehzadiObjectDetectionTransformers2023}. But convolutional
+approaches still surpass transformers, when the computational time is
+considered. In the work presented here, the processing time had to be as low as
+possible to facilitate the fast processing of weeks of recordings. But
+transformers will likely become more performant in the future. The
+computational costs will decrease and the available hardware will become
+better. At that point, we should move to transformer models for
+Neuroethological signal recognition.
+
+\subsection{Back to the time domain}
+
+Wave-type weakly electric fish offer the unique property that in opposite to
+bats or whales, the signals they produce are continuously emitted. Furthermore,
+each EOD approximately consists of just a single frequency at a point in time.
+As mentioned in \hyperref[fig:multifish_chirps]{chapter two}, if we record a
+single fish, we can estimate this frequency for a very fine temporal precision
+by the inverse of each period. But as soon as noise is introduced or the
+signals of multiple fish overlap, this becomes impossible as illustrated in
+figure \ref{fig:multifish_chirps}. So
+\textcite{raabAdvancesNoninvasiveTracking2022,
+henningerTrackingActivityPatterns2020} developed the \texttt{wavetracker} to
+approximate the frequency changes over time of multiple fish on spectrograms. I
+followed with the \texttt{chirpdetector} that is capable of also detecting
+chirps on spectrograms of multiple fish. But working on these spectrograms
+comes with a large pitfall: We are always restricted by the time-frequency
+uncertainty. As an example, the spectrograms used in the \texttt{chirpdetector}
+have a temporal resolution of \SI{20}{\milli\second}, corresponding to a single
+frequency estimate for short chirps. This is just enough to make them visible
+but still reduces the frequency resolution in a way that fish less than
+\SI{20}{\hertz} apart are hardly separable from each other. But what if we were
+able to extract each fish from such a recording similarly to how we can record
+single fish in the laboratory? I believe that this is not so far away as we
+might think: Convolution and transformer architectures running on spectrograms,
+waveforms or both simultaneously can be used for sound source separation,
+meaning that they can separate e.g., vocals, bass and drums from a rock song
+\parencite{rouardHybridTransformersMusic2022,
+stollerWaveUNetMultiScaleNeural2018, petermannCocktailForkProblem2022}.
+Applications of sound source separation in Biology have already been
+demonstrated successfully for vocalizations of birds and fish
+\parencite{dentonImprovingBirdClassification2022,
+mancusiFishSoundsEvaluation2022}. Our problem is a bit different. In the case
+of separating instruments from vocals (or bird songs of different species)  the
+task is \emph{semantic} segmentation. If we would try to apply this approach to
+electric fish, i.e., separating a recording of multiple fish into recordings of
+single fish, we would be faced with \emph{instance} segmentation. Instead of
+segmenting EODs from the background, the task is to segment the EODs of
+individual fish from each other \emph{and} the background. While this sounds
+complex, the fact that fish are usually separated in frequency could make this
+approachable. But we would need a learning algorithm that combines methods from
+sound source separation with methods from instance segmentation from computer
+vision. An improved simulation pipeline would be an ideal way of training such
+models. Having temporal resolutions not constrained to that of spectrograms
+would be an enormous benefit that allows for much more intricate insights into
+the social lives of electric fish. This is because we do not just use frequency
+to understand their communications, but also amplitude to estimate their
+positions.
+
+\subsection{Applications of chirp detection}
+
+With these technical considerations in mind, for what other practical
+applications could the \texttt{chirpdetector} be useful? Electric fish are one
+of the main fractions that make up the total biomass of fish in the Amazon
+basin \parencite{lassoCompositionAbundanceBiomass1992,
+cramptonEcologicalPerspectiveDiversity2011a}. They present a large variability
+in habitat use, social lives and communication repertoires that are
+comparatively poorly explored and still offer exiting discoveries to be made.
+With the right training data, the chirp detector could be trained and used on
+the chirps of any chirping species. With the simulation pipeline to
+generate training data, just a small representative subset might be enough to
+get good results. In combination with an electrode grid and the
+\texttt{wavetracker}, we now have the tools to record and analyze electric and
+spatio-temporal behaviors of multiple, freely interacting wave-type weakly
+electric fish in their natural habitat.
+\textcite{henningerStatisticsNaturalCommunication2018} demonstrated that this
+approach is indispensable in reflecting upon decades of neuroethological
+research in electric fish. \textcite{fortuneSpookyInteractionDistance2020a}
+showed that this approach can be employed to study behavioral differences
+between surface and cave dwelling populations of two closely
+related species. With the pipeline presented here, we can add the quantitative
+analysis of chirps to this suite of methods. Just by the sheer amount of chirps
+that are produced in various behavioral contexts, without arguing for or
+against a certain function, it is sensible to assume that they are
+important to the lives of electric fish
+\parencite{henningerStatisticsNaturalCommunication2018, obotiWhyBrownGhost2023,
+hupeElectrocommunicationSignalsFree2009}. Because chirps are connected
+tightly to courtship or spawning, they could be used as proxies for mating or
+at least courtship events
+\parencite{henningerStatisticsNaturalCommunication2018,
+hagedornCourtSparkElectric1985a}. Currently not even the mating system of the
+different species of wave-type electric fish is known. Beyond ethological and
+comparative field studies, this approach is equally applicable to recordings of
+multiple fish in controlled conditions. \textcite{obotiWhyBrownGhost2023}
+correctly criticized the lack of causal evidence for the function of chirps as
+a communication signal. The pipeline presented here should make it much easier
+to study chirps and enable a much higher throughput compared to manual
+annotations, to shed a light onto the function(s) of chirps.
+
+In parallel to fundamental research, the chirps of weakly electric fish could
+become equally important in the applied sciences, such as in population
+monitoring. The electric sense is widely regarded as a significant evolutionary
+boon, contributing substantially to the remarkable diversity and abundance of
+electric fish \parencite{cramptonEvolutionElectricSignal2006}. This unique
+adaptation, however, necessitates specific conditions in terms of nutritional
+availability and water chemistry, rendering these species potentially
+vulnerable to anthropogenic disturbances, as discussed by
+\textcite{markhamEnergeticsSensingCommunication2016}. An aspect not covered in
+their discussion is the potential exacerbation of these vulnerabilities by
+electrical noise. In areas close to human settlements, recordings of electric
+fish in their natural habitats are often marred by significant electrical
+interference within their perceptible frequency ranges—a problem not
+encountered in more remote locations. A particularly concerning source of such
+interference is the proliferation of hydroelectric dams
+\parencite{agostinhoAllThatGoes2011, keppelerEarlyImpactsLargest2022,
+duponchelleConservationMigratoryFishes2021}. These structures not only pose
+barriers to riverine migration but also generate substantial electrical noise.
+Monitoring fish populations is essential to prevent further damage to their
+diversity and abundance \parencite{larentisEffectsHumanDisturbance2022}. Active
+monitoring by telemetry is possible but expensive, error prone and restricted
+to few large species \parencite{hahnBiotelemetryRevealsMigratory2019}.
+Monitoring through eDNA, where species accounts are extracted from the DNA
+available in water samples, is a promising and holistic approach and removes
+the need for more invasive monitoring methods
+\parencite{desantanaCriticalRoleNatural2021}. To complement these approaches,
+purely passive monitoring was demonstrated recently in the endangered Amazonian
+River Dolphins, using hydrophones and neural networks to detect echolocation
+signals \parencite{erbsAutomatedLongtermAcoustic2023}. But this is restricted
+to two species. I would argue that we can take this a step further with
+wave-type, and maybe at some point even pulse-type electric fish.
+\textcite{henningerStatisticsNaturalCommunication2018} and
+\textcite{madhavHighresolutionBehavioralMapping2018} have demonstrated that
+electric fish can not only be passively monitored, but that we can even track
+individual identities over time and estimate their positions to a comparatively
+fine temporal scale. What has been missing were their communication signals. If
+we would be able to monitor and automatically analyze the communication of
+these fish, we would not only be able to asses how their abundances change over
+time but also how the reproductive behavior of these populations is affected by
+environmental changes. This could be implemented in a purely passive way,
+without the need to catch fish or significantly disturb their environment.
+ 
+\section{Conclusion} % (fold)
+\label{sec:conclusion}
+
+The automated chirp detection pipeline developed in this thesis successfully
+detects all known types of chirps in recordings of multiple Brown Ghost
+Knifefish. This represents a significant advancement in the study of
+electrocommunication, since it is the first system capable of detecting and
+automatically assigning each chirp to the fish that emitted it.
+
+Applying this pipeline to a dataset from staged competitions between two fish
+surpassed the number of chirps in most previous studies and revealed important
+behavioral insights. Chirps were predominantly emitted by subordinate fish and
+were correlated with the cessation of aggressive interactions by dominant
+individuals. This finding suggests a communicative function of chirps in
+mediating ritualized competitions for resources.
+
+In conclusion, the chirp detection pipeline lays the groundwork for deeper
+exploration into the electrocommunication of wave-type electric fish. It paves
+the way for studying social dynamics, behavioral cues, and ecological roles of
+chirping in both laboratory and natural settings and marks a first step towards
+non-invasive and passive monitoring of electrocommunication in wild
+populations.
+
+% section Conclusion (end)
+
+% chapter Discussion (end)
+
+\iffalse
+The disparity between the current capabilities in data analyses and the
+practices with which data is not only analyzed but also recorded in some fields
+of research is striking. While controlled experiments and
+\enquote{conventional} statistics are indispensable, whether such causal
+effects revealed in experiments play a role in the natural environment and
+behavioral context of species is often overlooked in the push for causality in
+strictly controlled conditions. But especially now, as not only the autonomous
+recording of enormous amounts of data but also automated analyses become more
+and more accessible, going into the field and inspiring new hypotheses by
+quantitative observations becomes approachable. As an example, smartphone apps
+can automatically recognize bird songs and classify the species just from
+comparatively poor-quality phone recordings
+\parencite{kahlBirdNETDeepLearning2021}. Despite this, many studies still rely
+on manually labeling communication signals of all kinds of species. Software
+such as
+\href{http://www.mackenziemathislab.org/deeplabcut}{\texttt{DeepLabCut}} and
+\href{https://sleap.ai/}{\texttt{SLEAP}} enables automated tracking of
+individual body parts of most animals \parencite{pereiraSLEAPDeepLearning2022a,
+lauerMultianimalPoseEstimation2022}. This provides the possibility of high
+throughput in behavioral experiments and frees time that can be allocated to,
+for example, recording more data. But computational technologies are still not
+widely adopted nor included into teaching curricula. Instead, many rely on
+cheap manual labor in the form of undergraduate students to annotate datasets
+by hand. \textcite{andersonScienceComputationalEthology2014} nicely summarized
+this process as beeing slow, imprecise, subjective, low-dimensional, limited by
+the human sensory system and lastly \emph{dull}. The need for annotated
+datasets is not something that we soon be able to completely resolve, but
+instead of labeling a full dataset by hand, it is much less time consuming to
+label a small representative subset to train a machine learning system that
+then labels the full dataset for analysis. This would decouple the amount of
+data that can be recorded from the number (or patience) of available
+annotators. This way, junior scientists, often times still students themselves,
+would not be prevented from learning skills that become more and more valuable
+not only in science but already are so in industry.
+
+\fi
