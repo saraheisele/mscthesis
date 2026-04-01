@@ -23,8 +23,11 @@ each key contains a list of npz file paths that belong to that session.
 The json file created in this script is loaded and used in the next step of this analysis (eel_data_analysis.py).
 """
 
-# TODO: implement to kick hdf5 file out when it detects 0 predicted pulses (log: found # h5 files, # h5 files are being processed)
+# TODO: write documentation and comments for this script
 # TODO: Maybe store fs, rec length and start time in npz file/dictionary
+# TODO: improve plot
+# TODO: improve saving h5 (the array naming/structure of the h5 file is a mess)
+
 # %%
 from rich.console import Console
 from pathlib import Path
@@ -77,7 +80,6 @@ def get_path_list(datapath):
     return sorted(path_list)
 
 
-# %%
 def load_eods(file_paths):
     # Print status
     con.log("Loading hdf5 files.")
@@ -154,7 +156,7 @@ def load_wav(wav_list):
 
         # get start time of recording from first wav file name (str)
         start_time = filename.split("-")[1]
-        # %%
+
         # convert to datetime object
         dt_start = datetime.strptime(start_time, "%Y%m%dT%H%M%S")
 
@@ -172,12 +174,12 @@ def load_wav(wav_list):
     return fs_list, dt_list, length_list
 
 
-# TODO: maybe make seperate function for making list of unix timestamps of pulses
 # calculate number of pulses per time bin
 def make_histogram(pulse_centers, sampling_rates, start_times):
     # create list to hold histogram
     time_range = 24 * 60  # min
     histogram_data = np.zeros(time_range)
+    # hist_monthly = np.zeros(12*31)
     timestamp_list = []
 
     # iterate through each of the lists in pulse_centers (one per hdf5 file)
@@ -203,6 +205,41 @@ def make_histogram(pulse_centers, sampling_rates, start_times):
     return histogram_data, timestamp_list
 
 
+def make_monthly_histogram(timestamps, n_months=12):
+    """Aggregate Unix timestamps into consecutive monthly bins.
+
+    timestamps: iterable of float (unix timestamps)
+    n_months: number of consecutive months to aggregate starting at the month
+              of the earliest timestamp
+
+    Returns: (counts (np.array length n_months), month_starts (list of datetime))
+    """
+    if not timestamps:
+        return np.zeros(n_months, dtype=int), []
+
+    # convert to datetimes
+    dates = [datetime.fromtimestamp(ts) for ts in timestamps]
+    start = min(dates)
+    # beginning of the first month
+    start_month = datetime(start.year, start.month, 1)
+
+    # build list of month starts
+    month_starts = [start_month]
+    for i in range(1, n_months):
+        prev = month_starts[-1]
+        year = prev.year + (prev.month // 12)
+        month = (prev.month % 12) + 1
+        month_starts.append(datetime(year, month, 1))
+
+    counts = np.zeros(n_months, dtype=int)
+    for dt in dates:
+        months_diff = (dt.year - start_month.year) * 12 + (dt.month - start_month.month)
+        if 0 <= months_diff < n_months:
+            counts[months_diff] += 1
+
+    return counts, month_starts
+
+
 # create a hdf5 file with nixio to later save the timestamp of each pulse in it
 def open_nix_for_output(output_path: Path):
     nix_file = nixio.File.open(str(output_path), nixio.FileMode.Overwrite)
@@ -211,7 +248,6 @@ def open_nix_for_output(output_path: Path):
     return nix_file, nix_timestamps
 
 
-## TODO: improve saving this (the array naming/structure of the h5 file is a mess)
 # save the unix timestamp of each pulse in the earlier created nix_timestamp block of nix_file
 def append_cluster_block(
     time_stamp_block, time_stamp_list: list, created: bool
@@ -264,7 +300,9 @@ created = append_cluster_block(nix_block, timestamps, created=False)
 #     main()
 
 # %%
-### roughly plot
+############# PLOTS #############
+## activity over time - 24h, minute bins
+
 # x coordinates run 0…1439 (= minutes since midnight)
 x = np.arange(len(histogram))
 
@@ -284,3 +322,81 @@ ax.set_title("24‑h histogram (1‑min bins)")
 
 plt.tight_layout()
 plt.show()
+
+# %%
+## firing rate over time, 24h, minute bins
+# firing rate in Hz for each minute: convert pulses per minute -> pulses per second
+firing_rate = histogram / 60.0  # Hz
+
+# plot firing rate (1-min bins)
+x = np.arange(len(firing_rate))
+fig, ax = plt.subplots(figsize=(10, 4))
+ax.plot(x, firing_rate, color="C1")
+
+# label the x‑axis in hours every 60 minutes
+hour_ticks = np.arange(0, 24 * 60 + 1, 60)
+hour_labels = [f"{h:02d}:00" for h in range(25)]
+ax.set_xticks(hour_ticks)
+ax.set_xticklabels(hour_labels, rotation=45)
+
+ax.set_xlim(0, 24 * 60)
+ax.set_xlabel("time of day")
+ax.set_ylabel("firing rate (Hz)")
+ax.set_title("24‑h firing rate (1‑min bins)")
+
+plt.tight_layout()
+plt.show()
+
+# %%
+## activity over time - 24h, hour bins
+x = np.arange(0, len(histogram), 60)
+histogram_hourly = [sum(histogram[i : i + 60]) for i in range(0, len(histogram), 60)]
+
+fig, ax = plt.subplots(figsize=(10, 4))
+ax.bar(x, histogram_hourly, width=60, align="edge", color="C0")
+
+# label the x‑axis in hours every 60 minutes
+hour_ticks = np.arange(0, 24 * 60 + 1, 60)
+hour_labels = [f"{h:02d}:00" for h in range(25)]
+ax.set_xticks(hour_ticks)
+ax.set_xticklabels(hour_labels, rotation=45)
+
+ax.set_xlim(0, 24 * 60)
+ax.set_xlabel("time of day")
+ax.set_ylabel("pulses per minute")
+ax.set_title("24‑h histogram (1‑min bins)")
+
+plt.tight_layout()
+plt.show()
+
+# %%
+## activity over time, 12 months, daily bins
+# TODO: ?
+
+# %%
+## activity over time, 12 months, monthly bins
+
+# aggregate timestamps into 12 consecutive monthly bins (starting at earliest timestamp)
+monthly_counts, month_starts = make_monthly_histogram(timestamps, n_months=12)
+
+# plot monthly histogram
+if len(monthly_counts) > 0:
+    x = np.arange(len(monthly_counts))
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.bar(x, monthly_counts, color="C0", align="center")
+
+    ax.set_xticks(x)
+    ax.set_xticklabels([dt.strftime("%Y-%m") for dt in month_starts], rotation=45)
+
+    ax.set_xlabel("month")
+    ax.set_ylabel("pulses")
+    ax.set_title("12‑month histogram (monthly bins)")
+
+    plt.tight_layout()
+    plt.show()
+
+# %%
+## activity over time, years
+# TODO: ?
+
+# %%
