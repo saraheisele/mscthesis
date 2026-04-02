@@ -25,8 +25,7 @@ The json file created in this script is loaded and used in the next step of this
 
 # TODO: write documentation and comments for this script
 # TODO: Maybe store fs, rec length and start time in npz file/dictionary
-# TODO: improve plot
-# TODO: improve saving h5 (the array naming/structure of the h5 file is a mess)
+# TODO: improve plots
 
 # %%
 from rich.console import Console
@@ -300,9 +299,11 @@ created = append_cluster_block(nix_block, timestamps, created=False)
 #     main()
 
 # %%
+#################################
 ############# PLOTS #############
-## activity over time - 24h, minute bins
+#################################
 
+## activity over time - 24h, minute bins
 # x coordinates run 0…1439 (= minutes since midnight)
 x = np.arange(len(histogram))
 
