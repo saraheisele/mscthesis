@@ -109,3 +109,7 @@ vscode:
 - ctrl + shift + D: Debug console (built in vs code GUI, works with breakpoints, start w. F5)
 - run and Debug panel (left sidebar): this is where the debug process in the debug console is controlled (settings, start/end,...)
 
+How to get structure of patricks h5 files:
+- cd to ~/wrk/eeltracker
+- python3 print_nix_layout.py ~/wrk/mscthesis/data/newdata/eels-mfn2021_dummy_pulses_redetected/berlin_tank_site/recordings_2024-02-13_pulses.h5
+OR: section.pprint()

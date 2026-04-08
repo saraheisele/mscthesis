@@ -37,6 +37,8 @@ from datetime import datetime, timedelta
 from matplotlib import pyplot as plt
 # from IPython import embed
 
+# from IPython import embed
+
 # Initialize console for logging
 con = Console()
 
@@ -84,13 +86,20 @@ def load_eods(file_paths):
     con.log("Loading hdf5 files.")
 
     pulse_center_list = []
+    fs_list = []
+    dt_list = []
 
     for fp in file_paths:
         file = nixio.File.open(str(fp), nixio.FileMode.ReadWrite)
-        block = file.blocks["Average pulses"]
+        block = file.blocks["pulses"]
         # data_array_names = [da.name for da in block.data_arrays]
 
-        pulses_center_idx = block.data_arrays["cluster_centers"]
+        data_array_names = [da.name for da in block.data_arrays]
+        if "centers" not in data_array_names:
+            con.log(f"File {fp} does not contain 'centers' data array. Skipping.")
+            continue
+
+        pulses_center_idx = block.data_arrays["centers"]
         pred_labels = block.data_arrays["predicted_labels"]
 
         con.log(
@@ -98,7 +107,23 @@ def load_eods(file_paths):
         )
 
         pulse_center_list.append(pulses_center_idx[pred_labels[:] == 1])
-    return pulse_center_list
+
+        # extract fs in Hz
+        section = file.sections["pulses_metadata"]
+
+        fs = section["metadata"]["samplerate"]
+        starttime_str = section["metadata"]["metadata"]["INFO"]["DateTimeOriginal"]
+
+        # add sampling rate of each wav to list
+        fs_list.append(fs)
+
+        # convert to datetime object
+        dt_start = datetime.strptime(starttime_str, "%Y-%m-%dT%H:%M:%S")
+
+        # add start time datetime object to list
+        dt_list.append(dt_start)
+
+    return pulse_center_list, fs_list, dt_list
 
 
 # %%
@@ -144,7 +169,7 @@ def load_wav(wav_list):
         except Exception as e:
             con.log(f"Error loading: {e}")
             continue
-        # embed()
+
         ### get sampling rate in Hz for this wav file
         fs = audio_data.rate
         # add sampling rate of each wav to list
@@ -268,19 +293,24 @@ def append_cluster_block(
 # %% Main
 # def main():
 # Path to sup folder
-datapath = Path("/home/eisele/wrk/mscthesis/data/intermediate/inpa2025_peaks")
+datapath = Path(
+    "/home/eisele/wrk/mscthesis/data/newdata/eels-mfn2021_dummy_pulses_redetected/berlin_tank_site"
+)
 
 # make list containing all paths to hdf5 files in the given datapath
 path_list = get_path_list(datapath)
 
 # load hdf5 files from path list and extract pulse centers of pulses that were predicted as EODs
-pulse_centers = load_eods(path_list)
+pulse_centers, sampling_rates, start_times = load_eods(path_list)
 
-# make list of the first wav file of each recording session corresponding to the hdf5 files in path_list
-wav_list = find_wav(path_list)
+# # make list of the first wav file of each recording session corresponding to the hdf5 files in path_list
+# wav_list = find_wav(path_list)
 
-# get sampling rates from the first wav file of each recording session
-sampling_rates, start_times, rec_lengths = load_wav(wav_list)
+# # get sampling rates from the first wav file of each recording session
+# sampling_rates, start_times, _ = load_wav(wav_list)
+
+# extract sampling rates and start times from the first
+
 
 # calculate histogram of number of pulses per minute for 24‑h period (0…1439 minutes)
 histogram, timestamps = make_histogram(pulse_centers, sampling_rates, start_times)
@@ -398,6 +428,6 @@ if len(monthly_counts) > 0:
 
 # %%
 ## activity over time, years
-# TODO: ?
+# TODO
 
 # %%
