@@ -5,8 +5,9 @@ from rich.console import Console
 from rich.progress import Progress
 from pathlib import Path
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import json
+from thunderlab.dataloader import DataLoader
 
 
 # Initialize console for logging
@@ -265,6 +266,134 @@ def save_session_paths(session_paths):
     # open json and save dict in it
     with path.open("w") as file:
         json.dump(session_paths_str, file)
+
+
+#################################################
+# %%
+def find_wav(file_paths):
+    """
+    Takes the sorted path_list from get_path_list function, that contains one or several hdf5 files.
+    Builds the path to the corresponding wavfiles by iterating over h5 files.
+    Stores the first wav file of that recording session in a list and returns the list of wav file paths.
+    """
+    # Print status
+    con.log("Accessing corresponding wav files.")
+
+    # initialize empty list to store wav file paths
+    wav_path_list = []
+
+    # iterate through hdf5 paths and build path to corresponding wav files
+    for fp in file_paths:
+        wav_name = "_".join(str(fp.name).split("_")[:-1])
+        wavpath = Path(
+            fp.parent.parent.parent.parent
+            / "raw/trial_dataset_new/fielddata_trial/inpa2025_trial/inpa_enclosure"
+            / wav_name
+        )
+
+        # get the first wav file of directory and store the path to it in list
+        first_file = sorted(wavpath.rglob("*.wav"))[0]
+        wav_path_list.append(first_file)
+
+    return wav_path_list
+
+
+# Extracts sampling rates in Hz from the first corresponding wav files of each hdf5 file and stores them in a list
+def load_wav_new(wav_list):
+    fs_list = []
+    dt_list = []
+    length_list = []
+
+    # iterate through wav files
+    for wav in wav_list:
+        # load wav file
+        try:
+            audio_data = DataLoader(wav)
+        except Exception as e:
+            con.log(f"Error loading: {e}")
+            continue
+
+        ### get sampling rate in Hz for this wav file
+        fs = audio_data.rate
+        # add sampling rate of each wav to list
+        fs_list.append(fs)
+
+        ### get file name
+        filename = wav.stem
+
+        # get start time of recording from first wav file name (str)
+        start_time = filename.split("-")[1]
+
+        # convert to datetime object
+        dt_start = datetime.strptime(start_time, "%Y%m%dT%H%M%S")
+
+        # add start time datetime object to list
+        dt_list.append(dt_start)
+
+        ### get file length
+        # get number of minutes per recording for this wav file
+        samples_per_rec = audio_data.shape[0]
+        minutes_rec = samples_per_rec / fs / 60
+
+        # add recording length in minutes to list
+        length_list.append(minutes_rec)
+
+    return fs_list, dt_list, length_list
+
+
+#################################################
+
+# create arrays to store pulse counts for different time bins
+min_histogram = np.zeros(24 * 60)  # minute bins for 24h period
+hour_histogram = np.zeros(24)  # hourly bins for 24h period
+day_histogram = np.zeros(366)  # daily bins for 1 year
+month_histogram = np.zeros(12)  # monthly bins for 1 year
+year_histogram = np.zeros(date.today().year - 2023)  # years since start of dataset
+
+
+#################################################
+
+
+# TODO: fix this (it only returns counts for 2019-01)
+def make_monthly_histogram(timestamps, n_months=12):
+    """Aggregate Unix timestamps into consecutive monthly bins.
+
+    timestamps: iterable of float (unix timestamps)
+    n_months: number of consecutive months to aggregate starting at the month
+              of the earliest timestamp
+
+    Returns: (counts (np.array length n_months), month_starts (list of datetime))
+    """
+    if not timestamps:
+        return np.zeros(n_months, dtype=int), []
+
+    # convert to datetimes
+    dates = [datetime.fromtimestamp(ts) for ts in timestamps]
+    start = min(dates)
+    # beginning of the first month
+    start_month = datetime(start.year, start.month, 1)
+
+    # build list of month starts
+    month_starts = [start_month]
+    for i in range(1, n_months):
+        prev = month_starts[-1]
+        year = prev.year + (prev.month // 12)
+        month = (prev.month % 12) + 1
+        month_starts.append(datetime(year, month, 1))
+
+    counts = np.zeros(n_months, dtype=int)
+    for dt in dates:
+        months_diff = (dt.year - start_month.year) * 12 + (dt.month - start_month.month)
+        if 0 <= months_diff < n_months:
+            counts[months_diff] += 1
+
+    return counts, month_starts
+
+
+# # aggregate timestamps into 12 consecutive monthly bins (starting at earliest timestamp)
+# monthly_counts, month_starts = make_monthly_histogram(timestamps, n_months=12)
+
+#################################################
 
 
 # %%

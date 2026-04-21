@@ -32,12 +32,8 @@ from rich.console import Console
 from pathlib import Path
 import numpy as np
 import nixio
-from thunderlab.dataloader import DataLoader
-from datetime import datetime, timedelta
-from matplotlib import pyplot as plt
-# from IPython import embed
+from datetime import datetime, timedelta, date
 
-# from IPython import embed
 
 # Initialize console for logging
 con = Console()
@@ -126,142 +122,66 @@ def load_eods(file_paths):
     return pulse_center_list, fs_list, dt_list
 
 
-# %%
-def find_wav(file_paths):
-    """
-    Takes the sorted path_list from get_path_list function, that contains one or several hdf5 files.
-    Builds the path to the corresponding wavfiles by iterating over h5 files.
-    Stores the first wav file of that recording session in a list and returns the list of wav file paths.
-    """
-    # Print status
-    con.log("Accessing corresponding wav files.")
-
-    # initialize empty list to store wav file paths
-    wav_path_list = []
-
-    # iterate through hdf5 paths and build path to corresponding wav files
-    for fp in file_paths:
-        wav_name = "_".join(str(fp.name).split("_")[:-1])
-        wavpath = Path(
-            fp.parent.parent.parent.parent
-            / "raw/trial_dataset_new/fielddata_trial/inpa2025_trial/inpa_enclosure"
-            / wav_name
-        )
-
-        # get the first wav file of directory and store the path to it in list
-        first_file = sorted(wavpath.rglob("*.wav"))[0]
-        wav_path_list.append(first_file)
-
-    return wav_path_list
-
-
-# Extracts sampling rates in Hz from the first corresponding wav files of each hdf5 file and stores them in a list
-def load_wav(wav_list):
-    fs_list = []
-    dt_list = []
-    length_list = []
-
-    # iterate through wav files
-    for wav in wav_list:
-        # load wav file
-        try:
-            audio_data = DataLoader(wav)
-        except Exception as e:
-            con.log(f"Error loading: {e}")
-            continue
-
-        ### get sampling rate in Hz for this wav file
-        fs = audio_data.rate
-        # add sampling rate of each wav to list
-        fs_list.append(fs)
-
-        ### get file name
-        filename = wav.stem
-
-        # get start time of recording from first wav file name (str)
-        start_time = filename.split("-")[1]
-
-        # convert to datetime object
-        dt_start = datetime.strptime(start_time, "%Y%m%dT%H%M%S")
-
-        # add start time datetime object to list
-        dt_list.append(dt_start)
-
-        ### get file length
-        # get number of minutes per recording for this wav file
-        samples_per_rec = audio_data.shape[0]
-        minutes_rec = samples_per_rec / fs / 60
-
-        # add recording length in minutes to list
-        length_list.append(minutes_rec)
-
-    return fs_list, dt_list, length_list
-
-
 # calculate number of pulses per time bin
 def make_histogram(pulse_centers, sampling_rates, start_times):
-    # create list to hold histogram
-    time_range = 24 * 60  # min
-    histogram_data = np.zeros(time_range)
-    # hist_monthly = np.zeros(12*31)
+    # create list to store unix timestamps of each pulse for later storage in hdf5 file
     timestamp_list = []
+
+    # create histograms in a dict
+    hist_sizes = {
+        "minute": 24 * 60,
+        "hour": 24,
+        "day": 366,
+        "month": 12,
+        "year": (date.today().year - 2023) + 1,
+    }
+    # TODO: dont hardcode start year, but get it from start_times list - ask patrick how
+
+    hist = {k: np.zeros(v, dtype=int) for k, v in hist_sizes.items()}
+
+    con.log("Calculating histogram of pulses per minute.")
 
     # iterate through each of the lists in pulse_centers (one per hdf5 file)
     for i, rec in enumerate(pulse_centers):
         # for each pulse list, iterate through the pulse indices
         for idx in rec:
-            # divide the pulse idx with the sampling rate of the corresponding recording session to get the time of the pulse in seconds
-            pulse_time_sec = idx / sampling_rates[i]
+            # get the time of the pulse in seconds
+            pulse_time_sec = idx / sampling_rates[i]  # sampling rate in Hz
 
-            # get absolute time of pulse by adding start time of recording session
+            # get absolute time of each pulse by adding start time of recording session
             pulse_time_abs = start_times[i] + timedelta(seconds=pulse_time_sec)
 
-            # get number of total minutes
+            ## extract time components of pulses for histogramming
             minute = pulse_time_abs.hour * 60 + pulse_time_abs.minute
+            hour = pulse_time_abs.hour
+            day = pulse_time_abs.timetuple().tm_yday - 1  # day of year (0‑365)
+            month = pulse_time_abs.month - 1  # month of year (0‑11)
+            year = pulse_time_abs.year - 2023  # year since start of recordings
 
-            # append
-            histogram_data[minute] += 1
+            # if pulse_time_abs.year == 2019:
+            #     Warning(f"Pulse time {pulse_time_abs} is in 2019, file: {i}.")
+            #     continue
 
-            # Convert pulse index to Unix timestamp (float64) for later storage in hdf5 file
+            ## append dict of histograms with counts for each time bin
+            hist["minute"][minute] += 1
+            hist["hour"][hour] += 1
+            hist["day"][day] += 1
+            hist["month"][month] += 1
+            try:
+                hist["year"][year] += 1
+            except IndexError:
+                con.log(f"Year {year} is out of bounds for histogram.")
+
+            # convert pulse to Unix timestamp and append to list for later storage in hdf5 file
             pulse_time_abs_unix = pulse_time_abs.timestamp()  # float64
             timestamp_list.append(pulse_time_abs_unix)
 
-    return histogram_data, timestamp_list
+        # count how many recs contributed to each bin of the histogram for later normalization
+        # TODO!!
 
+    con.log("Finished calculating histogram.")
 
-def make_monthly_histogram(timestamps, n_months=12):
-    """Aggregate Unix timestamps into consecutive monthly bins.
-
-    timestamps: iterable of float (unix timestamps)
-    n_months: number of consecutive months to aggregate starting at the month
-              of the earliest timestamp
-
-    Returns: (counts (np.array length n_months), month_starts (list of datetime))
-    """
-    if not timestamps:
-        return np.zeros(n_months, dtype=int), []
-
-    # convert to datetimes
-    dates = [datetime.fromtimestamp(ts) for ts in timestamps]
-    start = min(dates)
-    # beginning of the first month
-    start_month = datetime(start.year, start.month, 1)
-
-    # build list of month starts
-    month_starts = [start_month]
-    for i in range(1, n_months):
-        prev = month_starts[-1]
-        year = prev.year + (prev.month // 12)
-        month = (prev.month % 12) + 1
-        month_starts.append(datetime(year, month, 1))
-
-    counts = np.zeros(n_months, dtype=int)
-    for dt in dates:
-        months_diff = (dt.year - start_month.year) * 12 + (dt.month - start_month.month)
-        if 0 <= months_diff < n_months:
-            counts[months_diff] += 1
-
-    return counts, month_starts
+    return hist, timestamp_list
 
 
 # create a hdf5 file with nixio to later save the timestamp of each pulse in it
@@ -276,6 +196,8 @@ def open_nix_for_output(output_path: Path):
 def append_cluster_block(
     time_stamp_block, time_stamp_list: list, created: bool
 ) -> bool:
+    con.log("Saving pulse timestamps to nix file.")
+
     if not time_stamp_list:
         return created
 
@@ -290,144 +212,56 @@ def append_cluster_block(
     return True
 
 
+def save_hist(histogram_dict, output_path: Path):
+    con.log(f"Saving histogram dict to {output_path}.")
+    # ensure values are numpy arrays
+    clean = {k: np.asarray(v) for k, v in histogram_dict.items()}
+    # save (hist is your dict of numpy arrays)
+    np.savez_compressed(output_path, **clean)
+
+
+# TODO: improve name of npz file
+# TODO: should I save the histogram dict in nix file as well?
+
+
 # %% Main
-# def main():
-# Path to sup folder
-datapath = Path(
-    "/home/eisele/wrk/mscthesis/data/newdata/eels-mfn2021_dummy_pulses_redetected/berlin_tank_site"
-)
-
-# make list containing all paths to hdf5 files in the given datapath
-path_list = get_path_list(datapath)
-
-# load hdf5 files from path list and extract pulse centers of pulses that were predicted as EODs
-pulse_centers, sampling_rates, start_times = load_eods(path_list)
-
-# # make list of the first wav file of each recording session corresponding to the hdf5 files in path_list
-# wav_list = find_wav(path_list)
-
-# # get sampling rates from the first wav file of each recording session
-# sampling_rates, start_times, _ = load_wav(wav_list)
-
-# extract sampling rates and start times from the first
-
-
-# calculate histogram of number of pulses per minute for 24‑h period (0…1439 minutes)
-histogram, timestamps = make_histogram(pulse_centers, sampling_rates, start_times)
-
-# create a hdf5 file with nixio to later save the timestamp of each pulse in it
-nix_file, nix_block = open_nix_for_output(
-    Path(
-        "/home/eisele/wrk/mscthesis/data/intermediate/inpa2025_peaks/pulse_timestamps.nix"
+def main():
+    # Path to data directory containing hdf5 files with detected pulses
+    data_path = Path(
+        "/home/eisele/wrk/mscthesis/data/newdata/eels-mfn2021_dummy_pulses_redetected/berlin_tank_site"
     )
-)
 
-# save the unix timestamp of each pulse in the earlier created nix_timestamp block of nix_file
-created = append_cluster_block(nix_block, timestamps, created=False)
+    # path to output directory
+    # save_path = Path("/home/eisele/wrk/mscthesis/data/newdata")
+    # TODO: implement save path nicely in both save functions
 
-# if __name__ == "__main__":
-#     main()
+    # make list containing all paths to hdf5 files in the given datapath
+    path_list = get_path_list(data_path)
 
-# %%
-#################################
-############# PLOTS #############
-#################################
+    # load hdf5 files from path list and extract pulse centers of pulses that were predicted as EODs
+    pulse_centers, sampling_rates, start_times = load_eods(path_list)
 
-## activity over time - 24h, minute bins
-# x coordinates run 0…1439 (= minutes since midnight)
-x = np.arange(len(histogram))
+    # calculate histogram of number of pulses per minute for 24‑h period (0…1439 minutes)
+    histogram_dict, timestamps = make_histogram(
+        pulse_centers, sampling_rates, start_times
+    )
 
-fig, ax = plt.subplots(figsize=(10, 4))
-ax.bar(x, histogram, width=1.0, align="edge", color="C0")
+    # create a hdf5 file with nixio to later save the timestamp of each pulse in it
+    nix_file, nix_block = open_nix_for_output(
+        Path("/home/eisele/wrk/mscthesis/data/newdata/berlin_pulse_timestamps_2026.nix")
+    )
 
-# label the x‑axis in hours every 60 minutes
-hour_ticks = np.arange(0, 24 * 60 + 1, 60)
-hour_labels = [f"{h:02d}:00" for h in range(25)]
-ax.set_xticks(hour_ticks)
-ax.set_xticklabels(hour_labels, rotation=45)
+    # save the unix timestamp of each pulse in the earlier created nix_timestamp block of nix_file
+    created = append_cluster_block(nix_block, timestamps, created=False)  # noqa: F841
 
-ax.set_xlim(0, 24 * 60)
-ax.set_xlabel("time of day")
-ax.set_ylabel("pulses per minute")
-ax.set_title("24‑h histogram (1‑min bins)")
+    # save histogram dict to .npz file for later use in plotting
+    save_hist(
+        histogram_dict,
+        Path("/home/eisele/wrk/mscthesis/data/newdata/berlin_histogram_dict_2026.npz"),
+    )
 
-plt.tight_layout()
-plt.show()
 
-# %%
-## firing rate over time, 24h, minute bins
-# firing rate in Hz for each minute: convert pulses per minute -> pulses per second
-firing_rate = histogram / 60.0  # Hz
-
-# plot firing rate (1-min bins)
-x = np.arange(len(firing_rate))
-fig, ax = plt.subplots(figsize=(10, 4))
-ax.plot(x, firing_rate, color="C1")
-
-# label the x‑axis in hours every 60 minutes
-hour_ticks = np.arange(0, 24 * 60 + 1, 60)
-hour_labels = [f"{h:02d}:00" for h in range(25)]
-ax.set_xticks(hour_ticks)
-ax.set_xticklabels(hour_labels, rotation=45)
-
-ax.set_xlim(0, 24 * 60)
-ax.set_xlabel("time of day")
-ax.set_ylabel("firing rate (Hz)")
-ax.set_title("24‑h firing rate (1‑min bins)")
-
-plt.tight_layout()
-plt.show()
-
-# %%
-## activity over time - 24h, hour bins
-x = np.arange(0, len(histogram), 60)
-histogram_hourly = [sum(histogram[i : i + 60]) for i in range(0, len(histogram), 60)]
-
-fig, ax = plt.subplots(figsize=(10, 4))
-ax.bar(x, histogram_hourly, width=60, align="edge", color="C0")
-
-# label the x‑axis in hours every 60 minutes
-hour_ticks = np.arange(0, 24 * 60 + 1, 60)
-hour_labels = [f"{h:02d}:00" for h in range(25)]
-ax.set_xticks(hour_ticks)
-ax.set_xticklabels(hour_labels, rotation=45)
-
-ax.set_xlim(0, 24 * 60)
-ax.set_xlabel("time of day")
-ax.set_ylabel("pulses per minute")
-ax.set_title("24‑h histogram (1‑min bins)")
-
-plt.tight_layout()
-plt.show()
-
-# %%
-## activity over time, 12 months, daily bins
-# TODO: ?
-
-# %%
-## activity over time, 12 months, monthly bins
-
-# aggregate timestamps into 12 consecutive monthly bins (starting at earliest timestamp)
-monthly_counts, month_starts = make_monthly_histogram(timestamps, n_months=12)
-
-# plot monthly histogram
-if len(monthly_counts) > 0:
-    x = np.arange(len(monthly_counts))
-    fig, ax = plt.subplots(figsize=(10, 4))
-    ax.bar(x, monthly_counts, color="C0", align="center")
-
-    ax.set_xticks(x)
-    ax.set_xticklabels([dt.strftime("%Y-%m") for dt in month_starts], rotation=45)
-
-    ax.set_xlabel("month")
-    ax.set_ylabel("pulses")
-    ax.set_title("12‑month histogram (monthly bins)")
-
-    plt.tight_layout()
-    plt.show()
-
-# %%
-## activity over time, years
-# TODO
+if __name__ == "__main__":
+    main()
 
 # %%
