@@ -25,7 +25,6 @@ The json file created in this script is loaded and used in the next step of this
 
 # TODO: write documentation and comments for this script
 # TODO: Maybe store fs, rec length and start time in npz file/dictionary
-# TODO: improve plots
 
 # %%
 from rich.console import Console
@@ -33,7 +32,7 @@ from pathlib import Path
 import numpy as np
 import nixio
 from datetime import datetime, timedelta, date
-
+from IPython import embed
 
 # Initialize console for logging
 con = Console()
@@ -139,10 +138,24 @@ def make_histogram(pulse_centers, sampling_rates, start_times):
 
     hist = {k: np.zeros(v, dtype=int) for k, v in hist_sizes.items()}
 
+    # create dict to hold recording time per bin for normalization
+    rec_time_hist = {k: np.zeros_like(v) for k, v in hist.items()}
+
     con.log("Calculating histogram of pulses per minute.")
 
     # iterate through each of the lists in pulse_centers (one per hdf5 file)
     for i, rec in enumerate(pulse_centers):
+        # initiate new arrays for each for each h5 file/pulse list
+        # to store pulse counts so they can also be used to increment the recording counter
+        prelim_min = np.zeros(24 * 60, dtype=int)
+        prelim_hour = np.zeros(24, dtype=int)
+        prelim_day = np.zeros(366, dtype=int)
+        prelim_month = np.zeros(12, dtype=int)
+        prelim_year = np.zeros((date.today().year - 2023) + 1, dtype=int)
+
+        # --- dict option ---
+        preliminary_hist = {k: np.zeros_like(v) for k, v in hist.items()}
+
         # for each pulse list, iterate through the pulse indices
         for idx in rec:
             # get the time of the pulse in seconds
@@ -151,37 +164,49 @@ def make_histogram(pulse_centers, sampling_rates, start_times):
             # get absolute time of each pulse by adding start time of recording session
             pulse_time_abs = start_times[i] + timedelta(seconds=pulse_time_sec)
 
-            ## extract time components of pulses for histogramming
+            # extract time components of pulses for histogramming
             minute = pulse_time_abs.hour * 60 + pulse_time_abs.minute
             hour = pulse_time_abs.hour
             day = pulse_time_abs.timetuple().tm_yday - 1  # day of year (0‑365)
             month = pulse_time_abs.month - 1  # month of year (0‑11)
             year = pulse_time_abs.year - 2023  # year since start of recordings
 
-            # if pulse_time_abs.year == 2019:
-            #     Warning(f"Pulse time {pulse_time_abs} is in 2019, file: {i}.")
-            #     continue
+            # append counts for each time bin of the current pulse to the array of the current hdf5 file
+            prelim_min[minute] += 1
+            prelim_hour[hour] += 1
+            prelim_day[day] += 1
+            prelim_month[month] += 1
+            prelim_year[year] += 1
 
-            ## append dict of histograms with counts for each time bin
-            hist["minute"][minute] += 1
-            hist["hour"][hour] += 1
-            hist["day"][day] += 1
-            hist["month"][month] += 1
-            try:
-                hist["year"][year] += 1
-            except IndexError:
-                con.log(f"Year {year} is out of bounds for histogram.")
-
-            # convert pulse to Unix timestamp and append to list for later storage in hdf5 file
+            ## convert pulse to Unix timestamp and append to list for later storage in hdf5 file
             pulse_time_abs_unix = pulse_time_abs.timestamp()  # float64
             timestamp_list.append(pulse_time_abs_unix)
 
-        # count how many recs contributed to each bin of the histogram for later normalization
-        # TODO!!
+        ## append count arrays for i to dict of histograms
+        hist["minute"] += prelim_min
+        hist["hour"] += prelim_hour
+        hist["day"] += prelim_day
+        hist["month"] += prelim_month
+        hist["year"] += prelim_year
+
+        ## increment indices to which i contributed to dict of recording time
+        rec_time_hist["minute"][prelim_min > 0] += 1
+        rec_time_hist["hour"][prelim_hour > 0] += 1
+        rec_time_hist["day"][prelim_day > 0] += 1
+        rec_time_hist["month"][prelim_month > 0] += 1
+        rec_time_hist["year"][prelim_year > 0] += 1
 
     con.log("Finished calculating histogram.")
-
+    embed()
     return hist, timestamp_list
+
+
+# def get_rec_time()
+
+
+#################################
+############# SAVE #############
+#################################
 
 
 # create a hdf5 file with nixio to later save the timestamp of each pulse in it
