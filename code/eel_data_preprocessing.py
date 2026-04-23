@@ -38,7 +38,11 @@ from IPython import embed
 con = Console()
 
 
-### Functions ###
+#################################
+############# LOAD ##############
+#################################
+
+
 def get_path_list(datapath):
     """
     Make a list fo all the paths of hdf5 files from the given file, directory or supdirectory.
@@ -77,52 +81,69 @@ def get_path_list(datapath):
 
 
 def load_eods(file_paths):
-    # Print status
     con.log("Loading hdf5 files.")
 
+    ## initialize empty lists to hold extracted data
     pulse_center_list = []
     fs_list = []
-    dt_list = []
+    dt_start_list = []
+    dt_end_list = []
 
+    # iterate through file paths, load hdf5 files
     for fp in file_paths:
+        ## load hdf5 file with nixio
         file = nixio.File.open(str(fp), nixio.FileMode.ReadWrite)
-        block = file.blocks["pulses"]
-        # data_array_names = [da.name for da in block.data_arrays]
 
+        ## access data
+        # pulses block contains the detected pulses and their metadata
+        block = file.blocks["pulses"]
+        # get the names of the data arrays in the block
         data_array_names = [da.name for da in block.data_arrays]
+
+        # check if centers data array exists, if no pulses were detected, its not created and we can skip the file
         if "centers" not in data_array_names:
             con.log(f"File {fp} does not contain 'centers' data array. Skipping.")
             continue
 
+        ## extract relevant data from h5 file
+        # center index of each detected pulse in the original data
         pulses_center_idx = block.data_arrays["centers"]
+        # predicted labels for each detected pulse, 1 = pulse, 0 = no pulse
         pred_labels = block.data_arrays["predicted_labels"]
 
-        con.log(
-            f"Found total of {np.sum(pred_labels[:] == 1)} predicted pulses in file {fp}"
-        )
-
-        pulse_center_list.append(pulses_center_idx[pred_labels[:] == 1])
-
-        # extract fs in Hz
+        ## access metadata
         section = file.sections["pulses_metadata"]
 
+        ## extract relevant metadata
+        # sampling rate in Hz
         fs = section["metadata"]["samplerate"]
+        # start time of recording session as string
         starttime_str = section["metadata"]["metadata"]["INFO"]["DateTimeOriginal"]
+        # recording length in seconds
+        duration = section["metadata"]["duration"]
 
-        # add sampling rate of each wav to list
-        fs_list.append(fs)
-
-        # convert to datetime object
+        # convert start time string to datetime object
         dt_start = datetime.strptime(starttime_str, "%Y-%m-%dT%H:%M:%S")
 
-        # add start time datetime object to list
-        dt_list.append(dt_start)
+        # add recording length to start time to get end time of recording session
+        dt_end = dt_start + timedelta(seconds=duration)
 
-    return pulse_center_list, fs_list, dt_list
+        ## append lists
+        pulse_center_list.append(pulses_center_idx[pred_labels[:] == 1])
+        fs_list.append(fs)
+        dt_start_list.append(dt_start)
+        dt_end_list.append(dt_end)
+
+    return pulse_center_list, fs_list, dt_start_list, dt_end_list
+
+
+###########################################
+############# DATA PROCESSING #############
+###########################################
 
 
 # calculate number of pulses per time bin
-def make_histogram(pulse_centers, sampling_rates, start_times):
+def make_histogram(pulse_centers, sampling_rates, start_times, end_times):
     # create list to store unix timestamps of each pulse for later storage in hdf5 file
     timestamp_list = []
 
@@ -145,16 +166,9 @@ def make_histogram(pulse_centers, sampling_rates, start_times):
 
     # iterate through each of the lists in pulse_centers (one per hdf5 file)
     for i, rec in enumerate(pulse_centers):
-        # initiate new arrays for each for each h5 file/pulse list
+        # initiate new preliminary dict for each h5 file/pulse list/i
         # to store pulse counts so they can also be used to increment the recording counter
-        prelim_min = np.zeros(24 * 60, dtype=int)
-        prelim_hour = np.zeros(24, dtype=int)
-        prelim_day = np.zeros(366, dtype=int)
-        prelim_month = np.zeros(12, dtype=int)
-        prelim_year = np.zeros((date.today().year - 2023) + 1, dtype=int)
-
-        # --- dict option ---
-        preliminary_hist = {k: np.zeros_like(v) for k, v in hist.items()}
+        hist_i = {k: np.zeros_like(v) for k, v in hist.items()}
 
         # for each pulse list, iterate through the pulse indices
         for idx in rec:
@@ -172,46 +186,41 @@ def make_histogram(pulse_centers, sampling_rates, start_times):
             year = pulse_time_abs.year - 2023  # year since start of recordings
 
             # append counts for each time bin of the current pulse to the array of the current hdf5 file
-            prelim_min[minute] += 1
-            prelim_hour[hour] += 1
-            prelim_day[day] += 1
-            prelim_month[month] += 1
-            prelim_year[year] += 1
+            hist_i["minute"][minute] += 1
+            hist_i["hour"][hour] += 1
+            hist_i["day"][day] += 1
+            hist_i["month"][month] += 1
+            hist_i["year"][year] += 1
 
             ## convert pulse to Unix timestamp and append to list for later storage in hdf5 file
             pulse_time_abs_unix = pulse_time_abs.timestamp()  # float64
             timestamp_list.append(pulse_time_abs_unix)
 
-        ## append count arrays for i to dict of histograms
-        hist["minute"] += prelim_min
-        hist["hour"] += prelim_hour
-        hist["day"] += prelim_day
-        hist["month"] += prelim_month
-        hist["year"] += prelim_year
-
-        ## increment indices to which i contributed to dict of recording time
-        rec_time_hist["minute"][prelim_min > 0] += 1
-        rec_time_hist["hour"][prelim_hour > 0] += 1
-        rec_time_hist["day"][prelim_day > 0] += 1
-        rec_time_hist["month"][prelim_month > 0] += 1
-        rec_time_hist["year"][prelim_year > 0] += 1
+        ## append global counters
+        for item in hist:
+            hist[item] += hist_i[item]
+            rec_time_hist[item][hist_i[item] > 0] += 1
 
     con.log("Finished calculating histogram.")
     embed()
-    return hist, timestamp_list
-
-
-# def get_rec_time()
+    return hist, rec_time_hist, timestamp_list
 
 
 #################################
-############# SAVE #############
+############# SAVE ##############
 #################################
 
 
 # create a hdf5 file with nixio to later save the timestamp of each pulse in it
 def open_nix_for_output(output_path: Path):
-    nix_file = nixio.File.open(str(output_path), nixio.FileMode.Overwrite)
+    nix_file = nixio.File.open(
+        str(
+            output_path.with_name(
+                output_path.stem + "berlin_dummypulses_timestamps.nix"
+            )
+        ),
+        nixio.FileMode.Overwrite,
+    )
     nix_timestamps = nix_file.create_block(name="Timestamp", type_="datetime")
 
     return nix_file, nix_timestamps
@@ -237,56 +246,73 @@ def append_cluster_block(
     return True
 
 
-def save_hist(histogram_dict, output_path: Path):
-    con.log(f"Saving histogram dict to {output_path}.")
+def save_histograms(count_hist, rec_hist, output_path: Path):
+    con.log(f"Saving dictionaries to {output_path}.")
     # ensure values are numpy arrays
-    clean = {k: np.asarray(v) for k, v in histogram_dict.items()}
-    # save (hist is your dict of numpy arrays)
-    np.savez_compressed(output_path, **clean)
+    clean_count_hist = {k: np.asarray(v) for k, v in count_hist.items()}
+    clean_rec_hist = {k: np.asarray(v) for k, v in rec_hist.items()}
+
+    # save to seperate npz files
+    np.savez_compressed(
+        output_path.with_name(
+            output_path.stem + "berlin_dummypulses_count_hist_dict.npz"
+        ),
+        **clean_count_hist,
+    )
+    np.savez_compressed(
+        output_path.with_name(
+            output_path.stem + "berlin_dummypulses_rec_hist_dict.npz"
+        ),
+        **clean_rec_hist,
+    )
 
 
-# TODO: improve name of npz file
 # TODO: should I save the histogram dict in nix file as well?
 
 
-# %% Main
+#################################
+############# MAIN ##############
+#################################
+
+
+# %%
 def main():
-    # Path to data directory containing hdf5 files with detected pulses
+    # path to directory containing hdf5 files with detected pulses
     data_path = Path(
         "/home/eisele/wrk/mscthesis/data/newdata/eels-mfn2021_dummy_pulses_redetected/berlin_tank_site"
     )
 
     # path to output directory
-    # save_path = Path("/home/eisele/wrk/mscthesis/data/newdata")
-    # TODO: implement save path nicely in both save functions
+    save_path = Path("/home/eisele/wrk/mscthesis/data/newdata")
 
     # make list containing all paths to hdf5 files in the given datapath
     path_list = get_path_list(data_path)
 
     # load hdf5 files from path list and extract pulse centers of pulses that were predicted as EODs
-    pulse_centers, sampling_rates, start_times = load_eods(path_list)
+    pulse_centers, sampling_rates, start_times, end_times = load_eods(path_list)
 
     # calculate histogram of number of pulses per minute for 24‑h period (0…1439 minutes)
-    histogram_dict, timestamps = make_histogram(
-        pulse_centers, sampling_rates, start_times
+    count_histogram_dict, rec_histogram_dict, timestamps = make_histogram(
+        pulse_centers, sampling_rates, start_times, end_times
     )
 
-    # create a hdf5 file with nixio to later save the timestamp of each pulse in it
-    nix_file, nix_block = open_nix_for_output(
-        Path("/home/eisele/wrk/mscthesis/data/newdata/berlin_pulse_timestamps_2026.nix")
-    )
+    # # create a hdf5 file with nixio to later save the timestamp of each pulse in it
+    # nix_file, nix_block = open_nix_for_output(Path(save_path))
 
-    # save the unix timestamp of each pulse in the earlier created nix_timestamp block of nix_file
-    created = append_cluster_block(nix_block, timestamps, created=False)  # noqa: F841
+    # # save the unix timestamp of each pulse in the earlier created nix_timestamp block of nix_file
+    # created = append_cluster_block(nix_block, timestamps, created=False)  # noqa: F841
 
-    # save histogram dict to .npz file for later use in plotting
-    save_hist(
-        histogram_dict,
-        Path("/home/eisele/wrk/mscthesis/data/newdata/berlin_histogram_dict_2026.npz"),
-    )
+    # # save histogram dictionaries to .npz file for later use in plotting
+    # save_histograms(
+    #     count_histogram_dict,
+    #     rec_histogram_dict,
+    #     Path(save_path),
+    # )
 
 
 if __name__ == "__main__":
     main()
 
+
+# TODO: implement progress bar!
 # %%

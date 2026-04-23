@@ -7,16 +7,22 @@ from pathlib import Path
 ############# LOAD #############
 #################################
 
-# load histogram dict from .npz file
-data_path = Path(
-    "/home/eisele/wrk/mscthesis/data/newdata/berlin_histogram_dict_2026.npz"
+# load histogram dictionaries from .npz files
+data_path = Path("/home/eisele/wrk/mscthesis/data/newdata")
+count_data = np.load(
+    data_path.with_name(data_path.stem + "berlin_dummypulses_count_hist_dict.npz")
 )
-data = np.load(data_path)
-histogram_dict = {k: data[k] for k in data.files}
+histogram_dict = {k: count_data[k] for k in count_data.files}
+
+rec_count_data = np.load(
+    data_path.with_name(data_path.stem + "berlin_dummypulses_rec_hist_dict.npz")
+)
+rec_hist_dict = {k: rec_count_data[k] for k in rec_count_data.files}
 
 #################################
 ############# PLOTS #############
 #################################
+# TODO: cleanup ploting code, make functions for repeated code (e.g. x ticks and labels), make rcParams
 
 ## activity over time - 24h, minute bins
 # x coordinates run 0…1439 (= minutes since midnight)
@@ -24,6 +30,13 @@ x = np.arange(len(histogram_dict["minute"]))
 
 fig, ax = plt.subplots(figsize=(10, 4))
 ax.bar(x, histogram_dict["minute"], width=1.0, align="edge", color="C0")
+ax.bar(
+    x,
+    (histogram_dict["minute"] / rec_hist_dict["minute"]),
+    width=1.0,
+    align="edge",
+    alpha=0.4,
+)
 
 # label the x‑axis in hours every 60 minutes
 hour_ticks = np.arange(0, len(histogram_dict["minute"]), 60)
