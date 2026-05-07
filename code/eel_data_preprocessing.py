@@ -112,6 +112,17 @@ def load_eods(file_paths):
         # predicted labels for each detected pulse, 1 = pulse, 0 = no pulse
         pred_labels = block.data_arrays["predicted_labels"]
 
+        # check if is_double_peak array exists
+        is_double_peak_available = "is_double_peak" in data_array_names
+        if is_double_peak_available:
+            is_double_peak = block.data_arrays["is_double_peak"]
+            # Filter for pulses that are both predicted as positive AND marked as double peaks
+            mask = (pred_labels[:] == 1) & (is_double_peak[:] == 1)
+            selected_centers = pulses_center_idx[mask]
+        else:
+            # Fall back to original behavior: only filter by predicted labels
+            selected_centers = pulses_center_idx[pred_labels[:] == 1]
+
         ## access metadata
         section = file.sections["pulses_metadata"]
 
@@ -130,7 +141,7 @@ def load_eods(file_paths):
         dt_end = dt_start + timedelta(seconds=duration)
 
         ## append lists
-        pulse_center_list.append(pulses_center_idx[pred_labels[:] == 1])
+        pulse_center_list.append(selected_centers)
         fs_list.append(fs)
         dt_start_list.append(dt_start)
         dt_end_list.append(dt_end)
@@ -501,4 +512,5 @@ if __name__ == "__main__":
 
 
 # TODO: implement progress bar!
+# TODO: implement switch for analyzing all pulses vs double/wide pulses only
 # %%

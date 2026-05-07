@@ -30,6 +30,9 @@ rec_time_hist_dict = {k: rec_time_data[k] for k in rec_time_data.files}
 #################################
 # TODO: cleanup ploting code, make functions for repeated code (e.g. x ticks and labels), make rcParams
 
+### Save Path
+save_path = Path("/home/eisele/wrk/mscthesis/figures/all_pulses/")
+
 # %%
 ## 24 hours - minute bins
 firing_rate_minute = histogram_dict["minute"] / 60.0  # Hz
@@ -65,7 +68,9 @@ ax[1, 1].set_ylabel("normalized firing rate [Hz]")
 fig.suptitle("24-hour histogram (1-min bins)")
 
 plt.tight_layout()
+plt.savefig(save_path / "24h_minute_all.png", dpi=300)
 plt.show()
+
 
 # %%
 # ## 24 hours - minute bins - count & fr in same plot
@@ -98,6 +103,7 @@ plt.show()
 # fig.suptitle("24-hour histogram (1-min bins)")
 
 # plt.tight_layout()
+# plt.savefig(save_path / "24h_minute_count+fr_all.png", dpi=300)
 # plt.show()
 
 
@@ -133,6 +139,7 @@ ax[1, 1].set_ylabel("normalized firing rate [Hz]")
 fig.suptitle("24-hour histogram (hourly bins)")
 
 plt.tight_layout()
+plt.savefig(save_path / "24h_hour_all.png", dpi=300)
 plt.show()
 
 # %%
@@ -168,6 +175,7 @@ ax[1, 1].set_ylabel("normalized firing rate [Hz]")
 fig.suptitle("monthly histogram (daily bins)")
 
 plt.tight_layout()
+plt.savefig(save_path / "12month_day_all.png", dpi=300)
 plt.show()
 
 
@@ -202,6 +210,7 @@ ax[1, 1].set_ylabel("normalized firing rate [Hz]")
 fig.suptitle("monthly histogram (monthly bins)")
 
 plt.tight_layout()
+plt.savefig(save_path / "12month_month_all.png", dpi=300)
 plt.show()
 
 # %%
@@ -234,6 +243,7 @@ ax[1, 1].set_ylabel("normalized firing rate [Hz]")
 fig.suptitle("yearly histogram (yearly bins)")
 
 plt.tight_layout()
+plt.savefig(save_path / "years_year_all.png", dpi=300)
 plt.show()
 
 
@@ -282,5 +292,6 @@ for timescale in data.files:
     plt.ylabel("firing rate (Hz)")
     plt.legend(loc="upper right", fontsize="small")
     plt.tight_layout()
+    plt.savefig(save_path / f"{timescale}_all.png", dpi=300)
     plt.show()
 # %%

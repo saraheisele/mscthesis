@@ -26,8 +26,14 @@ con = Console()
 #################################
 
 
+# old version from claude
 def analyze_pulse_for_double_peak(
-    pulse_waveform, prominence_threshold=0.3, distance_threshold=20
+    pulse_waveform,
+    sample_rate,
+    amplitude_threshold=0.7,
+    max_peak_distance=0.002,
+    min_valley_ratio=0.5,
+    local_max_window=0.004,
 ):
     """
     Analyze a single pulse waveform to determine if it's a double peak.
@@ -36,10 +42,18 @@ def analyze_pulse_for_double_peak(
     -----------
     pulse_waveform : np.ndarray
         2D array of shape (num_samples, num_channels)
-    prominence_threshold : float
-        Prominence threshold for finding peaks (as fraction of max amplitude)
-    distance_threshold : int
-        Minimum distance (in samples) between two peaks for them to be considered separate
+    sample_rate : float
+        Sample rate in Hz
+    amplitude_threshold : float
+        Minimum amplitude for a pulse to be considered (excludes very low amplitude pulses)
+    max_peak_distance : float
+        Maximum time distance (in seconds) between two peaks to be considered part of the same double peak
+    min_valley_ratio : float
+        Minimum ratio of valley amplitude to peak amplitude (0 to 1).
+        Valley amplitude must be >= min_valley_ratio * peak_max to be considered a valid double peak.
+    local_max_window : float
+        Time window (in seconds) for checking if a peak is a local maximum. At least one peak must be
+        the highest within this window.
 
     Returns:
     --------
@@ -50,29 +64,199 @@ def analyze_pulse_for_double_peak(
     # This gives us a 1D representation of the pulse strength over time
     pulse_strength = np.mean(np.abs(pulse_waveform), axis=1)
 
-    # Normalize pulse strength to [0, 1] range
+    # Get non-absolute mean for sign checking
+    pulse_waveform_mean = np.mean(pulse_waveform, axis=1)
+
     max_strength = np.max(pulse_strength)
-    if max_strength == 0:
+
+    # Exclude pulses with amplitude below threshold
+    if max_strength < amplitude_threshold:
         return False
 
-    pulse_strength_normalized = pulse_strength / max_strength
+    # Find peaks with prominence threshold
+    # Use 10% of max strength as minimum prominence
+    prominence = 0.1 * max_strength
+    peaks, peak_properties = find_peaks(pulse_strength, prominence=prominence)
 
-    # Calculate prominence threshold as a fraction of the normalized max
-    prominence = prominence_threshold * max_strength
+    # A double peak must have EXACTLY 2 peaks
+    if len(peaks) != 2:
+        return False
 
-    # Find peaks in the pulse waveform
-    # We look for local maxima with sufficient prominence and spacing
-    peaks, peak_properties = find_peaks(
-        pulse_strength, prominence=prominence, distance=distance_threshold
+    # Convert time thresholds to samples
+    distance_threshold_samples = max_peak_distance * sample_rate
+    window_samples = int(local_max_window * sample_rate)
+
+    peak1_idx = peaks[0]
+    peak2_idx = peaks[1]
+
+    # Check if peaks are within the maximum time distance
+    peak_distance_samples = peak2_idx - peak1_idx
+    if peak_distance_samples > distance_threshold_samples:
+        return False
+
+    # Check that both peaks have the same sign (both above 0 or both below 0)
+    peak1_value = pulse_waveform_mean[peak1_idx]
+    peak2_value = pulse_waveform_mean[peak2_idx]
+
+    # If peaks have different signs, reject
+    if (peak1_value > 0 and peak2_value < 0) or (peak1_value < 0 and peak2_value > 0):
+        return False
+
+    # Check if at least one peak is a local maximum within the time window
+    def is_local_max_in_window(signal, idx, window_size):
+        start = max(0, idx - window_size)
+        end = min(len(signal), idx + window_size + 1)
+        return signal[idx] == np.max(signal[start:end])
+
+    peak1_is_local_max = is_local_max_in_window(
+        pulse_strength, peak1_idx, window_samples
+    )
+    peak2_is_local_max = is_local_max_in_window(
+        pulse_strength, peak2_idx, window_samples
     )
 
-    # A double peak has 2 or more prominent peaks
-    # A single peak has only 1 prominent peak
-    # Zero or 1 peak -> single pulse (0)
-    # 2+ peaks -> double pulse (1)
-    is_double_peak = len(peaks) >= 2
+    if not (peak1_is_local_max or peak2_is_local_max):
+        return False
 
-    return is_double_peak
+    # Find the valley (minimum amplitude) between the two peaks
+    valley_amplitude = np.min(pulse_strength[peak1_idx : peak2_idx + 1])
+    peak_max = max(pulse_strength[peak1_idx], pulse_strength[peak2_idx])
+
+    # Check if valley is not too deep (amplitude doesn't drop below min_valley_ratio threshold)
+    if valley_amplitude >= min_valley_ratio * peak_max:
+        return True
+
+    return False
+
+
+def get_representative_waveform(pulse_waveform):
+    """
+    Select the strongest channel of the pulse waveform and
+    enforce positive dominant polarity.
+
+    Parameters:
+    -----------
+    pulse_waveform : np.ndarray
+        Shape: (num_samples, num_channels)
+
+    Returns:
+    --------
+    trace : np.ndarray
+        1D waveform from strongest channel
+    best_channel : int
+        Index of selected channel
+    """
+
+    # Find strongest channel by absolute peak amplitude
+    channel_strengths = np.max(np.abs(pulse_waveform), axis=0)
+    best_channel = np.argmax(channel_strengths)
+
+    # Extract waveform of strongest channel
+    trace = pulse_waveform[:, best_channel].copy()
+
+    # Flip polarity if dominant peak is negative
+    if abs(np.min(trace)) > np.max(trace):
+        trace *= -1
+
+    return trace, best_channel
+
+
+# new version for unified double pulse detection (for detection and visualization)
+def detect_double_pulse(
+    pulse_waveform,
+    sample_rate,
+    amplitude_threshold=0.7,
+    min_peak_distance=0.0005,  # these parameters are new, run again with these!
+    max_peak_distance=0.002,  # these parameters are new, run again with these!
+    min_valley_ratio=0.4,
+    max_valley_ratio=0.95,
+    prominence_ratio=0.1,
+    max_amplitude_diff=0.6,  # these parameters are new, run again with these!
+):
+    """
+    Unified double pulse detector.
+
+    Returns:
+    --------
+    is_double : bool
+    info : dict (for visualization/debugging)
+    """
+    ## this approach just averages all 16 channels/waveforms of each pulse, prone to artifacts
+    # trace = np.mean(pulse_waveform, axis=1)
+
+    # # --- 1. Determine dominant polarity ---
+    # if np.max(trace) >= abs(np.min(trace)):
+    #     signal = trace
+    #     polarity = 1
+    # else:
+    #     signal = -trace
+    #     polarity = -1
+
+    # use helper function to run double pulse detection on strongest waveform of each pulse only
+    signal, best_channel = get_representative_waveform(pulse_waveform)
+    polarity = 1
+
+    max_amp = np.max(signal)
+
+    if max_amp < amplitude_threshold:
+        return False, {"reason": "below_threshold"}
+
+    # --- 2. Find peaks on signed signal ---
+    prominence = max(prominence_ratio * max_amp, 1e-12)
+    peaks, _ = find_peaks(signal, prominence=prominence)
+
+    # --- 3. Keep only strong peaks ---
+    peaks = np.array([p for p in peaks if signal[p] >= amplitude_threshold])
+
+    if len(peaks) != 2:
+        return False, {"reason": f"{len(peaks)}_peaks"}
+
+    peaks = np.sort(peaks)
+    p1, p2 = peaks
+
+    a1, a2 = signal[p1], signal[p2]
+
+    # --- 4. One peak must be GLOBAL maximum ---
+    if not (np.isclose(a1, max_amp) or np.isclose(a2, max_amp)):
+        return False, {"reason": "no_global_max_peak"}
+
+    # --- 5. Distance constraint ---
+    dt = (p2 - p1) / sample_rate
+    if dt > max_peak_distance:
+        return False, {"reason": "too_far", "dt": dt}
+    if dt < min_peak_distance:
+        return False, {"reason": "too_close", "dt": dt}
+
+    # --- 6. Valley constraint ---
+    # baseline correction (estimate is 10th percentile) to handle cases with negative baseline
+    baseline = np.percentile(signal, 10)
+    signal_corrected = signal - baseline
+    a1_corrected = signal_corrected[p1]
+    a2_corrected = signal_corrected[p2]
+
+    # determine which is the highest peak
+    peak_ref = max(a1_corrected, a2_corrected)
+
+    valley = np.min(signal_corrected[p1 : p2 + 1])
+    if valley < min_valley_ratio * peak_ref:
+        return False, {"reason": "valley_too_deep"}
+    if valley > max_valley_ratio * peak_ref:
+        return False, {"reason": "valley_too_shallow"}
+
+    # --- Peak amplitude similarity constraint ---
+    a_high = max(a1_corrected, a2_corrected)
+    a_low = min(a1_corrected, a2_corrected)
+
+    if a_low < max_amplitude_diff * a_high:
+        return False, {"reason": "peak_amplitude_mismatch"}
+
+    return True, {
+        "peaks": peaks,
+        "amplitudes": [a1, a2],
+        "valley": valley,
+        "polarity": polarity,
+        "dt": dt,
+    }
 
 
 def get_path_list(datapath):
@@ -144,6 +328,9 @@ def detect_double_peaks_in_file(file_path):
         raw_pulses = block.data_arrays["raw_pulses"]
         predicted_labels = block.data_arrays["predicted_labels"]
 
+        # Get sample rate from metadata
+        fs = file.sections["pulses_metadata"]["metadata"]["samplerate"]
+
         num_pulses = len(raw_pulses)
         con.log(f"  Found {num_pulses} pulses.")
 
@@ -152,14 +339,23 @@ def detect_double_peaks_in_file(file_path):
         double_peak_count = 0
         single_peak_count = 0
 
-        for i, pulse in enumerate(raw_pulses):
-            is_double = analyze_pulse_for_double_peak(pulse[:])
-            is_double_peak_list.append(1 if is_double else 0)
+        # Get predicted labels to filter only actual detected pulses
+        predicted = predicted_labels[:]
 
-            if is_double:
-                double_peak_count += 1
+        for i, pulse in enumerate(raw_pulses):
+            # Only analyze pulses that were predicted as positive (label == 1)
+            if predicted[i] == 1:
+                # is_double = analyze_pulse_for_double_peak(pulse[:], fs)
+                is_double, _ = detect_double_pulse(pulse[:], fs)
+                if is_double:
+                    is_double_peak_list.append(1)
+                    double_peak_count += 1
+                else:
+                    is_double_peak_list.append(0)
+                    single_peak_count += 1
             else:
-                single_peak_count += 1
+                # Skip predicted negatives - don't add them to the analysis
+                pass
 
             if (i + 1) % max(1, num_pulses // 10) == 0:
                 con.log(f"  Processed {i + 1}/{num_pulses} pulses...")
@@ -325,30 +521,107 @@ def plot_double_peaks_from_file(file_path, max_plots=20, figsize=(16, 10)):
             pulse_data = raw_pulses[pulse_idx]  # Shape: (num_samples, 16 channels)
 
             # Use mean across channels for visualization
-            pulse_mean = np.mean(pulse_data, axis=1)
+            # pulse_mean = np.mean(pulse_data, axis=1)
+            pulse_mean, best_channel = get_representative_waveform(pulse_data)
 
             # Plot waveform
             time_axis = np.arange(len(pulse_mean)) / fs
             ax.plot(time_axis, pulse_mean, linewidth=1.5, color="steelblue", alpha=0.8)
             ax.fill_between(time_axis, pulse_mean, alpha=0.3, color="steelblue")
 
-            # Add peaks detection visualization
-            pulse_strength = np.mean(np.abs(pulse_data), axis=1)
-            prominence = 0.3 * np.max(pulse_strength)
-            peaks, _ = find_peaks(pulse_strength, prominence=prominence, distance=20)
+            # # Add peaks detection visualization using same logic as detection function
+            # pulse_strength = np.mean(np.abs(pulse_data), axis=1)
+            # pulse_waveform_mean = np.mean(pulse_data, axis=1)
+            # max_strength = np.max(pulse_strength)
+            # prominence = 0.1 * max_strength
+            # peaks, _ = find_peaks(pulse_strength, prominence=prominence)
 
-            # Mark peaks
-            peak_times = peaks / fs
-            peak_values = pulse_mean[peaks]
-            ax.scatter(
-                peak_times,
-                peak_values,
-                color="red",
-                s=100,
-                marker="*",
-                zorder=5,
-                label=f"{len(peaks)} peaks",
-            )
+            # # Apply same filtering criteria as detection function
+            # filtered_peaks = []
+            # if len(peaks) == 2:
+            #     # Check same sign
+            #     peak1_value = pulse_waveform_mean[peaks[0]]
+            #     peak2_value = pulse_waveform_mean[peaks[1]]
+
+            #     # Check if peaks have the same sign (both above 0 or both below 0)
+            #     same_sign = not (
+            #         (peak1_value > 0 and peak2_value < 0)
+            #         or (peak1_value < 0 and peak2_value > 0)
+            #     )
+
+            #     if same_sign:
+            #         # Check if at least one is a local maximum within 0.004s window
+            #         window_samples = int(0.004 * fs)
+
+            #         def is_local_max_in_window(signal, idx, window_size):
+            #             start = max(0, idx - window_size)
+            #             end = min(len(signal), idx + window_size + 1)
+            #             return signal[idx] == np.max(signal[start:end])
+
+            #         peak1_local_max = is_local_max_in_window(
+            #             pulse_strength, peaks[0], window_samples
+            #         )
+            #         peak2_local_max = is_local_max_in_window(
+            #             pulse_strength, peaks[1], window_samples
+            #         )
+
+            #         if peak1_local_max or peak2_local_max:
+            #             filtered_peaks = list(peaks)
+
+            # # Mark only the valid peaks
+            # if filtered_peaks:
+            #     peak_times = np.array(filtered_peaks) / fs
+            #     peak_values = pulse_mean[filtered_peaks]
+            #     ax.scatter(
+            #         peak_times,
+            #         peak_values,
+            #         color="red",
+            #         s=100,
+            #         marker="*",
+            #         zorder=5,
+            #         label=f"{len(filtered_peaks)} peaks",
+            #     )
+            # else:
+            #     ax.text(
+            #         0.5,
+            #         0.5,
+            #         "No valid double peak",
+            #         ha="center",
+            #         va="center",
+            #         transform=ax.transAxes,
+            #         fontsize=9,
+            #         color="gray",
+            #     )
+
+            # use same logic as detection function
+            is_double, info = detect_double_pulse(pulse_data, fs)
+
+            if is_double:
+                peaks = info["peaks"]
+                peak_times = np.array(peaks) / fs
+                peak_vals = pulse_mean[peaks]
+
+                ax.scatter(
+                    peak_times,
+                    peak_vals,
+                    color="red",
+                    s=100,
+                    marker="*",
+                    zorder=5,
+                    label="2 peaks",
+                )
+
+            else:
+                ax.text(
+                    0.5,
+                    0.5,
+                    info.get("reason", "not double"),
+                    transform=ax.transAxes,
+                    ha="center",
+                    va="center",
+                    fontsize=8,
+                    color="gray",
+                )
 
             # Formatting
             ax.set_title(
@@ -434,7 +707,8 @@ def plot_double_peaks_overlay(file_path, figsize=(14, 6)):
 
         for i, pulse_idx in enumerate(double_peak_indices):
             pulse_data = raw_pulses[pulse_idx]
-            pulse_mean = np.mean(pulse_data, axis=1)
+            # pulse_mean = np.mean(pulse_data, axis=1)
+            pulse_mean, best_channel = get_representative_waveform(pulse_data)
             time_axis = np.arange(len(pulse_mean)) / fs
 
             ax.plot(
@@ -682,7 +956,8 @@ def plot_all_double_peaks_combined(data_path, max_per_file=10, figsize_per_plot=
                 pulse_data = raw_pulses[pulse_idx]  # Shape: (num_samples, 16 channels)
 
                 # Use mean across channels for visualization
-                pulse_mean = np.mean(pulse_data, axis=1)
+                # pulse_mean = np.mean(pulse_data, axis=1)
+                pulse_mean, best_channel = get_representative_waveform(pulse_data)
 
                 # Plot waveform
                 time_axis = np.arange(len(pulse_mean)) / fs
@@ -691,25 +966,88 @@ def plot_all_double_peaks_combined(data_path, max_per_file=10, figsize_per_plot=
                 )
                 ax.fill_between(time_axis, pulse_mean, alpha=0.3, color="steelblue")
 
-                # Add peaks detection visualization
-                pulse_strength = np.mean(np.abs(pulse_data), axis=1)
-                prominence = 0.3 * np.max(pulse_strength)
-                peaks, _ = find_peaks(
-                    pulse_strength, prominence=prominence, distance=20
-                )
+                # # Add peaks detection visualization using same logic as detection function
+                # pulse_strength = np.mean(np.abs(pulse_data), axis=1)
+                # pulse_waveform_mean = np.mean(pulse_data, axis=1)
+                # max_strength = np.max(pulse_strength)
+                # prominence = 0.1 * max_strength
+                # peaks, _ = find_peaks(pulse_strength, prominence=prominence)
 
-                # Mark peaks
-                peak_times = peaks / fs
-                peak_values = pulse_mean[peaks]
-                ax.scatter(
-                    peak_times,
-                    peak_values,
-                    color="red",
-                    s=100,
-                    marker="*",
-                    zorder=5,
-                    label=f"{len(peaks)} peaks",
-                )
+                # # Apply same filtering criteria as detection function
+                # filtered_peaks = []
+                # if len(peaks) == 2:
+                #     # Check same sign
+                #     peak1_value = pulse_waveform_mean[peaks[0]]
+                #     peak2_value = pulse_waveform_mean[peaks[1]]
+
+                #     # Check if peaks have the same sign (both above 0 or both below 0)
+                #     same_sign = not (
+                #         (peak1_value > 0 and peak2_value < 0)
+                #         or (peak1_value < 0 and peak2_value > 0)
+                #     )
+
+                #     if same_sign:
+                #         # Check if at least one is a local maximum within 0.004s window
+                #         window_samples = int(0.004 * fs)
+
+                #         def is_local_max_in_window(signal, idx, window_size):
+                #             start = max(0, idx - window_size)
+                #             end = min(len(signal), idx + window_size + 1)
+                #             return signal[idx] == np.max(signal[start:end])
+
+                #         peak1_local_max = is_local_max_in_window(
+                #             pulse_strength, peaks[0], window_samples
+                #         )
+                #         peak2_local_max = is_local_max_in_window(
+                #             pulse_strength, peaks[1], window_samples
+                #         )
+
+                #         if peak1_local_max or peak2_local_max:
+                #             filtered_peaks = list(peaks)
+
+                # # Mark peaks
+                # if filtered_peaks:
+                #     peak_times = np.array(filtered_peaks) / fs
+                #     peak_values = pulse_mean[filtered_peaks]
+                #     ax.scatter(
+                #         peak_times,
+                #         peak_values,
+                #         color="red",
+                #         s=100,
+                #         marker="*",
+                #         zorder=5,
+                #         label=f"{len(filtered_peaks)} peaks",
+                #     )
+
+                # use same logic as detection function
+                is_double, info = detect_double_pulse(pulse_data, fs)
+
+                if is_double:
+                    peaks = info["peaks"]
+                    peak_times = np.array(peaks) / fs
+                    peak_vals = pulse_mean[peaks]
+
+                    ax.scatter(
+                        peak_times,
+                        peak_vals,
+                        color="red",
+                        s=100,
+                        marker="*",
+                        zorder=5,
+                        label="2 peaks",
+                    )
+
+                else:
+                    ax.text(
+                        0.5,
+                        0.5,
+                        info.get("reason", "not double"),
+                        transform=ax.transAxes,
+                        ha="center",
+                        va="center",
+                        fontsize=8,
+                        color="gray",
+                    )
 
                 # Formatting
                 ax.set_title(f"Pulse {pulse_idx}", fontsize=9, fontweight="bold")
