@@ -166,12 +166,12 @@ def detect_double_pulse(
     pulse_waveform,
     sample_rate,
     amplitude_threshold=0.7,
-    min_peak_distance=0.0005,  # these parameters are new, run again with these!
-    max_peak_distance=0.002,  # these parameters are new, run again with these!
+    min_peak_distance=0.0005,
+    max_peak_distance=0.002,
     min_valley_ratio=0.4,
     max_valley_ratio=0.95,
     prominence_ratio=0.1,
-    max_amplitude_diff=0.6,  # these parameters are new, run again with these!
+    max_amplitude_diff=0.6,
 ):
     """
     Unified double pulse detector.
@@ -228,8 +228,8 @@ def detect_double_pulse(
         return False, {"reason": "too_close", "dt": dt}
 
     # --- 6. Valley constraint ---
-    # baseline correction (estimate is 10th percentile) to handle cases with negative baseline
-    baseline = np.percentile(signal, 10)
+    # baseline correction: take first 5th of pulse snippet and use median as baseline
+    baseline = np.median(signal[: len(signal) // 5])
     signal_corrected = signal - baseline
     a1_corrected = signal_corrected[p1]
     a2_corrected = signal_corrected[p2]
@@ -1079,44 +1079,232 @@ def plot_all_double_peaks_combined(data_path, max_per_file=10, figsize_per_plot=
     return all_plots
 
 
+def interactive_double_peak_verification(data_path):
+    """
+    Interactive CLI-based tool to verify double peak classifications.
+
+    Displays each double peak waveform one at a time and allows the user to verify or correct
+    the classification by pressing Y (confirm double peak) or N (not a double peak).
+    Changes are saved to the h5 files only after all files have been reviewed.
+
+    Parameters:
+    -----------
+    data_path : Path or str
+        Path to directory containing h5 files
+
+    Returns:
+    --------
+    dict
+        Summary statistics of corrections made
+    """
+    data_path = Path(data_path)
+    path_list = get_path_list(data_path)
+
+    if not path_list:
+        con.log("No h5 files found.")
+        return {}
+
+    # Dictionary to track changes: {file_path: {pulse_idx: new_label}}
+    changes = {}
+    total_verified = 0
+    total_corrected = 0
+
+    con.log(f"\n{'=' * 60}")
+    con.log("INTERACTIVE DOUBLE PEAK VERIFICATION")
+    con.log(f"{'=' * 60}\n")
+    con.log("Instructions:")
+    con.log("  Press 'Y' to confirm this is a double peak (keep as 1)")
+    con.log("  Press 'N' to mark this as NOT a double peak (change to 0)")
+    con.log("  Press 'Q' to quit without saving")
+    con.log(f"\n{'=' * 60}\n")
+
+    try:
+        for file_idx, file_path in enumerate(path_list, 1):
+            con.log(f"\n[File {file_idx}/{len(path_list)}] {file_path.name}")
+
+            # Open file in read mode first to check content
+            file = nixio.File.open(str(file_path), nixio.FileMode.ReadOnly)
+
+            try:
+                block = file.blocks["pulses"]
+                data_array_names = [da.name for da in block.data_arrays]
+
+                if "is_double_peak" not in data_array_names:
+                    con.log("  ⚠ No 'is_double_peak' array found. Skipping.")
+                    continue
+
+                # Load data
+                is_double_peak = block.data_arrays["is_double_peak"][:]
+                raw_pulses = block.data_arrays["raw_pulses"]
+                fs = file.sections["pulses_metadata"]["metadata"]["samplerate"]
+
+                # Get indices of double peaks
+                double_peak_indices = np.where(is_double_peak == 1)[0]
+                num_double_peaks = len(double_peak_indices)
+
+                if num_double_peaks == 0:
+                    con.log("  No double peaks to verify in this file.")
+                    continue
+
+                con.log(f"  Found {num_double_peaks} double peaks to verify")
+
+                # Initialize changes for this file
+                if str(file_path) not in changes:
+                    changes[str(file_path)] = {}
+
+                # Verify each double peak
+                for pulse_num, pulse_idx in enumerate(double_peak_indices, 1):
+                    pulse_data = raw_pulses[pulse_idx]
+                    pulse_mean, best_channel = get_representative_waveform(pulse_data)
+
+                    # Detect peaks for visualization
+                    is_double, info = detect_double_pulse(pulse_data, fs)
+
+                    # Create figure
+                    fig, ax = plt.subplots(figsize=(10, 5))
+
+                    # Plot waveform
+                    time_axis = np.arange(len(pulse_mean)) / fs
+                    ax.plot(
+                        time_axis,
+                        pulse_mean,
+                        linewidth=2,
+                        color="steelblue",
+                        alpha=0.8,
+                        label="Waveform",
+                    )
+                    ax.fill_between(time_axis, pulse_mean, alpha=0.2, color="steelblue")
+
+                    # Mark detected peaks
+                    if is_double and "peaks" in info:
+                        peaks = info["peaks"]
+                        peak_times = np.array(peaks) / fs
+                        peak_vals = pulse_mean[peaks]
+                        ax.scatter(
+                            peak_times,
+                            peak_vals,
+                            color="red",
+                            s=80,
+                            marker="*",
+                            zorder=5,
+                            label="Detected peaks",
+                        )
+
+                    # Formatting
+                    ax.set_xlabel("Time (s)", fontsize=11)
+                    ax.set_ylabel("Amplitude (a.u.)", fontsize=11)
+                    ax.set_title(
+                        f"Pulse {pulse_idx} [{pulse_num}/{num_double_peaks}] from {file_path.name}\n"
+                        f"Channel {best_channel} (strongest) - Verify: Is this a double peak?",
+                        fontsize=12,
+                        fontweight="bold",
+                    )
+                    ax.grid(True, alpha=0.3)
+                    ax.legend(fontsize=10, loc="upper right")
+
+                    plt.tight_layout()
+                    plt.show(block=False)
+                    plt.pause(0.1)
+
+                    # Wait for user input
+                    valid_input = False
+                    while not valid_input:
+                        user_input = (
+                            input("\n>>> Verify double peak? (Y/N/Q): ").strip().upper()
+                        )
+
+                        if user_input == "Y":
+                            # Keep as double peak (1)
+                            changes[str(file_path)][pulse_idx] = 1
+                            con.log(
+                                f"    ✓ Confirmed double peak for pulse {pulse_idx}"
+                            )
+                            total_verified += 1
+                            valid_input = True
+                        elif user_input == "N":
+                            # Mark as NOT double peak (0)
+                            changes[str(file_path)][pulse_idx] = 0
+                            con.log(
+                                f"    ✗ Corrected pulse {pulse_idx} to NOT a double peak"
+                            )
+                            total_corrected += 1
+                            valid_input = True
+                        elif user_input == "Q":
+                            con.log("\n⚠ Exiting without saving...")
+                            plt.close("all")
+                            return {
+                                "status": "cancelled",
+                                "message": "Verification cancelled by user",
+                            }
+                        else:
+                            con.log("    Invalid input. Please press Y, N, or Q.")
+
+                    plt.close("all")
+
+            finally:
+                file.close()
+
+        # Save all changes
+        con.log(f"\n{'=' * 60}")
+        con.log("SAVING CHANGES...")
+        con.log(f"{'=' * 60}\n")
+
+        for file_path_str, pulse_changes in changes.items():
+            if not pulse_changes:
+                continue
+
+            file_path = Path(file_path_str)
+            con.log(f"Updating {file_path.name}...")
+
+            # Open file in read/write mode to save changes
+            file = nixio.File.open(str(file_path), nixio.FileMode.ReadWrite)
+
+            try:
+                block = file.blocks["pulses"]
+                is_double_peak_array = block.data_arrays["is_double_peak"][:]
+
+                # Apply changes
+                for pulse_idx, new_value in pulse_changes.items():
+                    is_double_peak_array[pulse_idx] = new_value
+
+                # Write back to file
+                block.data_arrays["is_double_peak"][:] = is_double_peak_array
+                con.log(f"  ✓ Saved {len(pulse_changes)} changes")
+
+            finally:
+                file.close()
+
+        # Print summary
+        con.log(f"\n{'=' * 60}")
+        con.log("VERIFICATION COMPLETE")
+        con.log(f"{'=' * 60}")
+        con.log(f"Total pulses verified: {total_verified}")
+        con.log(f"Total corrections made: {total_corrected}")
+        con.log(
+            f"Total changes saved: {sum(len(changes) for changes in changes.values())}"
+        )
+
+        return {
+            "status": "completed",
+            "verified": total_verified,
+            "corrected": total_corrected,
+        }
+
+    except KeyboardInterrupt:
+        con.log("\n⚠ Interrupted by user. No changes saved.")
+        return {"status": "interrupted", "message": "Process interrupted"}
+
+
 if __name__ == "__main__":
     # Path to directory containing h5 files with detected pulses
     data_path = Path(
-        "/home/eisele/wrk/mscthesis/data/newdata/eels-mfn2021_dummy_pulses_redetected/berlin_tank_site"
+        "/home/eisele/wrk/mscthesis/data/raw/eels-mfn2021_dummy_pulses_redetected/berlin_tank_site/"
     )
 
     # Process all h5 files to detect double peaks
     results = process_all_h5_files(data_path)
 
-    # Create combined visualization of all double peaks
-    all_double_peak_plots = plot_all_double_peaks_combined(data_path, max_per_file=10)
+    # Start interactive verification of double peaks
+    verification_results = interactive_double_peak_verification(data_path)
 
-    # Display all plots
-    if all_double_peak_plots:
-        con.log(f"\n{'=' * 60}")
-        con.log(f"Displaying {len(all_double_peak_plots)} visualization(s)")
-        con.log(f"{'=' * 60}\n")
-        plt.show()
-    else:
-        con.log("\n⚠ No double peaks found to visualize.")
-
-    # ========== ALTERNATIVE VISUALIZATIONS ==========
-    # You can uncomment any of these to see different visualization styles:
-
-    # Option 1: View statistics about single vs double peaks from a specific file
-    # file_to_stats = data_path / "recordings_2023-11-22_pulses.h5"
-    # fig, axes = plot_double_peaks_statistics(file_to_stats)
-    # if fig:
-    #     plt.show()
-
-    # Option 2: Overlay all double peaks from one file for direct comparison
-    # file_to_overlay = data_path / "recordings_2023-11-22_pulses.h5"
-    # fig, ax = plot_double_peaks_overlay(file_to_overlay)
-    # if fig:
-    #     plt.show()
-
-    # Option 3: Individual subplot view of double peaks from one file
-    # file_to_individual = data_path / "recordings_2023-11-22_pulses.h5"
-    # fig, axes = plot_double_peaks_from_file(file_to_individual, max_plots=20)
-    # if fig:
-    #     plt.show()
+    # TODO: maybe change UI so it doesnt switch between command line and matplotlib windows, but instead shows all double peaks in a grid and allows user to click on each one to verify? would be more user friendly and less disruptive than showing one at a time. could also add "confirm all" button for quick verification if most look correct.

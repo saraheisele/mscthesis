@@ -31,6 +31,7 @@ from rich.console import Console
 from pathlib import Path
 import numpy as np
 import nixio
+import tqdm
 from datetime import datetime, timedelta, date
 from dateutil.relativedelta import relativedelta
 
@@ -80,8 +81,8 @@ def get_path_list(datapath):
     return sorted(path_list)
 
 
-def load_eods(file_paths):
-    con.log("Loading hdf5 files.")
+def load_eods(file_paths, double_peaks_only=False):
+    con.log(f"Loading hdf5 files. Double peaks only: {double_peaks_only}")
 
     ## initialize empty lists to hold extracted data
     pulse_center_list = []
@@ -112,15 +113,15 @@ def load_eods(file_paths):
         # predicted labels for each detected pulse, 1 = pulse, 0 = no pulse
         pred_labels = block.data_arrays["predicted_labels"]
 
-        # check if is_double_peak array exists
+        # check if is_double_peak array exists and apply filter if requested
         is_double_peak_available = "is_double_peak" in data_array_names
-        if is_double_peak_available:
+        if double_peaks_only and is_double_peak_available:
             is_double_peak = block.data_arrays["is_double_peak"]
             # Filter for pulses that are both predicted as positive AND marked as double peaks
             mask = (pred_labels[:] == 1) & (is_double_peak[:] == 1)
             selected_centers = pulses_center_idx[mask]
         else:
-            # Fall back to original behavior: only filter by predicted labels
+            # Filter by predicted labels only (all pulses predicted as positive)
             selected_centers = pulses_center_idx[pred_labels[:] == 1]
 
         ## access metadata
@@ -184,7 +185,7 @@ def make_histogram(pulse_centers, sampling_rates, start_times):
     con.log("Calculating count histograms...")
 
     # iterate through each of the lists in pulse_centers (one per hdf5 file)
-    for i, rec in enumerate(pulse_centers):
+    for i, rec in enumerate(tqdm.tqdm(pulse_centers, desc="Processing pulse centers")):
         # initiate new preliminary dict for each h5 file/pulse list/i
         # to store pulse counts so they can also be used to increment the recording counter
         hist_i = {k: np.zeros_like(v) for k, v in hist.items()}
@@ -245,7 +246,7 @@ def rec_time_per_bin(start_times, end_times):
     session_rec_times = []
 
     # iterate through recording sessions bzw. the respective  start times
-    for i, st in enumerate(start_times):
+    for i, st in enumerate(tqdm.tqdm(start_times, desc="Processing recording times")):
         ## find starting bin for all timescales
         start_idx = {
             "minute": st.hour * 60 + st.minute,
@@ -421,39 +422,36 @@ def save_histograms(count_hist, rec_hist, rec_time_hist, output_path: Path):
     clean_count_hist = {k: np.asarray(v) for k, v in count_hist.items()}
     clean_rec_hist = {k: np.asarray(v) for k, v in rec_hist.items()}
     clean_rec_time = {k: np.asarray(v) for k, v in rec_time_hist.items()}
+    # Save files inside the output directory (create parent if necessary)
+    parent_dir = output_path if output_path.is_dir() else output_path.parent
+    parent_dir.mkdir(parents=True, exist_ok=True)
 
-    # save to seperate npz files
-    np.savez_compressed(
-        output_path.with_name(
-            output_path.stem + "berlin_dummypulses_count_hist_dict.npz"
-        ),
-        **clean_count_hist,
-    )
-    np.savez_compressed(
-        output_path.with_name(
-            output_path.stem + "berlin_dummypulses_rec_hist_dict.npz"
-        ),
-        **clean_rec_hist,
-    )
-    np.savez_compressed(
-        output_path.with_name(
-            output_path.stem + "berlin_dummypulses_rec_time_hist_dict.npz"
-        ),
-        **clean_rec_time,
-    )
+    filename_count = "berlin_dummypulses_count_hist_dict.npz"
+    filename_rec = "berlin_dummypulses_rec_hist_dict.npz"
+    filename_time = "berlin_dummypulses_rec_time_hist_dict.npz"
+
+    save_count = parent_dir / filename_count
+    save_rec = parent_dir / filename_rec
+    save_time = parent_dir / filename_time
+
+    np.savez_compressed(save_count, **clean_count_hist)
+    np.savez_compressed(save_rec, **clean_rec_hist)
+    np.savez_compressed(save_time, **clean_rec_time)
 
 
 # normalized_fr_list: list of dicts, one dict per session, keys=timescales
 def save_normalized_fr(normalized_fr_list, out_path):
     timescales = list(normalized_fr_list[0].keys())
     arrs = {k: np.vstack([sess[k] for sess in normalized_fr_list]) for k in timescales}
+    # Save the file inside the out_path directory, not in the parent directory
+    filename = "berlin_dummypulses_normalized_fr.npz"
+    save_file = (
+        out_path / filename if out_path.is_dir() else out_path.with_name(filename)
+    )
     np.savez_compressed(
-        out_path.with_name(out_path.stem + "berlin_dummypulses_normalized_fr.npz"),
+        save_file,
         **arrs,
     )
-
-
-# TODO: should I save the histogram dict in nix file as well?
 
 
 #################################
@@ -463,20 +461,34 @@ def save_normalized_fr(normalized_fr_list, out_path):
 
 # %%
 def main():
+    # ============================================
+    # CONFIGURATION SWITCH
+    # ============================================
+    # Set to True to analyze only double pulses
+    # Set to False to analyze all detected pulses
+    DOUBLE_PEAKS_ONLY = False
+    # ============================================
+
     # path to directory containing hdf5 files with detected pulses
     data_path = Path(
-        "/home/eisele/wrk/mscthesis/data/newdata/eels-mfn2021_dummy_pulses_redetected/berlin_tank_site"
+        "/home/eisele/wrk/mscthesis/data/raw/eels-mfn2021_dummy_pulses_redetected/berlin_tank_site/"
     )
 
-    # path to output directory
-    save_path = Path("/home/eisele/wrk/mscthesis/data/newdata")
+    # path to output directory - adjust based on configuration
+    hist_subdir = "double_pulses_hist" if DOUBLE_PEAKS_ONLY else "all_pulses_hist"
+
+    save_path = Path(
+        f"/home/eisele/wrk/mscthesis/data/intermediate/eels-mfn2021_dummy_activity_histograms/{hist_subdir}/"
+    )
+    # Ensure the output directory exists
+    save_path.mkdir(parents=True, exist_ok=True)
 
     # make list containing all paths to hdf5 files in the given datapath
     path_list = get_path_list(data_path)
 
     # load hdf5 files from path list and extract pulse centers of pulses that were predicted as EODs
     pulse_centers, sampling_rates, start_times, end_times, duration = load_eods(
-        path_list
+        path_list, double_peaks_only=DOUBLE_PEAKS_ONLY
     )
 
     # calculate histogram of number of pulses per minute for 24‑h period (0…1439 minutes)
@@ -490,11 +502,12 @@ def main():
     # calculate normalized firing rates for each session and time scale
     normalized_fr_list = normalized_fr(pulse_count_per_session, rec_time_per_session)
 
-    # # create a hdf5 file with nixio to later save the timestamp of each pulse in it
-    # nix_file, nix_block = open_nix_for_output(Path(save_path))
+    # # create a hdf5 file with nixio to later save the timestamp of each pulse in it (only for all_pulses case)
+    # if not DOUBLE_PEAKS_ONLY:
+    #     nix_file, nix_block = open_nix_for_output(Path(save_path))
 
-    # # save the unix timestamp of each pulse in the earlier created nix_timestamp block of nix_file
-    # created = append_cluster_block(nix_block, timestamps, created=False)  # noqa: F841
+    #     # save the unix timestamp of each pulse in the earlier created nix_timestamp block of nix_file
+    #     created = append_cluster_block(nix_block, timestamps, created=False)  # noqa: F841
 
     # save histogram dictionaries to .npz file for later use in plotting
     save_histograms(
@@ -511,6 +524,4 @@ if __name__ == "__main__":
     main()
 
 
-# TODO: implement progress bar!
-# TODO: implement switch for analyzing all pulses vs double/wide pulses only
 # %%

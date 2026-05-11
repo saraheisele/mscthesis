@@ -5,24 +5,32 @@ import numpy as np
 from pathlib import Path
 
 #################################
+############# CONFIG #############
+#################################
+# Set to True to analyze only double pulses
+# Set to False to analyze all detected pulses
+DOUBLE_PEAKS_ONLY = False
+
+#################################
 ############# LOAD #############
 #################################
 
+# set filename suffix and save path based on configuration
+suffix = "_dp" if DOUBLE_PEAKS_ONLY else "_all"
+figures_subdir = "double_pulses" if DOUBLE_PEAKS_ONLY else "all_pulses"
+hist_subdir = "double_pulses_hist" if DOUBLE_PEAKS_ONLY else "all_pulses_hist"
+
 # load histogram dictionaries from .npz files
-data_path = Path("/home/eisele/wrk/mscthesis/data/newdata")
-count_data = np.load(
-    data_path.with_name(data_path.stem + "berlin_dummypulses_count_hist_dict.npz")
+data_path = Path(
+    f"/home/eisele/wrk/mscthesis/data/intermediate/eels-mfn2021_dummy_activity_histograms/{hist_subdir}"
 )
+count_data = np.load(data_path / "berlin_dummypulses_count_hist_dict.npz")
 histogram_dict = {k: count_data[k] for k in count_data.files}
 
-rec_count_data = np.load(
-    data_path.with_name(data_path.stem + "berlin_dummypulses_rec_hist_dict.npz")
-)
+rec_count_data = np.load(data_path / "berlin_dummypulses_rec_hist_dict.npz")
 rec_hist_dict = {k: rec_count_data[k] for k in rec_count_data.files}
 
-rec_time_data = np.load(
-    data_path.with_name(data_path.stem + "berlin_dummypulses_rec_time_hist_dict.npz")
-)
+rec_time_data = np.load(data_path / "berlin_dummypulses_rec_time_hist_dict.npz")
 rec_time_hist_dict = {k: rec_time_data[k] for k in rec_time_data.files}
 
 #################################
@@ -31,7 +39,8 @@ rec_time_hist_dict = {k: rec_time_data[k] for k in rec_time_data.files}
 # TODO: cleanup ploting code, make functions for repeated code (e.g. x ticks and labels), make rcParams
 
 ### Save Path
-save_path = Path("/home/eisele/wrk/mscthesis/figures/all_pulses/")
+save_path = Path(f"/home/eisele/wrk/mscthesis/data/processed/{figures_subdir}/")
+save_path.mkdir(parents=True, exist_ok=True)
 
 # %%
 ## 24 hours - minute bins
@@ -68,7 +77,7 @@ ax[1, 1].set_ylabel("normalized firing rate [Hz]")
 fig.suptitle("24-hour histogram (1-min bins)")
 
 plt.tight_layout()
-plt.savefig(save_path / "24h_minute_all.png", dpi=300)
+plt.savefig(save_path / f"24h_minute{suffix}.png", dpi=300)
 plt.show()
 
 
@@ -139,7 +148,7 @@ ax[1, 1].set_ylabel("normalized firing rate [Hz]")
 fig.suptitle("24-hour histogram (hourly bins)")
 
 plt.tight_layout()
-plt.savefig(save_path / "24h_hour_all.png", dpi=300)
+plt.savefig(save_path / f"24h_hour{suffix}.png", dpi=300)
 plt.show()
 
 # %%
@@ -175,7 +184,7 @@ ax[1, 1].set_ylabel("normalized firing rate [Hz]")
 fig.suptitle("monthly histogram (daily bins)")
 
 plt.tight_layout()
-plt.savefig(save_path / "12month_day_all.png", dpi=300)
+plt.savefig(save_path / f"12month_day{suffix}.png", dpi=300)
 plt.show()
 
 
@@ -210,7 +219,7 @@ ax[1, 1].set_ylabel("normalized firing rate [Hz]")
 fig.suptitle("monthly histogram (monthly bins)")
 
 plt.tight_layout()
-plt.savefig(save_path / "12month_month_all.png", dpi=300)
+plt.savefig(save_path / f"12month_month{suffix}.png", dpi=300)
 plt.show()
 
 # %%
@@ -243,7 +252,7 @@ ax[1, 1].set_ylabel("normalized firing rate [Hz]")
 fig.suptitle("yearly histogram (yearly bins)")
 
 plt.tight_layout()
-plt.savefig(save_path / "years_year_all.png", dpi=300)
+plt.savefig(save_path / f"years_year{suffix}.png", dpi=300)
 plt.show()
 
 
@@ -259,9 +268,7 @@ plt.show()
 #     plt.ylabel("firing rate (Hz)")
 #     plt.show()
 
-data = np.load(
-    data_path.with_name(data_path.stem + "berlin_dummypulses_normalized_fr.npz")
-)
+data = np.load(data_path / "berlin_dummypulses_normalized_fr.npz")
 for timescale in data.files:
     arr = data[timescale]  # shape (n_sessions, n_bins)
     x = np.arange(arr.shape[1])
@@ -292,6 +299,6 @@ for timescale in data.files:
     plt.ylabel("firing rate (Hz)")
     plt.legend(loc="upper right", fontsize="small")
     plt.tight_layout()
-    plt.savefig(save_path / f"{timescale}_all.png", dpi=300)
+    plt.savefig(save_path / f"{timescale}{suffix}.png", dpi=300)
     plt.show()
 # %%
