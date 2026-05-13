@@ -339,7 +339,7 @@ def rec_time_per_bin(start_times, end_times):
 def normalized_fr(session_counts, session_rec_times):
     ### normalize count histograms
     # list to store the normalized count histograms for each rec session
-    norm_fr = []
+    norm_count = []
     # iterate through each session
     for count_hist, rec_time_hist in zip(session_counts, session_rec_times):
         # dict to hold normalized counts for the current session
@@ -351,8 +351,10 @@ def normalized_fr(session_counts, session_rec_times):
             out = np.full_like(num, np.nan, dtype=float)
             with np.errstate(divide="ignore", invalid="ignore"):
                 np.divide(num, den, out=out, where=den != 0)
+            # if there are no pulses in a bin, set the fr to nan instead of 0, to avoid confusion with bins that had 0 rec time and thus couldnt have any pulses (and thus also should be nan)
+            out[(num == 0) & (den != 0)] = np.nan
             normalized[k] = out
-        norm_fr.append(normalized)
+        norm_count.append(normalized)
 
     ### get firing rates
     # make dict to hold values by which to normalize for each time scale to get to Hz/counts per second)
@@ -364,12 +366,14 @@ def normalized_fr(session_counts, session_rec_times):
         "year": 365 * 24 * 60 * 60,  # rough estimate, not exact
     }
 
-    # iterate through the dicts in normalized_fr (one per session)
-    for session in norm_fr:
+    # iterate through the dicts in normalized_count (one per session)
+    for session in norm_count:
         # iterate through the keys in the dict (keys are time scales)
         for k in session:
-            # divide normalized counts by the respective bin size to get firing rates in Hz
+            # divide normalized counts by the respective bin size in sec to get firing rates in Hz
             session[k] /= bin_sizes[k]
+
+    norm_fr = norm_count
 
     return norm_fr
 
@@ -466,7 +470,7 @@ def main():
     # ============================================
     # Set to True to analyze only double pulses
     # Set to False to analyze all detected pulses
-    DOUBLE_PEAKS_ONLY = False
+    DOUBLE_PEAKS_ONLY = True
     # ============================================
 
     # path to directory containing hdf5 files with detected pulses

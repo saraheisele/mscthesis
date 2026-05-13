@@ -9,7 +9,7 @@ from pathlib import Path
 #################################
 # Set to True to analyze only double pulses
 # Set to False to analyze all detected pulses
-DOUBLE_PEAKS_ONLY = False
+DOUBLE_PEAKS_ONLY = True
 
 #################################
 ############# LOAD #############
@@ -276,7 +276,17 @@ for timescale in data.files:
     # per-session thin lines
     plt.figure(figsize=(8, 4))
     for i in range(arr.shape[0]):
-        plt.plot(x, arr[i], alpha=0.15, color="tab:blue", linewidth=0.7)
+        # plt.plot doesnt make sense for higher timescales bc many rec sessions only contribute to 1 bin
+        # plt.plot(x, arr[i], alpha=0.15, color="tab:blue", linewidth=0.7)
+
+        # scatter
+        valid = ~np.isnan(arr[i])
+        plt.scatter(x[valid], arr[i][valid], alpha=0.2, s=10, color="tab:blue")
+
+        # # boxplot
+        # valid_per_bin = [arr[:, j][~np.isnan(arr[:, j])] for j in range(arr.shape[1])]
+        # plt.boxplot(valid_per_bin)
+        # TODO: maybe do violin plots/heatmaps instead
 
     # robust summary (choose percentiles you prefer)
     median = np.nanmedian(arr, axis=0)
@@ -289,7 +299,7 @@ for timescale in data.files:
     p_hi_m = np.ma.masked_invalid(p_hi)
 
     # thicker median line + shaded percentile band
-    plt.plot(x, median_m, color="tab:red", linewidth=2.5, label="nan-median")
+    plt.plot(x, median_m, color="tab:red", linewidth=1.5, label="nan-median")
     plt.fill_between(
         x, p_lo_m, p_hi_m, color="tab:red", alpha=0.25, label="16–84th pct"
     )
@@ -301,4 +311,7 @@ for timescale in data.files:
     plt.tight_layout()
     plt.savefig(save_path / f"{timescale}{suffix}.png", dpi=300)
     plt.show()
+
+
+# TODO: clean up script, modularize, make functions
 # %%
