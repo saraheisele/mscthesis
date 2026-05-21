@@ -5,20 +5,42 @@
 
 # This script detects which pulses in h5 files are "double peaks" (wider pulses with 2 peaks instead of 1).
 # Double peaks are identified by analyzing the peak structure of each pulse waveform.
-# The script adds an "is_double_peak" data array to each h5 file containing binary labels (0 or 1).
+# The script adds an "is_double_peak" or "is_wide_pulse" data array to each h5 file containing binary labels (0 or 1).
 
 # TODO: plotting von double peak detection trennen, double peaks finden verbessern
 
-# import matplotlib.pyplot as plt
 from pathlib import Path
 from scipy.signal import find_peaks
+from scipy.optimize import curve_fit
 import numpy as np
-import matplotlib.pyplot as plt
 import nixio
 from rich.console import Console
 
 # Initialize console for logging
 con = Console()
+
+#################################
+############# MODE ##############
+#################################
+
+DETECTION_MODE = "wide"
+# options:
+# "double"
+# "wide"
+
+MODE_CONFIG = {
+    "double": {
+        "array_name": "is_double_peak",
+        "display_name": "double peak",
+    },
+    "wide": {
+        "array_name": "is_wide_pulse",
+        "display_name": "wide pulse",
+    },
+}
+
+ARRAY_NAME = MODE_CONFIG[DETECTION_MODE]["array_name"]
+DISPLAY_NAME = MODE_CONFIG[DETECTION_MODE]["display_name"]
 
 
 #################################
@@ -161,6 +183,53 @@ def get_representative_waveform(pulse_waveform):
     return trace, best_channel
 
 
+# width measurement function
+def compute_half_max_width(signal, sample_rate):
+    """
+    Compute pulse width at half maximum amplitude.
+
+    Parameters
+    ----------
+    signal : np.ndarray
+        1D waveform
+    sample_rate : float
+        Sampling rate in Hz
+
+    Returns
+    -------
+    width_sec : float
+        Width in seconds
+    info : dict
+        Debug information
+    """
+
+    peak_idx = np.argmax(signal)
+    peak_amp = signal[peak_idx]
+
+    half_height = 0.5 * peak_amp
+
+    # Find left crossing
+    left = peak_idx
+    while left > 0 and signal[left] > half_height:
+        left -= 1
+
+    # Find right crossing
+    right = peak_idx
+    while right < len(signal) - 1 and signal[right] > half_height:
+        right += 1
+
+    width_samples = right - left
+    width_sec = width_samples / sample_rate
+
+    return width_sec, {
+        "peak_idx": peak_idx,
+        "half_height": half_height,
+        "left_idx": left,
+        "right_idx": right,
+        "width_samples": width_samples,
+    }
+
+
 # new version for unified double pulse detection (for detection and visualization)
 def detect_double_pulse(
     pulse_waveform,
@@ -259,6 +328,302 @@ def detect_double_pulse(
     }
 
 
+# shape analysis function for wide pulses
+def check_pulse_shape_gaussian_exponential(signal, peak_idx, sample_rate):
+    """
+    Check if pulse follows a Gaussian-then-exponential shape:
+    - Gaussian (symmetric) rise/peak
+    - Exponential decay after peak
+
+    Parameters:
+    -----------
+    signal : np.ndarray
+        1D corrected waveform
+    peak_idx : int
+        Index of the peak
+    sample_rate : float
+        Sample rate in Hz
+
+    Returns:
+    --------
+    is_valid_shape : bool
+        True if pulse matches expected shape
+    info : dict
+        Debug information with fit quality metrics
+    """
+
+    # Fit Gaussian function to left side (rise) of peak
+    def gaussian(x, amp, mu, sigma):
+        return amp * np.exp(-0.5 * ((x - mu) / sigma) ** 2)
+
+    # Fit exponential function to right side (decay) of peak
+    def exponential(x, amp, tau):
+        return amp * np.exp(-x / tau)
+
+    info = {}
+
+    # --- LEFT SIDE (RISE): Fit Gaussian ---
+    # Take data from beginning up to peak
+    left_idx = max(0, peak_idx - int(0.002 * sample_rate))  # ~2ms before peak
+    left_x = np.arange(peak_idx - left_idx)
+    left_y = signal[left_idx : peak_idx + 1]
+
+    if len(left_x) > 3:
+        try:
+            # Initial guess
+            amp_left = np.max(left_y)
+            mu_left = len(left_x) // 2
+            sigma_left = len(left_x) / 4
+
+            popt_left, _ = curve_fit(
+                gaussian, left_x, left_y, p0=[amp_left, mu_left, sigma_left], maxfev=500
+            )
+
+            # Calculate R² for left fit
+            y_pred_left = gaussian(left_x, *popt_left)
+            ss_res_left = np.sum((left_y - y_pred_left) ** 2)
+            ss_tot_left = np.sum((left_y - np.mean(left_y)) ** 2)
+            r2_left = 1 - (ss_res_left / ss_tot_left) if ss_tot_left > 0 else 0
+            info["r2_gaussian_rise"] = r2_left
+        except:
+            r2_left = -1
+            info["r2_gaussian_rise"] = -1
+    else:
+        r2_left = -1
+        info["r2_gaussian_rise"] = -1
+
+    # --- RIGHT SIDE (DECAY): Fit Exponential ---
+    # Take data from peak onwards
+    right_idx = min(len(signal), peak_idx + int(0.002 * sample_rate))  # ~2ms after peak
+    right_x = np.arange(right_idx - peak_idx)
+    right_y = signal[peak_idx:right_idx]
+
+    if len(right_x) > 3 and np.max(right_y) > 0:
+        try:
+            # Initial guess
+            amp_right = right_y[0]
+            tau_right = len(right_x) / 3  # characteristic decay time
+
+            popt_right, _ = curve_fit(
+                exponential, right_x, right_y, p0=[amp_right, tau_right], maxfev=500
+            )
+
+            # Calculate R² for right fit
+            y_pred_right = exponential(right_x, *popt_right)
+            ss_res_right = np.sum((right_y - y_pred_right) ** 2)
+            ss_tot_right = np.sum((right_y - np.mean(right_y)) ** 2)
+            r2_right = 1 - (ss_res_right / ss_tot_right) if ss_tot_right > 0 else 0
+            info["r2_exponential_decay"] = r2_right
+        except:
+            r2_right = -1
+            info["r2_exponential_decay"] = -1
+    else:
+        r2_right = -1
+        info["r2_exponential_decay"] = -1
+
+    # --- Asymmetry check: decay should be faster than rise ---
+    # Calculate slope metrics
+    rise_region = signal[max(0, peak_idx - int(0.001 * sample_rate)) : peak_idx]
+    decay_region = signal[
+        peak_idx : min(len(signal), peak_idx + int(0.001 * sample_rate))
+    ]
+
+    if len(rise_region) > 1:
+        rise_slope = (signal[peak_idx] - rise_region[0]) / len(rise_region)
+    else:
+        rise_slope = 0
+
+    if len(decay_region) > 1:
+        decay_slope = (decay_region[0] - decay_region[-1]) / len(decay_region)
+    else:
+        decay_slope = 0
+
+    # Decay should be steeper than rise for exponential
+    if rise_slope > 1e-12:
+        slope_ratio = decay_slope / rise_slope  # should be > 0.5
+        info["decay_to_rise_slope_ratio"] = slope_ratio
+    else:
+        slope_ratio = 0
+        info["decay_to_rise_slope_ratio"] = 0
+
+    # Validation: Both fits should be reasonably good
+    # We require at least one side to have decent fit (R² > 0.5)
+    # or at least show the expected asymmetry
+    gaussian_ok = r2_left > 0.4
+    exponential_ok = r2_right > 0.4
+    asymmetry_ok = slope_ratio > 0.3  # decay steeper than rise
+
+    is_valid_shape = (gaussian_ok or exponential_ok) and (
+        gaussian_ok and exponential_ok or asymmetry_ok
+    )
+
+    info["is_valid_shape"] = is_valid_shape
+
+    return is_valid_shape, info
+
+
+# detection of wide pulses
+def detect_wide_pulse(
+    pulse_waveform,
+    sample_rate,
+    amplitude_threshold=0.7,
+    width_threshold_ms=2.3,
+    max_width_ms=4.0,
+    isolation_window_ms=3.0,
+    prominence_ratio=0.1,
+    check_shape=True,
+):
+    """
+    Detect wide pulses using width at half maximum and shape analysis.
+
+    Parameters:
+    -----------
+    pulse_waveform : np.ndarray
+        2D array of pulse data (num_samples, num_channels)
+    sample_rate : float
+        Sample rate in Hz
+    amplitude_threshold : float
+        Minimum amplitude for a pulse to be considered
+    width_threshold_ms : float
+        Minimum width at half maximum in milliseconds
+    max_width_ms : float
+        Maximum width at half maximum in milliseconds (excludes overly wide pulses)
+    isolation_window_ms : float
+        Time window (in milliseconds) before and after the peak to check for isolated peak
+    prominence_ratio : float
+        Minimum prominence ratio relative to peak amplitude (e.g., 0.1 = 10%).
+        The peak must stand out at least this much from the surrounding signal.
+    check_shape : bool
+        If True, verify that pulse follows Gaussian-then-exponential shape pattern.
+        Helps reject flat signals that happen to be wide.
+
+    Returns:
+    --------
+    bool
+        True if pulse is a wide pulse, False otherwise
+    dict
+        Debug information
+    """
+
+    signal, best_channel = get_representative_waveform(pulse_waveform)
+
+    # baseline correction: take first 5th of pulse snippet and use median as baseline
+    baseline = np.median(signal[: len(signal) // 5])
+    signal_corrected = signal - baseline
+
+    max_amp = np.max(signal_corrected)
+    peak_idx = np.argmax(signal_corrected)
+
+    if max_amp < amplitude_threshold:
+        return False, {"reason": "below_threshold"}
+
+    # --- NEW: Prominence check ---
+    # Ensure the peak is actually prominent, not just a flat signal
+    # Check prominence by looking at the surrounding signal
+    window_samples = int(isolation_window_ms * sample_rate / 1000)
+    start_idx = max(0, peak_idx - window_samples)
+    end_idx = min(len(signal_corrected), peak_idx + window_samples + 1)
+
+    # Use scipy's find_peaks with prominence
+    peaks_in_region, peak_props = find_peaks(
+        signal_corrected[start_idx:end_idx], prominence=prominence_ratio * max_amp
+    )
+
+    # The main peak should have sufficient prominence
+    if len(peaks_in_region) == 0:
+        return False, {"reason": "insufficient_prominence"}
+
+    # Adjust peak index if needed (find_peaks returns indices relative to the region)
+    main_peak_in_region = np.argmin(np.abs(peaks_in_region - (peak_idx - start_idx)))
+    if main_peak_in_region >= len(peak_props["prominences"]):
+        return False, {"reason": "peak_not_found_in_region"}
+
+    peak_prominence = peak_props["prominences"][main_peak_in_region]
+    if peak_prominence < prominence_ratio * max_amp:
+        return False, {
+            "reason": "low_prominence",
+            "prominence": peak_prominence,
+            "required": prominence_ratio * max_amp,
+        }
+
+    # Convert isolation window from ms to samples
+    window_samples = int(isolation_window_ms * sample_rate / 1000)
+
+    # Define the isolation window around the peak
+    start_idx = max(0, peak_idx - window_samples)
+    end_idx = min(len(signal_corrected), peak_idx + window_samples + 1)
+
+    # Find all local maxima in the isolation window
+    window_signal = signal_corrected[start_idx:end_idx]
+    peaks_in_window, _ = find_peaks(window_signal)
+
+    # Count peaks that are significantly high (above 50% of max amplitude)
+    high_peaks = [p for p in peaks_in_window if window_signal[p] >= 0.5 * max_amp]
+
+    # Should only have one dominant peak (the main peak itself)
+    if len(high_peaks) > 1:
+        return False, {
+            "reason": "multiple_local_maxima_in_window",
+            "num_peaks": len(high_peaks),
+        }
+
+    width_sec, width_info = compute_half_max_width(signal_corrected, sample_rate)
+
+    width_ms = width_sec * 1000
+
+    # Check minimum width constraint
+    if width_ms < width_threshold_ms:
+        return False, {
+            "reason": "too_narrow",
+            "width_ms": width_ms,
+            **width_info,
+        }
+
+    # Check maximum width constraint
+    if width_ms > max_width_ms:
+        return False, {
+            "reason": "too_wide",
+            "width_ms": width_ms,
+            **width_info,
+        }
+
+    # --- NEW: Shape analysis ---
+    if check_shape:
+        is_valid_shape, shape_info = check_pulse_shape_gaussian_exponential(
+            signal_corrected, peak_idx, sample_rate
+        )
+        if not is_valid_shape:
+            return False, {
+                "reason": "invalid_pulse_shape",
+                **shape_info,
+            }
+    else:
+        shape_info = {}
+
+    return True, {
+        "width_ms": width_ms,
+        "prominence": peak_prominence,
+        **width_info,
+        **shape_info,
+    }
+
+
+# unified detection wrapper
+def detect_pulse(pulse_waveform, sample_rate):
+    """
+    Unified detector wrapper.
+    """
+
+    if DETECTION_MODE == "double":
+        return detect_double_pulse(pulse_waveform, sample_rate)
+
+    elif DETECTION_MODE == "wide":
+        return detect_wide_pulse(pulse_waveform, sample_rate)
+
+    else:
+        raise ValueError(f"Unknown DETECTION_MODE: {DETECTION_MODE}")
+
+
 def get_path_list(datapath):
     """
     Get a sorted list of all .h5 files in the given directory or subdirectories.
@@ -283,9 +648,9 @@ def get_path_list(datapath):
     return sorted(path_list)
 
 
-def detect_double_peaks_in_file(file_path):
+def detect_special_pulses_in_file(file_path):
     """
-    Detect double peaks in all pulses of a single h5 file and add the results as a data array.
+    Detect double peaks or wide pulsesin all pulses of a single h5 file and add the results as a data array.
 
     Parameters:
     -----------
@@ -330,63 +695,76 @@ def detect_double_peaks_in_file(file_path):
 
         # Get sample rate from metadata
         fs = file.sections["pulses_metadata"]["metadata"]["samplerate"]
-
+        ### TODO: CURRENTLY AT STEP 8 OF CHATS IMPLEMENTATION
         num_pulses = len(raw_pulses)
         con.log(f"  Found {num_pulses} pulses.")
 
-        # Analyze each pulse for double peaks
-        is_double_peak_list = []
-        double_peak_count = 0
-        single_peak_count = 0
+        # Optional exclusion array for wide pulse mode
+        if "is_double_peak" in data_array_names:
+            is_double_peak = block.data_arrays["is_double_peak"][:]
+        else:
+            is_double_peak = np.zeros(num_pulses, dtype=np.int64)
+
+        # Analyze each pulse for double peaks or wide peaks
+        is_detection_list = []
+        positive_count = 0
+        negative_count = 0
 
         # Get predicted labels to filter only actual detected pulses
         predicted = predicted_labels[:]
 
+        # detection loop
         for i, pulse in enumerate(raw_pulses):
-            # Only analyze pulses that were predicted as positive (label == 1)
-            if predicted[i] == 1:
-                # is_double = analyze_pulse_for_double_peak(pulse[:], fs)
-                is_double, _ = detect_double_pulse(pulse[:], fs)
-                if is_double:
-                    is_double_peak_list.append(1)
-                    double_peak_count += 1
-                else:
-                    is_double_peak_list.append(0)
-                    single_peak_count += 1
+            # TODO: ask patrick if all pulses in the h5 files have a 1 for predicted_labels!!
+            # Only analyze predicted positive pulses
+            if predicted[i] != 1:
+                continue
+
+            # Wide pulses cannot also be double peaks
+            if DETECTION_MODE == "wide" and is_double_peak[i] == 1:
+                is_detection_list.append(0)
+                negative_count += 1
+                continue
+
+            is_positive, _ = detect_pulse(pulse[:], fs)
+
+            if is_positive:
+                is_detection_list.append(1)
+                positive_count += 1
             else:
-                # Skip predicted negatives - don't add them to the analysis
-                pass
+                is_detection_list.append(0)
+                negative_count += 1
 
             if (i + 1) % max(1, num_pulses // 10) == 0:
                 con.log(f"  Processed {i + 1}/{num_pulses} pulses...")
 
         # Convert to numpy array
-        is_double_peak_array = np.array(is_double_peak_list, dtype=np.int64)
+        is_detection_array = np.array(is_detection_list, dtype=np.int64)
 
-        # Create or overwrite the "is_double_peak" data array in the h5 file
-        if "is_double_peak" in data_array_names:
-            con.log("  Updating existing 'is_double_peak' array...")
-            block.data_arrays["is_double_peak"][:] = is_double_peak_array
+        # Create or overwrite the "is_detection" data array in the h5 file
+        if ARRAY_NAME in data_array_names:
+            con.log(f"  Updating existing '{ARRAY_NAME}' array...")
+            block.data_arrays[ARRAY_NAME][:] = is_detection_array
         else:
-            con.log("  Creating new 'is_double_peak' array...")
+            con.log(f"  Creating new '{ARRAY_NAME}' array...")
             block.create_data_array(
-                "is_double_peak", "is_double_peak", data=is_double_peak_array
+                ARRAY_NAME,
+                ARRAY_NAME,
+                data=is_detection_array,
             )
 
         # Log summary
         con.log(
-            f"  ✓ Completed: {double_peak_count} double peaks, {single_peak_count} single peaks"
+            f"  ✓ Completed: {positive_count} {DISPLAY_NAME}s detected, {negative_count} rejected"
         )
 
         return {
             "file": Path(file_path).name,
             "status": "completed",
             "num_pulses": num_pulses,
-            "num_double_peaks": double_peak_count,
-            "num_single_peaks": single_peak_count,
-            "double_peak_ratio": double_peak_count / num_pulses
-            if num_pulses > 0
-            else 0,
+            "num_detected": positive_count,
+            "num_rejected": negative_count,
+            "ratio": positive_count / num_pulses if num_pulses > 0 else 0,
         }
 
     finally:
@@ -421,7 +799,7 @@ def process_all_h5_files(data_path):
 
     for i, fp in enumerate(path_list, 1):
         con.log(f"[{i}/{len(path_list)}]")
-        result = detect_double_peaks_in_file(fp)
+        result = detect_special_pulses_in_file(fp)
         results.append(result)
         con.log()
 
@@ -430,943 +808,28 @@ def process_all_h5_files(data_path):
     con.log("SUMMARY")
     con.log(f"{'=' * 60}")
 
+    # get total numbers across all files
     total_pulses = sum(r.get("num_pulses", 0) for r in results)
-    total_double_peaks = sum(r.get("num_double_peaks", 0) for r in results)
-    total_single_peaks = sum(r.get("num_single_peaks", 0) for r in results)
+    total_detected = sum(r.get("num_detected", 0) for r in results)
+    total_rejected = sum(r.get("num_rejected", 0) for r in results)
 
+    # summary logging
     con.log(f"Total files processed: {len(results)}")
     con.log(f"Total pulses analyzed: {total_pulses}")
-    con.log(f"Total double peaks: {total_double_peaks}")
-    con.log(f"Total single peaks: {total_single_peaks}")
+    con.log(f"Total {DISPLAY_NAME}s: {total_detected}")
+    con.log(f"Total rejected: {total_rejected}")
     con.log(
-        f"Double peak ratio: {total_double_peaks / total_pulses if total_pulses > 0 else 0:.2%}"
+        f"{DISPLAY_NAME.capitalize()} ratio: {total_detected / total_pulses if total_pulses > 0 else 0:.2%}"
     )
 
     return results
 
 
-#################################
-############# VISUALIZATION #####
-#################################
-
-
-def plot_double_peaks_from_file(file_path, max_plots=20, figsize=(16, 10)):
-    """
-    Load double peaks from h5 file and plot them using librosa waveshow.
-
-    Parameters:
-    -----------
-    file_path : Path or str
-        Path to the h5 file to visualize
-    max_plots : int
-        Maximum number of double peaks to plot (if there are many)
-    figsize : tuple
-        Figure size (width, height)
-
-    Returns:
-    --------
-    fig, axes
-        Matplotlib figure and axes objects
-    """
-    file_path = Path(file_path)
-    con.log(f"Loading double peaks from: {file_path.name}")
-
-    # Open h5 file
-    file = nixio.File.open(str(file_path), nixio.FileMode.ReadOnly)
-
-    try:
-        block = file.blocks["pulses"]
-        data_array_names = [da.name for da in block.data_arrays]
-
-        if "is_double_peak" not in data_array_names:
-            con.log(
-                "  ⚠ File does not have 'is_double_peak' array. Run detection first."
-            )
-            return None, None
-
-        # Load data
-        is_double_peak = block.data_arrays["is_double_peak"][:]
-        raw_pulses = block.data_arrays["raw_pulses"]
-        fs = file.sections["pulses_metadata"]["metadata"]["samplerate"]
-
-        # Get indices of double peaks
-        double_peak_indices = np.where(is_double_peak == 1)[0]
-        num_double_peaks = len(double_peak_indices)
-
-        if num_double_peaks == 0:
-            con.log("  No double peaks found in this file.")
-            return None, None
-
-        con.log(
-            f"  Found {num_double_peaks} double peaks. Plotting first {min(max_plots, num_double_peaks)}..."
-        )
-
-        # Limit number of plots
-        indices_to_plot = double_peak_indices[:max_plots]
-        num_to_plot = len(indices_to_plot)
-
-        # Create subplots
-        n_cols = min(4, num_to_plot)  # Max 4 columns
-        n_rows = (num_to_plot + n_cols - 1) // n_cols
-
-        fig, axes = plt.subplots(n_rows, n_cols, figsize=figsize)
-        if num_to_plot == 1:
-            axes = np.array([axes])
-        else:
-            axes = axes.flatten()
-
-        # Plot each double peak
-        for plot_idx, pulse_idx in enumerate(indices_to_plot):
-            ax = axes[plot_idx]
-            pulse_data = raw_pulses[pulse_idx]  # Shape: (num_samples, 16 channels)
-
-            # Use mean across channels for visualization
-            # pulse_mean = np.mean(pulse_data, axis=1)
-            pulse_mean, best_channel = get_representative_waveform(pulse_data)
-
-            # Plot waveform
-            time_axis = np.arange(len(pulse_mean)) / fs
-            ax.plot(time_axis, pulse_mean, linewidth=1.5, color="steelblue", alpha=0.8)
-            ax.fill_between(time_axis, pulse_mean, alpha=0.3, color="steelblue")
-
-            # # Add peaks detection visualization using same logic as detection function
-            # pulse_strength = np.mean(np.abs(pulse_data), axis=1)
-            # pulse_waveform_mean = np.mean(pulse_data, axis=1)
-            # max_strength = np.max(pulse_strength)
-            # prominence = 0.1 * max_strength
-            # peaks, _ = find_peaks(pulse_strength, prominence=prominence)
-
-            # # Apply same filtering criteria as detection function
-            # filtered_peaks = []
-            # if len(peaks) == 2:
-            #     # Check same sign
-            #     peak1_value = pulse_waveform_mean[peaks[0]]
-            #     peak2_value = pulse_waveform_mean[peaks[1]]
-
-            #     # Check if peaks have the same sign (both above 0 or both below 0)
-            #     same_sign = not (
-            #         (peak1_value > 0 and peak2_value < 0)
-            #         or (peak1_value < 0 and peak2_value > 0)
-            #     )
-
-            #     if same_sign:
-            #         # Check if at least one is a local maximum within 0.004s window
-            #         window_samples = int(0.004 * fs)
-
-            #         def is_local_max_in_window(signal, idx, window_size):
-            #             start = max(0, idx - window_size)
-            #             end = min(len(signal), idx + window_size + 1)
-            #             return signal[idx] == np.max(signal[start:end])
-
-            #         peak1_local_max = is_local_max_in_window(
-            #             pulse_strength, peaks[0], window_samples
-            #         )
-            #         peak2_local_max = is_local_max_in_window(
-            #             pulse_strength, peaks[1], window_samples
-            #         )
-
-            #         if peak1_local_max or peak2_local_max:
-            #             filtered_peaks = list(peaks)
-
-            # # Mark only the valid peaks
-            # if filtered_peaks:
-            #     peak_times = np.array(filtered_peaks) / fs
-            #     peak_values = pulse_mean[filtered_peaks]
-            #     ax.scatter(
-            #         peak_times,
-            #         peak_values,
-            #         color="red",
-            #         s=100,
-            #         marker="*",
-            #         zorder=5,
-            #         label=f"{len(filtered_peaks)} peaks",
-            #     )
-            # else:
-            #     ax.text(
-            #         0.5,
-            #         0.5,
-            #         "No valid double peak",
-            #         ha="center",
-            #         va="center",
-            #         transform=ax.transAxes,
-            #         fontsize=9,
-            #         color="gray",
-            #     )
-
-            # use same logic as detection function
-            is_double, info = detect_double_pulse(pulse_data, fs)
-
-            if is_double:
-                peaks = info["peaks"]
-                peak_times = np.array(peaks) / fs
-                peak_vals = pulse_mean[peaks]
-
-                ax.scatter(
-                    peak_times,
-                    peak_vals,
-                    color="red",
-                    s=100,
-                    marker="*",
-                    zorder=5,
-                    label="2 peaks",
-                )
-
-            else:
-                ax.text(
-                    0.5,
-                    0.5,
-                    info.get("reason", "not double"),
-                    transform=ax.transAxes,
-                    ha="center",
-                    va="center",
-                    fontsize=8,
-                    color="gray",
-                )
-
-            # Formatting
-            ax.set_title(
-                f"Double Peak #{pulse_idx}\n(Pulse index: {pulse_idx})",
-                fontsize=10,
-                fontweight="bold",
-            )
-            ax.set_xlabel("Time (s)", fontsize=9)
-            ax.set_ylabel("Amplitude (a.u.)", fontsize=9)
-            ax.grid(True, alpha=0.3)
-            ax.legend(fontsize=8)
-
-        # Hide unused subplots
-        for plot_idx in range(num_to_plot, len(axes)):
-            axes[plot_idx].set_visible(False)
-
-        plt.suptitle(
-            f"Double Peaks from {file_path.name}\n(First {num_to_plot} of {num_double_peaks} double peaks)",
-            fontsize=14,
-            fontweight="bold",
-            y=0.995,
-        )
-        plt.tight_layout()
-
-        return fig, axes
-
-    finally:
-        file.close()
-
-
-def plot_double_peaks_overlay(file_path, figsize=(14, 6)):
-    """
-    Plot all detected double peaks overlaid on each other for comparison.
-
-    Parameters:
-    -----------
-    file_path : Path or str
-        Path to the h5 file to visualize
-    figsize : tuple
-        Figure size (width, height)
-
-    Returns:
-    --------
-    fig, ax
-        Matplotlib figure and axes objects
-    """
-    file_path = Path(file_path)
-    con.log(f"Creating overlay plot from: {file_path.name}")
-
-    # Open h5 file
-    file = nixio.File.open(str(file_path), nixio.FileMode.ReadOnly)
-
-    try:
-        block = file.blocks["pulses"]
-        data_array_names = [da.name for da in block.data_arrays]
-
-        if "is_double_peak" not in data_array_names:
-            con.log(
-                "  ⚠ File does not have 'is_double_peak' array. Run detection first."
-            )
-            return None, None
-
-        # Load data
-        is_double_peak = block.data_arrays["is_double_peak"][:]
-        raw_pulses = block.data_arrays["raw_pulses"]
-        fs = file.sections["pulses_metadata"]["metadata"]["samplerate"]
-
-        # Get indices of double peaks
-        double_peak_indices = np.where(is_double_peak == 1)[0]
-        num_double_peaks = len(double_peak_indices)
-
-        if num_double_peaks == 0:
-            con.log("  No double peaks found in this file.")
-            return None, None
-
-        con.log(f"  Overlaying {num_double_peaks} double peaks...")
-
-        # Create figure
-        fig, ax = plt.subplots(figsize=figsize)
-
-        # Plot each double peak with transparency
-        colors = plt.cm.viridis(np.linspace(0, 1, num_double_peaks))
-
-        for i, pulse_idx in enumerate(double_peak_indices):
-            pulse_data = raw_pulses[pulse_idx]
-            # pulse_mean = np.mean(pulse_data, axis=1)
-            pulse_mean, best_channel = get_representative_waveform(pulse_data)
-            time_axis = np.arange(len(pulse_mean)) / fs
-
-            ax.plot(
-                time_axis,
-                pulse_mean,
-                alpha=0.6,
-                linewidth=1.5,
-                color=colors[i],
-                label=f"Pulse {pulse_idx}",
-            )
-
-        # Formatting
-        ax.set_xlabel("Time (s)", fontsize=11)
-        ax.set_ylabel("Amplitude (a.u.)", fontsize=11)
-        ax.set_title(
-            f"All Double Peaks Overlay - {file_path.name}\n({num_double_peaks} double peaks)",
-            fontsize=13,
-            fontweight="bold",
-        )
-        ax.grid(True, alpha=0.3)
-
-        # Only show legend if not too many peaks
-        if num_double_peaks <= 20:
-            ax.legend(fontsize=8, loc="upper right", ncol=2)
-
-        plt.tight_layout()
-
-        return fig, ax
-
-    finally:
-        file.close()
-
-
-def plot_double_peaks_statistics(file_path, figsize=(14, 5)):
-    """
-    Plot statistics about single vs double peaks.
-
-    Parameters:
-    -----------
-    file_path : Path or str
-        Path to the h5 file to visualize
-    figsize : tuple
-        Figure size (width, height)
-
-    Returns:
-    --------
-    fig, axes
-        Matplotlib figure and axes objects
-    """
-    file_path = Path(file_path)
-    con.log(f"Creating statistics plot from: {file_path.name}")
-
-    # Open h5 file
-    file = nixio.File.open(str(file_path), nixio.FileMode.ReadOnly)
-
-    try:
-        block = file.blocks["pulses"]
-        data_array_names = [da.name for da in block.data_arrays]
-
-        if "is_double_peak" not in data_array_names:
-            con.log(
-                "  ⚠ File does not have 'is_double_peak' array. Run detection first."
-            )
-            return None, None
-
-        # Load data
-        is_double_peak = block.data_arrays["is_double_peak"][:]
-        raw_pulses = block.data_arrays["raw_pulses"]
-
-        num_double = np.sum(is_double_peak)
-        num_single = len(is_double_peak) - num_double
-
-        # Compute pulse widths for both categories
-        single_peak_indices = np.where(is_double_peak == 0)[0]
-        double_peak_indices = np.where(is_double_peak == 1)[0]
-
-        single_widths = []
-        for idx in single_peak_indices:
-            pulse_strength = np.mean(np.abs(raw_pulses[idx]), axis=1)
-            threshold = 0.1 * np.max(pulse_strength)
-            above_threshold = np.where(pulse_strength > threshold)[0]
-            if len(above_threshold) > 0:
-                width = above_threshold[-1] - above_threshold[0]
-                single_widths.append(width)
-
-        double_widths = []
-        for idx in double_peak_indices:
-            pulse_strength = np.mean(np.abs(raw_pulses[idx]), axis=1)
-            threshold = 0.1 * np.max(pulse_strength)
-            above_threshold = np.where(pulse_strength > threshold)[0]
-            if len(above_threshold) > 0:
-                width = above_threshold[-1] - above_threshold[0]
-                double_widths.append(width)
-
-        # Create figure with subplots
-        fig, axes = plt.subplots(1, 3, figsize=figsize)
-
-        # Plot 1: Pie chart of single vs double
-        ax = axes[0]
-        sizes = [num_single, num_double]
-        colors_pie = ["#3498db", "#e74c3c"]
-        wedges, texts, autotexts = ax.pie(
-            sizes,
-            labels=["Single Peak", "Double Peak"],
-            autopct="%1.1f%%",
-            colors=colors_pie,
-            startangle=90,
-        )
-        ax.set_title("Peak Type Distribution", fontsize=11, fontweight="bold")
-        for autotext in autotexts:
-            autotext.set_color("white")
-            autotext.set_fontweight("bold")
-
-        # Plot 2: Bar chart of counts
-        ax = axes[1]
-        ax.bar(
-            ["Single Peak", "Double Peak"],
-            [num_single, num_double],
-            color=colors_pie,
-            alpha=0.7,
-            edgecolor="black",
-        )
-        ax.set_ylabel("Count", fontsize=10)
-        ax.set_title("Peak Counts", fontsize=11, fontweight="bold")
-        ax.grid(True, alpha=0.3, axis="y")
-        for i, v in enumerate([num_single, num_double]):
-            ax.text(i, v + 5, str(v), ha="center", fontweight="bold")
-
-        # Plot 3: Pulse width comparison
-        ax = axes[2]
-        if single_widths and double_widths:
-            bp = ax.boxplot(
-                [single_widths, double_widths],
-                labels=["Single Peak", "Double Peak"],
-                patch_artist=True,
-            )
-            for patch, color in zip(bp["boxes"], colors_pie):
-                patch.set_facecolor(color)
-                patch.set_alpha(0.7)
-            ax.set_ylabel("Pulse Width (samples)", fontsize=10)
-            ax.set_title("Pulse Width Comparison", fontsize=11, fontweight="bold")
-            ax.grid(True, alpha=0.3, axis="y")
-        else:
-            ax.text(
-                0.5,
-                0.5,
-                "Insufficient data",
-                ha="center",
-                va="center",
-                transform=ax.transAxes,
-            )
-
-        plt.suptitle(
-            f"Statistics - {file_path.name}", fontsize=13, fontweight="bold", y=1.00
-        )
-        plt.tight_layout()
-
-        return fig, axes
-
-    finally:
-        file.close()
-
-
-def plot_all_double_peaks_combined(data_path, max_per_file=10, figsize_per_plot=(4, 3)):
-    """
-    Plot all double peaks from all h5 files in a combined grid visualization.
-
-    Parameters:
-    -----------
-    data_path : Path or str
-        Path to directory containing h5 files
-    max_per_file : int
-        Maximum number of double peaks to plot per file (randomly sampled if more exist)
-    figsize_per_plot : tuple
-        Figure size per subplot (width, height)
-
-    Returns:
-    --------
-    dict
-        Dictionary with file names as keys and (fig, axes) tuples as values
-    """
-    data_path = Path(data_path)
-    path_list = get_path_list(data_path)
-
-    all_plots = {}
-    total_double_peaks = 0
-
-    con.log("\n" + "=" * 60)
-    con.log("Creating combined double peaks visualization")
-    con.log("=" * 60 + "\n")
-
-    for file_path in path_list:
-        file = nixio.File.open(str(file_path), nixio.FileMode.ReadOnly)
-
-        try:
-            block = file.blocks["pulses"]
-            data_array_names = [da.name for da in block.data_arrays]
-
-            if "is_double_peak" not in data_array_names:
-                con.log(f"⊘ {file_path.name}: No 'is_double_peak' array")
-                continue
-
-            # Load data
-            is_double_peak = block.data_arrays["is_double_peak"][:]
-            raw_pulses = block.data_arrays["raw_pulses"]
-            fs = file.sections["pulses_metadata"]["metadata"]["samplerate"]
-
-            # Get indices of double peaks
-            double_peak_indices = np.where(is_double_peak == 1)[0]
-            num_double_peaks = len(double_peak_indices)
-
-            if num_double_peaks == 0:
-                con.log(f"  {file_path.name}: No double peaks found")
-                continue
-
-            con.log(f"  {file_path.name}: Found {num_double_peaks} double peaks")
-
-            # Randomly sample if too many
-            if num_double_peaks > max_per_file:
-                selected_indices = np.random.choice(
-                    double_peak_indices, size=max_per_file, replace=False
-                )
-                con.log(f"    → Randomly sampling {max_per_file} for visualization")
-            else:
-                selected_indices = double_peak_indices
-
-            num_to_plot = len(selected_indices)
-            total_double_peaks += num_to_plot
-
-            # Create subplots grid
-            n_cols = min(4, num_to_plot)  # Max 4 columns
-            n_rows = (num_to_plot + n_cols - 1) // n_cols
-
-            figsize = (figsize_per_plot[0] * n_cols, figsize_per_plot[1] * n_rows)
-            fig, axes = plt.subplots(n_rows, n_cols, figsize=figsize)
-
-            if num_to_plot == 1:
-                axes = np.array([axes])
-            else:
-                axes = axes.flatten()
-
-            # Plot each sampled double peak
-            for plot_idx, pulse_idx in enumerate(selected_indices):
-                ax = axes[plot_idx]
-                pulse_data = raw_pulses[pulse_idx]  # Shape: (num_samples, 16 channels)
-
-                # Use mean across channels for visualization
-                # pulse_mean = np.mean(pulse_data, axis=1)
-                pulse_mean, best_channel = get_representative_waveform(pulse_data)
-
-                # Plot waveform
-                time_axis = np.arange(len(pulse_mean)) / fs
-                ax.plot(
-                    time_axis, pulse_mean, linewidth=1.5, color="steelblue", alpha=0.8
-                )
-                ax.fill_between(time_axis, pulse_mean, alpha=0.3, color="steelblue")
-
-                # # Add peaks detection visualization using same logic as detection function
-                # pulse_strength = np.mean(np.abs(pulse_data), axis=1)
-                # pulse_waveform_mean = np.mean(pulse_data, axis=1)
-                # max_strength = np.max(pulse_strength)
-                # prominence = 0.1 * max_strength
-                # peaks, _ = find_peaks(pulse_strength, prominence=prominence)
-
-                # # Apply same filtering criteria as detection function
-                # filtered_peaks = []
-                # if len(peaks) == 2:
-                #     # Check same sign
-                #     peak1_value = pulse_waveform_mean[peaks[0]]
-                #     peak2_value = pulse_waveform_mean[peaks[1]]
-
-                #     # Check if peaks have the same sign (both above 0 or both below 0)
-                #     same_sign = not (
-                #         (peak1_value > 0 and peak2_value < 0)
-                #         or (peak1_value < 0 and peak2_value > 0)
-                #     )
-
-                #     if same_sign:
-                #         # Check if at least one is a local maximum within 0.004s window
-                #         window_samples = int(0.004 * fs)
-
-                #         def is_local_max_in_window(signal, idx, window_size):
-                #             start = max(0, idx - window_size)
-                #             end = min(len(signal), idx + window_size + 1)
-                #             return signal[idx] == np.max(signal[start:end])
-
-                #         peak1_local_max = is_local_max_in_window(
-                #             pulse_strength, peaks[0], window_samples
-                #         )
-                #         peak2_local_max = is_local_max_in_window(
-                #             pulse_strength, peaks[1], window_samples
-                #         )
-
-                #         if peak1_local_max or peak2_local_max:
-                #             filtered_peaks = list(peaks)
-
-                # # Mark peaks
-                # if filtered_peaks:
-                #     peak_times = np.array(filtered_peaks) / fs
-                #     peak_values = pulse_mean[filtered_peaks]
-                #     ax.scatter(
-                #         peak_times,
-                #         peak_values,
-                #         color="red",
-                #         s=100,
-                #         marker="*",
-                #         zorder=5,
-                #         label=f"{len(filtered_peaks)} peaks",
-                #     )
-
-                # use same logic as detection function
-                is_double, info = detect_double_pulse(pulse_data, fs)
-
-                if is_double:
-                    peaks = info["peaks"]
-                    peak_times = np.array(peaks) / fs
-                    peak_vals = pulse_mean[peaks]
-
-                    ax.scatter(
-                        peak_times,
-                        peak_vals,
-                        color="red",
-                        s=100,
-                        marker="*",
-                        zorder=5,
-                        label="2 peaks",
-                    )
-
-                else:
-                    ax.text(
-                        0.5,
-                        0.5,
-                        info.get("reason", "not double"),
-                        transform=ax.transAxes,
-                        ha="center",
-                        va="center",
-                        fontsize=8,
-                        color="gray",
-                    )
-
-                # Formatting
-                ax.set_title(f"Pulse {pulse_idx}", fontsize=9, fontweight="bold")
-                ax.set_xlabel("Time (s)", fontsize=8)
-                ax.set_ylabel("Amplitude (a.u.)", fontsize=8)
-                ax.grid(True, alpha=0.3)
-                ax.legend(fontsize=7)
-
-            # Hide unused subplots
-            for plot_idx in range(num_to_plot, len(axes)):
-                axes[plot_idx].set_visible(False)
-
-            plt.suptitle(
-                f"Double Peaks - {file_path.name}\n({num_to_plot} of {num_double_peaks} double peaks)",
-                fontsize=12,
-                fontweight="bold",
-                y=0.995,
-            )
-            plt.tight_layout()
-
-            all_plots[file_path.name] = (fig, axes)
-
-        finally:
-            file.close()
-
-    con.log(f"\n✓ Total double peaks to visualize: {total_double_peaks}")
-    con.log(f"✓ Created {len(all_plots)} figures")
-
-    return all_plots
-
-
-def interactive_double_peak_verification(data_path):
-    """
-    Interactive matplotlib-based verification tool for double peak classifications.
-
-    Displays each double peak waveform in a matplotlib window and allows verification
-    using keyboard input (Y to confirm, N to reject) without switching focus away from
-    the plot window. Changes are saved to h5 files after all files have been reviewed.
-
-    Parameters:
-    -----------
-    data_path : Path or str
-        Path to directory containing h5 files
-
-    Returns:
-    --------
-    dict
-        Summary statistics of corrections made
-    """
-    data_path = Path(data_path)
-    path_list = get_path_list(data_path)
-
-    if not path_list:
-        con.log("No h5 files found.")
-        return {}
-
-    # State management
-    state = {
-        "current_pulse_idx": 0,
-        "changes": {},  # {file_path: {pulse_idx: new_label}}
-        "total_verified": 0,
-        "total_corrected": 0,
-        "quit_requested": False,
-        "all_double_peaks": [],  # List of pulse info dicts
-        "current_fig": None,
-    }
-
-    # Pre-load all double peaks from all files
-    con.log(f"\n{'=' * 60}")
-    con.log("INTERACTIVE DOUBLE PEAK VERIFICATION")
-    con.log(f"{'=' * 60}\n")
-    con.log("Loading double peaks from all files...")
-
-    for file_idx, file_path in enumerate(path_list, 1):
-        con.log(f"  [{file_idx}/{len(path_list)}] {file_path.name}", end="")
-
-        file = nixio.File.open(str(file_path), nixio.FileMode.ReadOnly)
-
-        try:
-            block = file.blocks["pulses"]
-            data_array_names = [da.name for da in block.data_arrays]
-
-            if "is_double_peak" not in data_array_names:
-                con.log(" - No is_double_peak array. Skipping.")
-                continue
-
-            is_double_peak = block.data_arrays["is_double_peak"][:]
-            raw_pulses = block.data_arrays["raw_pulses"]
-            fs = file.sections["pulses_metadata"]["metadata"]["samplerate"]
-
-            double_peak_indices = np.where(is_double_peak == 1)[0]
-            num_double = len(double_peak_indices)
-            con.log(f" - Found {num_double} double peaks")
-
-            # Initialize changes dict for this file
-            if str(file_path) not in state["changes"]:
-                state["changes"][str(file_path)] = {}
-
-            # Load pulse data
-            for pulse_idx in double_peak_indices:
-                pulse_data = raw_pulses[pulse_idx]
-                is_double, info = detect_double_pulse(pulse_data, fs)
-                pulse_mean, best_channel = get_representative_waveform(pulse_data)
-
-                state["all_double_peaks"].append(
-                    {
-                        "file_path": file_path,
-                        "file_path_str": str(file_path),
-                        "pulse_data": pulse_data,
-                        "pulse_idx": pulse_idx,
-                        "fs": fs,
-                        "is_double": is_double,
-                        "info": info,
-                        "best_channel": best_channel,
-                        "pulse_mean": pulse_mean,
-                    }
-                )
-
-        finally:
-            file.close()
-
-    total_peaks = len(state["all_double_peaks"])
-    if total_peaks == 0:
-        con.log("\n⚠ No double peaks found to verify.")
-        return {}
-
-    con.log(f"\n✓ Loaded {total_peaks} double peaks to verify")
-    con.log("\nInstructions (use keys while plot window is active):")
-    con.log("  [Y] - Confirm double peak (keep as 1)")
-    con.log("  [N] - Reject as double peak (change to 0)")
-    con.log("  [Q] - Quit without saving")
-    con.log("\nStarting verification...\n")
-
-    def save_changes():
-        """Save all changes to h5 files."""
-        con.log(f"\n{'=' * 60}")
-        con.log("SAVING CHANGES...")
-        con.log(f"{'=' * 60}\n")
-
-        for file_path_str, pulse_changes in state["changes"].items():
-            if not pulse_changes:
-                continue
-
-            file_path = Path(file_path_str)
-            con.log(f"  Updating {file_path.name}...")
-
-            file = nixio.File.open(str(file_path), nixio.FileMode.ReadWrite)
-
-            try:
-                block = file.blocks["pulses"]
-                is_double_peak_array = block.data_arrays["is_double_peak"][:]
-
-                # Apply changes
-                for pulse_idx, new_value in pulse_changes.items():
-                    is_double_peak_array[pulse_idx] = new_value
-
-                # Write back to file
-                block.data_arrays["is_double_peak"][:] = is_double_peak_array
-                con.log(f"    ✓ Saved {len(pulse_changes)} changes")
-
-            finally:
-                file.close()
-
-        # Print summary
-        con.log(f"\n{'=' * 60}")
-        con.log("VERIFICATION COMPLETE")
-        con.log(f"{'=' * 60}")
-        con.log(f"Total pulses verified: {state['total_verified']}")
-        con.log(f"Total corrections made: {state['total_corrected']}")
-        con.log(f"Total reviewed: {state['total_verified'] + state['total_corrected']}")
-        con.log(
-            f"Total changes saved: {sum(len(c) for c in state['changes'].values())}"
-        )
-
-    def display_next_pulse():
-        """Display the next pulse for verification."""
-        if state["quit_requested"] or state["current_pulse_idx"] >= total_peaks:
-            return
-
-        peak_data = state["all_double_peaks"][state["current_pulse_idx"]]
-
-        fig, ax = plt.subplots(figsize=(12, 5))
-        state["current_fig"] = fig
-
-        # Plot waveform
-        time_axis = np.arange(len(peak_data["pulse_mean"])) / peak_data["fs"]
-        ax.plot(
-            time_axis,
-            peak_data["pulse_mean"],
-            linewidth=2.5,
-            color="steelblue",
-            alpha=0.85,
-            label="Waveform",
-        )
-        ax.fill_between(
-            time_axis, peak_data["pulse_mean"], alpha=0.25, color="steelblue"
-        )
-
-        # Mark detected peaks
-        if peak_data["is_double"] and "peaks" in peak_data["info"]:
-            peaks = peak_data["info"]["peaks"]
-            peak_times = np.array(peaks) / peak_data["fs"]
-            peak_vals = peak_data["pulse_mean"][peaks]
-            ax.scatter(
-                peak_times,
-                peak_vals,
-                color="red",
-                s=120,
-                marker="*",
-                zorder=5,
-                label="Detected peaks",
-            )
-
-        # Title with instructions
-        file_name = peak_data["file_path"].name
-        pulse_num = state["current_pulse_idx"] + 1
-
-        title = (
-            f"Pulse {peak_data['pulse_idx']} [{pulse_num}/{total_peaks}] - {file_name}\n"
-            f"Channel {peak_data['best_channel']} (strongest) | "
-            f"Press [Y]es / [N]o / [Q]uit"
-        )
-        ax.set_title(title, fontsize=12, fontweight="bold", pad=15)
-
-        ax.set_xlabel("Time (s)", fontsize=11)
-        ax.set_ylabel("Amplitude (a.u.)", fontsize=11)
-        ax.grid(True, alpha=0.3, linestyle="--")
-        ax.legend(fontsize=10, loc="upper right")
-
-        plt.tight_layout()
-
-        # Register key handler and show
-        fig.canvas.mpl_connect("key_press_event", on_key_press)
-        plt.show(block=False)
-
-    # Re-define on_key_press to use updated display_next_pulse
-    def on_key_press(event):
-        """Handle keyboard input for verification."""
-        if event.key is None or state["quit_requested"]:
-            return
-
-        key = event.key.upper()
-
-        if key == "Y":
-            # Confirm double peak
-            peak_data = state["all_double_peaks"][state["current_pulse_idx"]]
-            state["changes"][peak_data["file_path_str"]][peak_data["pulse_idx"]] = 1
-            state["total_verified"] += 1
-            con.log(
-                f"  ✓ [{state['current_pulse_idx'] + 1}/{total_peaks}] "
-                f"Confirmed double peak (pulse {peak_data['pulse_idx']})"
-            )
-            state["current_pulse_idx"] += 1
-
-            if state["current_pulse_idx"] >= total_peaks:
-                # All done
-                plt.close("all")
-                save_changes()
-            else:
-                # Show next pulse
-                plt.close(state["current_fig"])
-                display_next_pulse()
-
-        elif key == "N":
-            # Reject as double peak
-            peak_data = state["all_double_peaks"][state["current_pulse_idx"]]
-            state["changes"][peak_data["file_path_str"]][peak_data["pulse_idx"]] = 0
-            state["total_corrected"] += 1
-            con.log(
-                f"  ✗ [{state['current_pulse_idx'] + 1}/{total_peaks}] "
-                f"Marked as NOT double peak (pulse {peak_data['pulse_idx']})"
-            )
-            state["current_pulse_idx"] += 1
-
-            if state["current_pulse_idx"] >= total_peaks:
-                # All done
-                plt.close("all")
-                save_changes()
-            else:
-                # Show next pulse
-                plt.close(state["current_fig"])
-                display_next_pulse()
-
-        elif key == "Q":
-            con.log("\n⚠ Quit requested. Closing without saving...")
-            state["quit_requested"] = True
-            plt.close("all")
-
-    # Start verification
-    try:
-        display_next_pulse()
-        plt.show(block=True)  # Block until all windows are closed
-
-        if not state["quit_requested"]:
-            return {
-                "status": "completed",
-                "verified": state["total_verified"],
-                "corrected": state["total_corrected"],
-                "total_reviewed": state["total_verified"] + state["total_corrected"],
-            }
-        else:
-            return {"status": "cancelled", "message": "Verification cancelled by user"}
-
-    except Exception as e:
-        con.log(f"\n⚠ Error during verification: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return {"status": "error", "message": str(e)}
-
-
 if __name__ == "__main__":
     # Path to directory containing h5 files with detected pulses
     data_path = Path(
-        "/home/eisele/wrk/mscthesis/data/raw/eels-mfn2021_dummy_pulses_redetected/berlin_tank_site/"
+        "/home/eisele/wrk/mscthesis/data/raw/eels-mfn2021_dummy_pulses_redetected/subtestset/"
     )
 
-    # Process all h5 files to detect double peaks
+    # Process all h5 files to detect double peaks or wide pulses
     results = process_all_h5_files(data_path)
-
-    # Start interactive verification of double peaks
-    verification_results = interactive_double_peak_verification(data_path)
