@@ -116,7 +116,7 @@ def load_eods(file_paths, double_peaks_only=False):
         # check if is_double_peak array exists and apply filter if requested
         is_double_peak_available = "is_double_peak" in data_array_names
         if double_peaks_only and is_double_peak_available:
-            is_double_peak = block.data_arrays["is_double_peak"]
+            is_double_peak = block.data_arrays["is_wide_pulse"]  # TODO: is_double_peak
             # Filter for pulses that are both predicted as positive AND marked as double peaks
             mask = (pred_labels[:] == 1) & (is_double_peak[:] == 1)
             selected_centers = pulses_center_idx[mask]

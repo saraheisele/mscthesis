@@ -385,7 +385,7 @@ def check_pulse_shape_gaussian_exponential(signal, peak_idx, sample_rate):
             ss_tot_left = np.sum((left_y - np.mean(left_y)) ** 2)
             r2_left = 1 - (ss_res_left / ss_tot_left) if ss_tot_left > 0 else 0
             info["r2_gaussian_rise"] = r2_left
-        except:
+        except:  # noqa: E722
             r2_left = -1
             info["r2_gaussian_rise"] = -1
     else:
@@ -414,7 +414,7 @@ def check_pulse_shape_gaussian_exponential(signal, peak_idx, sample_rate):
             ss_tot_right = np.sum((right_y - np.mean(right_y)) ** 2)
             r2_right = 1 - (ss_res_right / ss_tot_right) if ss_tot_right > 0 else 0
             info["r2_exponential_decay"] = r2_right
-        except:
+        except:  # noqa: E722
             r2_right = -1
             info["r2_exponential_decay"] = -1
     else:
@@ -468,7 +468,7 @@ def detect_wide_pulse(
     sample_rate,
     amplitude_threshold=0.7,
     width_threshold_ms=2.3,
-    max_width_ms=4.0,
+    max_width_ms=4,
     isolation_window_ms=3.0,
     prominence_ratio=0.1,
     check_shape=True,

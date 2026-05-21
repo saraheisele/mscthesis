@@ -18,6 +18,7 @@ from rich.console import Console
 from double_peaks_detection import (
     get_representative_waveform,
     detect_pulse,
+    compute_half_max_width,
     get_path_list,
     DETECTION_MODE,
     ARRAY_NAME,
@@ -409,6 +410,267 @@ def plot_detection_statistics(file_path, figsize=(14, 5)):
         file.close()
 
 
+def plot_all_pulses_width_histogram(data_path, figsize=(14, 6), bins=50):
+    """
+    Create a histogram of half-max widths for ALL pulses from all h5 files.
+    Separates detected pulses from non-detected for comparison.
+
+    Parameters:
+    -----------
+    data_path : Path or str
+        Path to directory containing h5 files
+    figsize : tuple
+        Figure size (width, height)
+    bins : int
+        Number of histogram bins
+
+    Returns:
+    --------
+    fig, axes
+        Matplotlib figure and axes objects
+    dict
+        Statistics about the pulse widths
+    """
+    data_path = Path(data_path)
+    path_list = get_path_list(data_path)
+
+    if not path_list:
+        con.log("No h5 files found.")
+        return None, None, {}
+
+    con.log("\nComputing half-max widths for ALL pulses from all h5 files...")
+
+    detected_widths_ms = []
+    not_detected_widths_ms = []
+    total_pulses = 0
+    total_detected = 0
+    total_not_detected = 0
+
+    for file_idx, file_path in enumerate(path_list, 1):
+        con.log(f"  [{file_idx}/{len(path_list)}] {file_path.name}", end="")
+
+        file = nixio.File.open(str(file_path), nixio.FileMode.ReadOnly)
+
+        try:
+            block = file.blocks["pulses"]
+            data_array_names = [da.name for da in block.data_arrays]
+
+            raw_pulses = block.data_arrays["raw_pulses"]
+            fs = file.sections["pulses_metadata"]["metadata"]["samplerate"]
+
+            # Check if detection array exists
+            if ARRAY_NAME in data_array_names:
+                detection_array = block.data_arrays[ARRAY_NAME][:]
+            else:
+                detection_array = np.zeros(len(raw_pulses), dtype=np.int64)
+
+            num_pulses = len(raw_pulses)
+            total_pulses += num_pulses
+
+            # Process each pulse
+            for pulse_idx, pulse_data in enumerate(raw_pulses):
+                # Get representative waveform
+                signal, best_channel = get_representative_waveform(pulse_data)
+
+                # Apply baseline correction (same as detection does)
+                baseline = np.median(signal[: len(signal) // 5])
+                signal_corrected = signal - baseline
+
+                # Compute half-max width
+                width_sec, width_info = compute_half_max_width(signal_corrected, fs)
+                width_ms = width_sec * 1000
+
+                # Categorize as detected or not detected
+                is_detected = detection_array[pulse_idx] == 1
+
+                if is_detected:
+                    detected_widths_ms.append(width_ms)
+                    total_detected += 1
+                else:
+                    not_detected_widths_ms.append(width_ms)
+                    total_not_detected += 1
+
+            con.log(f" ✓ ({num_pulses} pulses)")
+
+            file.close()
+
+        except Exception as e:
+            con.log(f" ✗ Error processing file: {e}")
+            file.close()  # Ensure file is closed before continuing
+            continue
+
+    con.log(f"\n✓ Total pulses processed: {total_pulses}")
+    con.log(f"  - Detected as {DISPLAY_NAME}: {total_detected}")
+    con.log(f"  - Not detected: {total_not_detected}")
+
+    # Compute statistics
+    all_widths = detected_widths_ms + not_detected_widths_ms
+    stats = {
+        "total_pulses": total_pulses,
+        "total_detected": total_detected,
+        "total_not_detected": total_not_detected,
+        "all_widths": {
+            "mean": np.mean(all_widths) if all_widths else 0,
+            "median": np.median(all_widths) if all_widths else 0,
+            "std": np.std(all_widths) if all_widths else 0,
+            "min": np.min(all_widths) if all_widths else 0,
+            "max": np.max(all_widths) if all_widths else 0,
+        },
+        "detected_widths": {
+            "mean": np.mean(detected_widths_ms) if detected_widths_ms else 0,
+            "median": np.median(detected_widths_ms) if detected_widths_ms else 0,
+            "std": np.std(detected_widths_ms) if detected_widths_ms else 0,
+            "min": np.min(detected_widths_ms) if detected_widths_ms else 0,
+            "max": np.max(detected_widths_ms) if detected_widths_ms else 0,
+        },
+        "not_detected_widths": {
+            "mean": np.mean(not_detected_widths_ms) if not_detected_widths_ms else 0,
+            "median": np.median(not_detected_widths_ms)
+            if not_detected_widths_ms
+            else 0,
+            "std": np.std(not_detected_widths_ms) if not_detected_widths_ms else 0,
+            "min": np.min(not_detected_widths_ms) if not_detected_widths_ms else 0,
+            "max": np.max(not_detected_widths_ms) if not_detected_widths_ms else 0,
+        },
+    }
+
+    # Create figure with subplots
+    fig, axes = plt.subplots(1, 2, figsize=figsize)
+
+    # --- Plot 1: Overlaid histogram of all pulses ---
+    ax = axes[0]
+
+    # Create uniform bin edges based on combined data range
+    all_widths_combined = detected_widths_ms + not_detected_widths_ms
+    if all_widths_combined:
+        bin_edges = np.linspace(
+            min(all_widths_combined), max(all_widths_combined), bins + 1
+        )
+    else:
+        bin_edges = bins
+
+    ax.hist(
+        not_detected_widths_ms,
+        bins=bin_edges,
+        alpha=0.6,
+        label=f"Not detected ({total_not_detected})",
+        color="#3498db",
+        edgecolor="black",
+    )
+
+    ax.hist(
+        detected_widths_ms,
+        bins=bin_edges,
+        alpha=0.6,
+        label=f"Detected {DISPLAY_NAME} ({total_detected})",
+        color="#e74c3c",
+        edgecolor="black",
+    )
+
+    ax.set_xlabel("Half-max Width (ms)", fontsize=11)
+    ax.set_ylabel("Count", fontsize=11)
+    ax.set_title("All Pulses - Overlaid Distribution", fontsize=12, fontweight="bold")
+    ax.legend(fontsize=10)
+    ax.grid(True, alpha=0.3, axis="y")
+
+    # Add vertical lines for means
+    if detected_widths_ms:
+        ax.axvline(
+            stats["detected_widths"]["mean"],
+            color="#e74c3c",
+            linestyle="--",
+            linewidth=2,
+            alpha=0.7,
+            label=f"Detected mean: {stats['detected_widths']['mean']:.2f} ms",
+        )
+
+    if not_detected_widths_ms:
+        ax.axvline(
+            stats["not_detected_widths"]["mean"],
+            color="#3498db",
+            linestyle="--",
+            linewidth=2,
+            alpha=0.7,
+            label=f"Not detected mean: {stats['not_detected_widths']['mean']:.2f} ms",
+        )
+
+    # --- Plot 2: Side-by-side comparison ---
+    ax = axes[1]
+
+    positions = [1, 2]
+    widths_data = [not_detected_widths_ms, detected_widths_ms]
+    labels = [
+        f"Not Detected\n({total_not_detected})",
+        f"Detected {DISPLAY_NAME.title()}\n({total_detected})",
+    ]
+    colors = ["#3498db", "#e74c3c"]
+
+    bp = ax.boxplot(
+        widths_data,
+        positions=positions,
+        labels=labels,
+        patch_artist=True,
+        widths=0.6,
+    )
+
+    # Color the box plots
+    for patch, color in zip(bp["boxes"], colors):
+        patch.set_facecolor(color)
+        patch.set_alpha(0.7)
+
+    # Add violin plots for more detail
+    parts = ax.violinplot(
+        widths_data,
+        positions=positions,
+        showmeans=True,
+        showmedians=True,
+    )
+
+    for pc in parts["bodies"]:
+        pc.set_facecolor("lightgray")
+        pc.set_alpha(0.3)
+
+    ax.set_ylabel("Half-max Width (ms)", fontsize=11)
+    ax.set_title("Width Distribution Comparison", fontsize=12, fontweight="bold")
+    ax.grid(True, alpha=0.3, axis="y")
+
+    # Add statistics text box
+    stats_text = f"""Statistics:
+All pulses (n={total_pulses}):
+  Mean: {stats["all_widths"]["mean"]:.2f} ms
+  Median: {stats["all_widths"]["median"]:.2f} ms
+  Range: [{stats["all_widths"]["min"]:.2f}, {stats["all_widths"]["max"]:.2f}] ms
+
+Detected (n={total_detected}):
+  Mean: {stats["detected_widths"]["mean"]:.2f} ms
+  Median: {stats["detected_widths"]["median"]:.2f} ms
+
+Not Detected (n={total_not_detected}):
+  Mean: {stats["not_detected_widths"]["mean"]:.2f} ms
+  Median: {stats["not_detected_widths"]["median"]:.2f} ms"""
+
+    plt.figtext(
+        0.98,
+        0.97,
+        stats_text,
+        fontsize=9,
+        verticalalignment="top",
+        horizontalalignment="right",
+        bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.8),
+        family="monospace",
+    )
+
+    plt.suptitle(
+        f"Half-Max Width Histogram - All Pulses from All Files\n({DETECTION_MODE.capitalize()} Detection Mode)",
+        fontsize=14,
+        fontweight="bold",
+        y=0.98,
+    )
+    plt.tight_layout()
+
+    return fig, axes, stats
+
+
 def plot_all_detected_pulses_combined(
     data_path, max_per_file=10, figsize_per_plot=(4, 3)
 ):
@@ -750,6 +1012,7 @@ def interactive_pulse_verification(data_path):
             return
 
         pulse_data = state["all_detected_pulses"][state["current_pulse_idx"]]
+        pulse_data = state["all_detected_pulses"][state["current_pulse_idx"]]
 
         fig, ax = plt.subplots(figsize=(12, 5))
 
@@ -760,19 +1023,19 @@ def interactive_pulse_verification(data_path):
 
         ax.plot(
             time_axis,
-            pulse_data["pulse_mean"],
+            pulse_data["pulse_data"],
             linewidth=2.5,
             color="steelblue",
             alpha=0.85,
             label="Waveform",
         )
 
-        ax.fill_between(
-            time_axis,
-            pulse_data["pulse_mean"],
-            alpha=0.25,
-            color="steelblue",
-        )
+        # ax.fill_between(
+        #     time_axis,
+        #     pulse_data["pulse_mean"],
+        #     alpha=0.25,
+        #     color="steelblue",
+        # )
 
         # DOUBLE PEAK VISUALIZATION
         if DETECTION_MODE == "double":
@@ -972,9 +1235,10 @@ if __name__ == "__main__":
     con.log("=" * 60)
     con.log("1. Plot all detected pulses (combined from all files)")
     con.log("2. Interactive verification (review and correct detections)")
+    con.log("3. Histogram of half-widths for ALL pulses")
     con.log("=" * 60)
 
-    mode = input("Select mode (1 or 2): ").strip()
+    mode = input("Select mode (1, 2, or 3): ").strip()
 
     if mode == "1":
         # Plot all detected pulses from all files
@@ -992,5 +1256,31 @@ if __name__ == "__main__":
         if verification_results:
             con.log(f"Verification results: {verification_results}")
 
+    elif mode == "3":
+        # Plot histogram of all pulse widths
+        con.log("\nGenerating width histogram for all pulses...")
+        fig, axes, stats = plot_all_pulses_width_histogram(data_path)
+        if fig:
+            con.log("\n✓ Width statistics computed:")
+            con.log(f"  Total pulses: {stats['total_pulses']}")
+            con.log(
+                f"  Detected: {stats['total_detected']} ({stats['total_detected'] / stats['total_pulses'] * 100:.1f}%)"
+            )
+            con.log(
+                f"  Not detected: {stats['total_not_detected']} ({stats['total_not_detected'] / stats['total_pulses'] * 100:.1f}%)"
+            )
+            con.log(
+                f"\n  All pulses width - Mean: {stats['all_widths']['mean']:.2f} ms, Median: {stats['all_widths']['median']:.2f} ms"
+            )
+            con.log(
+                f"  Detected widths - Mean: {stats['detected_widths']['mean']:.2f} ms, Median: {stats['detected_widths']['median']:.2f} ms"
+            )
+            con.log(
+                f"  Not detected widths - Mean: {stats['not_detected_widths']['mean']:.2f} ms, Median: {stats['not_detected_widths']['median']:.2f} ms"
+            )
+            plt.show()
+        else:
+            con.log("Failed to generate histogram.")
+
     else:
-        con.log("Invalid selection. Please enter 1 or 2.")
+        con.log("Invalid selection. Please enter 1, 2, or 3.")
