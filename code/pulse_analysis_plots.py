@@ -7,18 +7,57 @@ from pathlib import Path
 #################################
 ############# CONFIG #############
 #################################
-# Set to True to analyze only double pulses
-# Set to False to analyze all detected pulses
-DOUBLE_PEAKS_ONLY = True
+PULSE_TYPES = {
+    "all": {
+        "label": "all pulses",
+        "suffix": "_all",
+        "figures_subdir": "all_pulses",
+        "hist_subdir": "all_pulses_hist",
+    },
+    "double": {
+        "label": "double pulses",
+        "suffix": "_dp",
+        "figures_subdir": "double_pulses",
+        "hist_subdir": "double_pulses_hist",
+    },
+    "wide": {
+        "label": "wide pulses",
+        "suffix": "_wide",
+        "figures_subdir": "wide_pulses",
+        "hist_subdir": "wide_pulses_hist",
+    },
+    "fat": {
+        "label": "fat pulses",
+        "suffix": "_fat",
+        "figures_subdir": "fat_pulses",
+        "hist_subdir": "fat_pulses_hist",
+    },
+}
+
+
+def select_pulse_type(default="all"):
+    choices = ", ".join(PULSE_TYPES)
+    selected = input(f"Pulse analysis type ({choices}) [{default}]: ").strip().lower()
+    if not selected:
+        return default
+    if selected not in PULSE_TYPES:
+        raise ValueError(
+            f"Unknown pulse analysis type '{selected}'. Choose one of: {choices}."
+        )
+    return selected
+
+
+pulse_type = select_pulse_type(default="all")
+pulse_config = PULSE_TYPES[pulse_type]
 
 #################################
 ############# LOAD #############
 #################################
 
 # set filename suffix and save path based on configuration
-suffix = "_dp" if DOUBLE_PEAKS_ONLY else "_all"
-figures_subdir = "double_pulses" if DOUBLE_PEAKS_ONLY else "all_pulses"
-hist_subdir = "double_pulses_hist" if DOUBLE_PEAKS_ONLY else "all_pulses_hist"
+suffix = pulse_config["suffix"]
+figures_subdir = pulse_config["figures_subdir"]
+hist_subdir = pulse_config["hist_subdir"]
 
 # load histogram dictionaries from .npz files
 data_path = Path(

@@ -81,8 +81,46 @@ def get_path_list(datapath):
     return sorted(path_list)
 
 
-def load_eods(file_paths, double_peaks_only=False):
-    con.log(f"Loading hdf5 files. Double peaks only: {double_peaks_only}")
+PULSE_TYPES = {
+    "all": {
+        "label": "all pulses",
+        "array": None,
+        "hist_subdir": "all_pulses_hist",
+    },
+    "double": {
+        "label": "double pulses",
+        "array": "is_double_peak",
+        "hist_subdir": "double_pulses_hist",
+    },
+    "wide": {
+        "label": "wide pulses",
+        "array": "is_wide_pulse",
+        "hist_subdir": "wide_pulses_hist",
+    },
+    "fat": {
+        "label": "fat pulses",
+        "array": "is_fat_pulse",
+        "hist_subdir": "fat_pulses_hist",
+    },
+}
+
+
+def select_pulse_type(default="all"):
+    choices = ", ".join(PULSE_TYPES)
+    selected = input(f"Pulse analysis type ({choices}) [{default}]: ").strip().lower()
+    if not selected:
+        return default
+    if selected not in PULSE_TYPES:
+        raise ValueError(
+            f"Unknown pulse analysis type '{selected}'. Choose one of: {choices}."
+        )
+    return selected
+
+
+def load_eods(file_paths, pulse_type="all"):
+    pulse_config = PULSE_TYPES[pulse_type]
+    pulse_marker = pulse_config["array"]
+    con.log(f"Loading hdf5 files. Pulse analysis type: {pulse_config['label']}")
 
     ## initialize empty lists to hold extracted data
     pulse_center_list = []
@@ -113,13 +151,18 @@ def load_eods(file_paths, double_peaks_only=False):
         # predicted labels for each detected pulse, 1 = pulse, 0 = no pulse
         pred_labels = block.data_arrays["predicted_labels"]
 
-        # check if is_double_peak array exists and apply filter if requested
-        is_double_peak_available = "is_double_peak" in data_array_names
-        if double_peaks_only and is_double_peak_available:
-            is_double_peak = block.data_arrays["is_wide_pulse"]  # TODO: is_double_peak
-            # Filter for pulses that are both predicted as positive AND marked as double peaks
-            mask = (pred_labels[:] == 1) & (is_double_peak[:] == 1)
-            selected_centers = pulses_center_idx[mask]
+        if pulse_marker is not None:
+            if pulse_marker not in data_array_names:
+                con.log(
+                    f"File {fp} does not contain '{pulse_marker}' data array. "
+                    "Using zero selected pulses for this file."
+                )
+                selected_centers = pulses_center_idx[:0]
+            else:
+                marker = block.data_arrays[pulse_marker]
+                # Keep pulses that are predicted positive and marked as the selected type.
+                mask = (pred_labels[:] == 1) & (marker[:] == 1)
+                selected_centers = pulses_center_idx[mask]
         else:
             # Filter by predicted labels only (all pulses predicted as positive)
             selected_centers = pulses_center_idx[pred_labels[:] == 1]
@@ -465,21 +508,15 @@ def save_normalized_fr(normalized_fr_list, out_path):
 
 # %%
 def main():
-    # ============================================
-    # CONFIGURATION SWITCH
-    # ============================================
-    # Set to True to analyze only double pulses
-    # Set to False to analyze all detected pulses
-    DOUBLE_PEAKS_ONLY = True
-    # ============================================
+    pulse_type = select_pulse_type(default="all")
 
     # path to directory containing hdf5 files with detected pulses
     data_path = Path(
         "/home/eisele/wrk/mscthesis/data/raw/eels-mfn2021_dummy_pulses_redetected/berlin_tank_site/"
     )
 
-    # path to output directory - adjust based on configuration
-    hist_subdir = "double_pulses_hist" if DOUBLE_PEAKS_ONLY else "all_pulses_hist"
+    # path to output directory - adjust based on selected pulse type
+    hist_subdir = PULSE_TYPES[pulse_type]["hist_subdir"]
 
     save_path = Path(
         f"/home/eisele/wrk/mscthesis/data/intermediate/eels-mfn2021_dummy_activity_histograms/{hist_subdir}/"
@@ -492,7 +529,7 @@ def main():
 
     # load hdf5 files from path list and extract pulse centers of pulses that were predicted as EODs
     pulse_centers, sampling_rates, start_times, end_times, duration = load_eods(
-        path_list, double_peaks_only=DOUBLE_PEAKS_ONLY
+        path_list, pulse_type=pulse_type
     )
 
     # calculate histogram of number of pulses per minute for 24‑h period (0…1439 minutes)
@@ -507,7 +544,7 @@ def main():
     normalized_fr_list = normalized_fr(pulse_count_per_session, rec_time_per_session)
 
     # # create a hdf5 file with nixio to later save the timestamp of each pulse in it (only for all_pulses case)
-    # if not DOUBLE_PEAKS_ONLY:
+    # if pulse_type == "all":
     #     nix_file, nix_block = open_nix_for_output(Path(save_path))
 
     #     # save the unix timestamp of each pulse in the earlier created nix_timestamp block of nix_file
