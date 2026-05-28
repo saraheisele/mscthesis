@@ -3,18 +3,26 @@
 # wave show function in lib rosa (plots hist of audio data)
 # let this run for whole dataset and get info of in which files and times double peaks are -> make histogram
 
-# This script detects which pulses in h5 files are "double peaks" (wider pulses with 2 peaks instead of 1).
+# This script detects special pulse shapes in h5 files.
 # Double peaks are identified by analyzing the peak structure of each pulse waveform.
-# The script adds an "is_double_peak" or "is_wide_pulse" data array to each h5 file containing binary labels (0 or 1).
+# The script adds an "is_double_peak", "is_wide_pulse", or "is_fat_pulse" data array to each h5 file containing binary labels (0 or 1).
 
 # TODO: plotting von double peak detection trennen, double peaks finden verbessern
 
 from pathlib import Path
+import pickle
 from scipy.signal import find_peaks
 from scipy.optimize import curve_fit
 import numpy as np
 import nixio
+import matplotlib.pyplot as plt
 from rich.console import Console
+from sklearn.decomposition import PCA
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.model_selection import train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
 # Initialize console for logging
 con = Console()
@@ -23,10 +31,11 @@ con = Console()
 ############# MODE ##############
 #################################
 
-DETECTION_MODE = "wide"
+DETECTION_MODE = "fat"
 # options:
 # "double"
 # "wide"
+# "fat"
 
 MODE_CONFIG = {
     "double": {
@@ -37,10 +46,42 @@ MODE_CONFIG = {
         "array_name": "is_wide_pulse",
         "display_name": "wide pulse",
     },
+    "fat": {
+        "array_name": "is_fat_pulse",
+        "display_name": "fat pulse",
+    },
 }
 
 ARRAY_NAME = MODE_CONFIG[DETECTION_MODE]["array_name"]
 DISPLAY_NAME = MODE_CONFIG[DETECTION_MODE]["display_name"]
+
+SPECIAL_PULSE_CLASSES = {
+    0: "normal",
+    1: "double",
+    2: "wide",
+    3: "fat",
+}
+
+LABELING_PULSE_CLASSES = {
+    0: "normal",
+    1: "double",
+    2: "wide",
+    3: "fat",
+}
+
+SPECIAL_CLASS_ARRAYS = {
+    1: "is_double_peak",
+    2: "is_wide_pulse",
+    3: "is_fat_pulse",
+}
+
+LABELING_CLASS_ARRAYS = {
+    1: ("is_double_peak",),
+    2: ("is_wide_pulse",),
+    3: ("is_fat_pulse",),
+}
+
+MULTICLASS_ARRAY_NAME = "special_pulse_class"
 
 
 #################################
@@ -487,7 +528,8 @@ def detect_wide_pulse(
     width_threshold_ms : float
         Minimum width at half maximum in milliseconds
     max_width_ms : float
-        Maximum width at half maximum in milliseconds (excludes overly wide pulses)
+        Maximum width at half maximum in milliseconds (excludes overly wide pulses).
+        Use None for no upper limit.
     isolation_window_ms : float
         Time window (in milliseconds) before and after the peak to check for isolated peak
     prominence_ratio : float
@@ -580,7 +622,7 @@ def detect_wide_pulse(
         }
 
     # Check maximum width constraint
-    if width_ms > max_width_ms:
+    if max_width_ms is not None and width_ms > max_width_ms:
         return False, {
             "reason": "too_wide",
             "width_ms": width_ms,
@@ -608,6 +650,30 @@ def detect_wide_pulse(
     }
 
 
+def detect_fat_pulse(
+    pulse_waveform,
+    sample_rate,
+    amplitude_threshold=0.7,
+    width_threshold_ms=4,
+    max_width_ms=None,
+    isolation_window_ms=3.0,
+    prominence_ratio=0.1,
+):
+    """
+    Detect fat pulses using the wide-pulse detector without shape validation.
+    """
+    return detect_wide_pulse(
+        pulse_waveform,
+        sample_rate,
+        amplitude_threshold=amplitude_threshold,
+        width_threshold_ms=width_threshold_ms,
+        max_width_ms=max_width_ms,
+        isolation_window_ms=isolation_window_ms,
+        prominence_ratio=prominence_ratio,
+        check_shape=False,
+    )
+
+
 # unified detection wrapper
 def detect_pulse(pulse_waveform, sample_rate):
     """
@@ -619,6 +685,9 @@ def detect_pulse(pulse_waveform, sample_rate):
 
     elif DETECTION_MODE == "wide":
         return detect_wide_pulse(pulse_waveform, sample_rate)
+
+    elif DETECTION_MODE == "fat":
+        return detect_fat_pulse(pulse_waveform, sample_rate)
 
     else:
         raise ValueError(f"Unknown DETECTION_MODE: {DETECTION_MODE}")
@@ -650,7 +719,8 @@ def get_path_list(datapath):
 
 def detect_special_pulses_in_file(file_path):
     """
-    Detect double peaks or wide pulsesin all pulses of a single h5 file and add the results as a data array.
+    Detect the selected special pulse type in all pulses of a single h5 file
+    and add the results as a data array.
 
     Parameters:
     -----------
@@ -660,7 +730,7 @@ def detect_special_pulses_in_file(file_path):
     Returns:
     --------
     dict
-        Statistics about the file: num_pulses, num_double_peaks, num_single_peaks
+        Statistics about the file: number of pulses and detected pulses
     """
     con.log(f"Processing: {Path(file_path).name}")
 
@@ -699,19 +769,35 @@ def detect_special_pulses_in_file(file_path):
         num_pulses = len(raw_pulses)
         con.log(f"  Found {num_pulses} pulses.")
 
-        # Optional exclusion array for wide pulse mode
-        if "is_double_peak" in data_array_names:
-            is_double_peak = block.data_arrays["is_double_peak"][:]
+        # Previous detector arrays are used to keep rule-based categories exclusive
+        # when running the modes in order: double, wide, fat.
+        predicted = predicted_labels[:]
+        candidate_indices = np.where(predicted == 1)[0]
+
+        if DETECTION_MODE in {"wide", "fat"} and "is_double_peak" in data_array_names:
+            is_double_peak = expand_marker_to_all_pulses(
+                block.data_arrays["is_double_peak"][:],
+                candidate_indices,
+                num_pulses,
+                "is_double_peak",
+            )
         else:
             is_double_peak = np.zeros(num_pulses, dtype=np.int64)
 
-        # Analyze each pulse for double peaks or wide peaks
-        is_detection_list = []
+        if DETECTION_MODE == "fat" and "is_wide_pulse" in data_array_names:
+            is_wide_pulse = expand_marker_to_all_pulses(
+                block.data_arrays["is_wide_pulse"][:],
+                candidate_indices,
+                num_pulses,
+                "is_wide_pulse",
+            )
+        else:
+            is_wide_pulse = np.zeros(num_pulses, dtype=np.int64)
+
+        # Analyze each pulse for the selected pulse type
+        is_detection_array = np.zeros(num_pulses, dtype=np.int64)
         positive_count = 0
         negative_count = 0
-
-        # Get predicted labels to filter only actual detected pulses
-        predicted = predicted_labels[:]
 
         # detection loop
         for i, pulse in enumerate(raw_pulses):
@@ -722,24 +808,26 @@ def detect_special_pulses_in_file(file_path):
 
             # Wide pulses cannot also be double peaks
             if DETECTION_MODE == "wide" and is_double_peak[i] == 1:
-                is_detection_list.append(0)
+                negative_count += 1
+                continue
+
+            # Fat pulses cannot also be double or wide pulses
+            if DETECTION_MODE == "fat" and (
+                is_double_peak[i] == 1 or is_wide_pulse[i] == 1
+            ):
                 negative_count += 1
                 continue
 
             is_positive, _ = detect_pulse(pulse[:], fs)
 
             if is_positive:
-                is_detection_list.append(1)
+                is_detection_array[i] = 1
                 positive_count += 1
             else:
-                is_detection_list.append(0)
                 negative_count += 1
 
             if (i + 1) % max(1, num_pulses // 10) == 0:
                 con.log(f"  Processed {i + 1}/{num_pulses} pulses...")
-
-        # Convert to numpy array
-        is_detection_array = np.array(is_detection_list, dtype=np.int64)
 
         # Create or overwrite the "is_detection" data array in the h5 file
         if ARRAY_NAME in data_array_names:
@@ -773,7 +861,7 @@ def detect_special_pulses_in_file(file_path):
 
 def process_all_h5_files(data_path):
     """
-    Process all h5 files in a directory to detect double peaks.
+    Process all h5 files in a directory to detect the selected pulse type.
 
     Parameters:
     -----------
@@ -794,7 +882,7 @@ def process_all_h5_files(data_path):
 
     results = []
     con.log(f"\n{'=' * 60}")
-    con.log(f"Processing {len(path_list)} h5 files for double peak detection")
+    con.log(f"Processing {len(path_list)} h5 files for {DISPLAY_NAME} detection")
     con.log(f"{'=' * 60}\n")
 
     for i, fp in enumerate(path_list, 1):
@@ -825,11 +913,680 @@ def process_all_h5_files(data_path):
     return results
 
 
+############################################
+############# SUPERVISED LEARNING ##########
+############################################
+
+
+def get_default_ml_paths():
+    base_path = Path(
+        "/home/eisele/wrk/mscthesis/data/intermediate/special_pulse_classifier/"
+    )
+    return {
+        "base": base_path,
+        "labels": base_path / "labeled_special_pulses.npz",
+        "model": base_path / "special_pulse_rf_pca.pkl",
+    }
+
+
+def load_predicted_positive_pulses(data_path, max_pulses=None, random_seed=42):
+    """
+    Load predicted-positive pulses and their source locations from h5 files.
+    """
+    path_list = get_path_list(Path(data_path))
+    records = []
+    waveforms = []
+
+    for file_idx, file_path in enumerate(path_list, 1):
+        con.log(f"  Loading candidates [{file_idx}/{len(path_list)}] {file_path.name}")
+        file = nixio.File.open(str(file_path), nixio.FileMode.ReadOnly)
+
+        try:
+            block = file.blocks["pulses"]
+            data_array_names = [da.name for da in block.data_arrays]
+
+            if "raw_pulses" not in data_array_names:
+                con.log("    No raw_pulses array. Skipping.")
+                continue
+
+            raw_pulses = block.data_arrays["raw_pulses"]
+            if "predicted_labels" in data_array_names:
+                predicted_labels = block.data_arrays["predicted_labels"][:]
+                pulse_indices = np.where(predicted_labels == 1)[0]
+            else:
+                pulse_indices = np.arange(len(raw_pulses))
+
+            fs = file.sections["pulses_metadata"]["metadata"]["samplerate"]
+
+            for pulse_idx in pulse_indices:
+                pulse_data = raw_pulses[int(pulse_idx)][:]
+                trace, best_channel = get_representative_waveform(pulse_data)
+                waveforms.append(trace)
+                records.append(
+                    {
+                        "file_path": str(file_path),
+                        "pulse_idx": int(pulse_idx),
+                        "fs": float(fs),
+                        "best_channel": int(best_channel),
+                    }
+                )
+
+        finally:
+            file.close()
+
+    if not waveforms:
+        return np.empty((0, 0)), []
+
+    waveforms = np.asarray(waveforms, dtype=float)
+
+    if max_pulses is not None and len(waveforms) > max_pulses:
+        rng = np.random.default_rng(random_seed)
+        selected = np.sort(rng.choice(len(waveforms), size=max_pulses, replace=False))
+        waveforms = waveforms[selected]
+        records = [records[i] for i in selected]
+
+    return waveforms, records
+
+
+def get_first_available_array(block, data_array_names, array_names):
+    for array_name in array_names:
+        if array_name in data_array_names:
+            return block.data_arrays[array_name][:], array_name
+    return None, None
+
+
+def expand_marker_to_all_pulses(marker, candidate_indices, num_pulses, array_name):
+    """
+    Return a full-length marker array, accepting both full-pulse arrays and arrays
+    written only for predicted-positive pulses.
+    """
+    marker = np.asarray(marker, dtype=np.int64)
+
+    if len(marker) == num_pulses:
+        return marker
+
+    if len(marker) == len(candidate_indices):
+        full_marker = np.zeros(num_pulses, dtype=np.int64)
+        full_marker[candidate_indices] = marker
+        return full_marker
+
+    raise ValueError(
+        f"Array '{array_name}' has length {len(marker)}, but expected either "
+        f"{num_pulses} pulses or {len(candidate_indices)} predicted-positive pulses."
+    )
+
+
+def load_balanced_detector_labeled_pulses(
+    data_path,
+    pulses_per_type=300,
+    random_seed=42,
+):
+    """
+    Load a balanced manual-labeling set using old detector output arrays.
+
+    Sampling pools:
+        normal: predicted-positive pulses with double == 0, wide == 0, and fat == 0
+        double: predicted-positive pulses with double == 1
+        wide: predicted-positive pulses with wide == 1
+        fat: predicted-positive pulses with fat == 1
+    """
+    path_list = get_path_list(Path(data_path))
+    rng = np.random.default_rng(random_seed)
+    pools = {label_id: [] for label_id in LABELING_PULSE_CLASSES}
+
+    for file_idx, file_path in enumerate(path_list, 1):
+        con.log(f"  Loading candidates [{file_idx}/{len(path_list)}] {file_path.name}")
+        file = nixio.File.open(str(file_path), nixio.FileMode.ReadOnly)
+
+        try:
+            block = file.blocks["pulses"]
+            data_array_names = [da.name for da in block.data_arrays]
+
+            if "raw_pulses" not in data_array_names:
+                con.log("    No raw_pulses array. Skipping.")
+                continue
+
+            raw_pulses = block.data_arrays["raw_pulses"]
+            num_pulses = len(raw_pulses)
+
+            if "predicted_labels" in data_array_names:
+                predicted_labels = block.data_arrays["predicted_labels"][:]
+                candidate_indices = np.where(predicted_labels == 1)[0]
+            else:
+                candidate_indices = np.arange(num_pulses)
+
+            if len(candidate_indices) == 0:
+                continue
+
+            detector_markers = {}
+            missing = []
+            for label_id in (1, 2, 3):
+                marker, array_name = get_first_available_array(
+                    block, data_array_names, LABELING_CLASS_ARRAYS[label_id]
+                )
+                if marker is None:
+                    missing.append(LABELING_CLASS_ARRAYS[label_id][0])
+                    continue
+
+                detector_markers[label_id] = expand_marker_to_all_pulses(
+                    marker, candidate_indices, num_pulses, array_name
+                )
+
+            if missing:
+                con.log(f"    Missing {', '.join(missing)}. Skipping.")
+                continue
+
+            double_marker = detector_markers[1]
+            wide_marker = detector_markers[2]
+            fat_marker = detector_markers[3]
+
+            fs = file.sections["pulses_metadata"]["metadata"]["samplerate"]
+
+            candidate_mask = np.zeros(num_pulses, dtype=bool)
+            candidate_mask[candidate_indices] = True
+            masks = {
+                0: candidate_mask
+                & (double_marker == 0)
+                & (wide_marker == 0)
+                & (fat_marker == 0),
+                1: candidate_mask & (double_marker == 1),
+                2: candidate_mask & (wide_marker == 1),
+                3: candidate_mask & (fat_marker == 1),
+            }
+
+            for label_id, mask in masks.items():
+                for pulse_idx in np.where(mask)[0]:
+                    pools[label_id].append(
+                        {
+                            "file_path": str(file_path),
+                            "pulse_idx": int(pulse_idx),
+                            "fs": float(fs),
+                            "sampling_pool": LABELING_PULSE_CLASSES[label_id],
+                        }
+                    )
+
+        finally:
+            file.close()
+
+    selected_records = []
+    for label_id, class_name in LABELING_PULSE_CLASSES.items():
+        pool = pools[label_id]
+        if not pool:
+            con.log(f"  No {class_name} candidates found.")
+            continue
+
+        sample_size = min(pulses_per_type, len(pool))
+        if len(pool) < pulses_per_type:
+            con.log(
+                f"  Only {len(pool)} {class_name} candidates available; "
+                f"using all of them."
+            )
+        else:
+            con.log(f"  Sampling {sample_size} {class_name} candidates.")
+
+        selected_indices = rng.choice(len(pool), size=sample_size, replace=False)
+        selected_records.extend(pool[int(i)] for i in selected_indices)
+
+    if not selected_records:
+        return np.empty((0, 0)), []
+
+    shuffle_order = rng.permutation(len(selected_records))
+    selected_records = [selected_records[int(i)] for i in shuffle_order]
+
+    waveforms = []
+    records = []
+    waveform_cache = {}
+    for record in selected_records:
+        file_path = record["file_path"]
+        if file_path not in waveform_cache:
+            file = nixio.File.open(file_path, nixio.FileMode.ReadOnly)
+            try:
+                block = file.blocks["pulses"]
+                waveform_cache[file_path] = block.data_arrays["raw_pulses"][:]
+            finally:
+                file.close()
+
+        pulse_data = waveform_cache[file_path][record["pulse_idx"]]
+        trace, best_channel = get_representative_waveform(pulse_data)
+        waveforms.append(trace)
+        records.append(
+            {
+                "file_path": record["file_path"],
+                "pulse_idx": record["pulse_idx"],
+                "fs": record["fs"],
+                "best_channel": int(best_channel),
+                "sampling_pool": record["sampling_pool"],
+            }
+        )
+
+    return np.asarray(waveforms, dtype=float), records
+
+
+def normalize_waveforms_for_pca(waveforms):
+    """
+    Baseline-correct and amplitude-normalize waveforms before PCA.
+    """
+    waveforms = np.asarray(waveforms, dtype=float)
+    corrected = waveforms.copy()
+
+    baseline_window = max(1, corrected.shape[1] // 5)
+    baseline = np.median(corrected[:, :baseline_window], axis=1, keepdims=True)
+    corrected -= baseline
+
+    scale = np.max(np.abs(corrected), axis=1, keepdims=True)
+    scale[scale == 0] = 1.0
+    corrected /= scale
+
+    return corrected
+
+
+def plot_labeling_pulse(ax, waveform, record, label_counts, current_idx, total):
+    ax.clear()
+    fs = record["fs"]
+    time_axis = np.arange(len(waveform)) / fs * 1000
+    ax.plot(time_axis, waveform, linewidth=2.0, color="steelblue")
+    ax.axhline(0, color="black", linewidth=0.8, alpha=0.4)
+    ax.set_xlabel("Time (ms)")
+    ax.set_ylabel("Amplitude (normalized)")
+    ax.grid(True, alpha=0.3, linestyle="--")
+
+    counts = " | ".join(
+        f"{name}: {label_counts.get(label_id, 0)}"
+        for label_id, name in LABELING_PULSE_CLASSES.items()
+    )
+    sampled_as = record.get("sampling_pool", "candidate")
+    title = (
+        f"Label pulse {current_idx + 1}/{total} | "
+        f"{Path(record['file_path']).name}, pulse {record['pulse_idx']} | "
+        f"sampled as: {sampled_as}\n"
+        "[0] normal  [1] double  [2] wide  [3] fat  [S] skip  [Q] finish | "
+        f"{counts}"
+    )
+    ax.set_title(title, fontsize=11, fontweight="bold")
+
+
+def interactive_label_pulses(
+    data_path,
+    labels_path=None,
+    pulses_per_type=300,
+    random_seed=42,
+):
+    """
+    Prompt the user to label pulses in a matplotlib window.
+
+    Labels:
+        0 = normal
+        1 = double
+        2 = wide
+        3 = fat
+    """
+    ml_paths = get_default_ml_paths()
+    labels_path = Path(labels_path) if labels_path else ml_paths["labels"]
+    labels_path.parent.mkdir(parents=True, exist_ok=True)
+
+    con.log("Loading pulse candidates for manual labeling...")
+    waveforms, records = load_balanced_detector_labeled_pulses(
+        data_path, pulses_per_type=pulses_per_type, random_seed=random_seed
+    )
+
+    if len(waveforms) == 0:
+        con.log("No pulse candidates found.")
+        return None
+
+    waveforms = normalize_waveforms_for_pca(waveforms)
+    labels = np.full(len(waveforms), -1, dtype=np.int64)
+
+    con.log("\nLabeling instructions:")
+    con.log("  0 = normal/non-special pulse")
+    con.log("  1 = double pulse")
+    con.log("  2 = wide pulse")
+    con.log("  3 = fat pulse")
+    con.log("  S = skip current pulse")
+    con.log("  Q = finish and save labels collected so far")
+
+    state = {"idx": 0, "quit": False}
+    label_counts = {}
+
+    fig, ax = plt.subplots(figsize=(12, 5))
+
+    def advance():
+        while state["idx"] < len(waveforms) and labels[state["idx"]] != -1:
+            state["idx"] += 1
+
+        if state["idx"] >= len(waveforms):
+            state["quit"] = True
+            plt.close(fig)
+            return
+
+        plot_labeling_pulse(
+            ax,
+            waveforms[state["idx"]],
+            records[state["idx"]],
+            label_counts,
+            state["idx"],
+            len(waveforms),
+        )
+        fig.canvas.draw_idle()
+
+    def on_key_press(event):
+        if event.key is None:
+            return
+
+        key = event.key.lower()
+        if key in {"0", "1", "2", "3"}:
+            label = int(key)
+            labels[state["idx"]] = label
+            label_counts[label] = label_counts.get(label, 0) + 1
+            con.log(
+                f"  Labeled pulse {state['idx'] + 1}/{len(waveforms)} as "
+                f"{LABELING_PULSE_CLASSES[label]}"
+            )
+            state["idx"] += 1
+            advance()
+        elif key == "s":
+            con.log(f"  Skipped pulse {state['idx'] + 1}/{len(waveforms)}")
+            state["idx"] += 1
+            advance()
+        elif key == "q":
+            state["quit"] = True
+            plt.close(fig)
+
+    fig.canvas.mpl_connect("key_press_event", on_key_press)
+    advance()
+    plt.show(block=True)
+
+    labeled_mask = labels != -1
+    if not np.any(labeled_mask):
+        con.log("No labels collected.")
+        return None
+
+    labeled_records = np.array(
+        [
+            (
+                records[i]["file_path"],
+                records[i]["pulse_idx"],
+                records[i]["fs"],
+                records[i]["best_channel"],
+            )
+            for i in np.where(labeled_mask)[0]
+        ],
+        dtype=[
+            ("file_path", "U512"),
+            ("pulse_idx", "i8"),
+            ("fs", "f8"),
+            ("best_channel", "i8"),
+        ],
+    )
+
+    save_waveforms = waveforms[labeled_mask]
+    save_labels = labels[labeled_mask]
+    save_records = labeled_records
+
+    if labels_path.exists():
+        existing = np.load(labels_path, allow_pickle=False)
+        save_waveforms = np.vstack([existing["waveforms"], save_waveforms])
+        save_labels = np.concatenate([existing["labels"], save_labels])
+        save_records = np.concatenate([existing["records"], save_records])
+
+    np.savez_compressed(
+        labels_path,
+        waveforms=save_waveforms,
+        labels=save_labels,
+        records=save_records,
+    )
+    con.log(
+        f"Saved {np.sum(labeled_mask)} new labels "
+        f"({len(save_labels)} total) to {labels_path}"
+    )
+
+    return labels_path
+
+
+def load_labeled_dataset(labels_path):
+    labels_path = Path(labels_path)
+    if not labels_path.exists():
+        raise FileNotFoundError(f"Label dataset does not exist: {labels_path}")
+
+    data = np.load(labels_path, allow_pickle=False)
+    return data["waveforms"], data["labels"], data["records"]
+
+
+def train_special_pulse_classifier(labels_path=None, model_path=None):
+    """
+    Train a PCA + random forest multiclass classifier and print precision/recall/f1.
+    """
+    ml_paths = get_default_ml_paths()
+    labels_path = Path(labels_path) if labels_path else ml_paths["labels"]
+    model_path = Path(model_path) if model_path else ml_paths["model"]
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+
+    waveforms, labels, _ = load_labeled_dataset(labels_path)
+    active_label_mask = np.isin(labels, list(LABELING_PULSE_CLASSES))
+    if not np.all(active_label_mask):
+        ignored_count = int(np.sum(~active_label_mask))
+        con.log(f"Ignoring {ignored_count} labels outside normal/double/wide/fat.")
+        waveforms = waveforms[active_label_mask]
+        labels = labels[active_label_mask]
+    if len(labels) == 0:
+        raise ValueError(
+            "No normal/double/wide/fat labels available to train a classifier."
+        )
+
+    unique_labels, label_counts = np.unique(labels, return_counts=True)
+    if len(unique_labels) < 2:
+        raise ValueError("Need at least two labeled classes to train a classifier.")
+
+    min_class_count = int(np.min(label_counts))
+    num_classes = len(unique_labels)
+    enough_for_stratify = min_class_count >= 2 and len(labels) >= 2 * num_classes
+    stratify = labels if enough_for_stratify else None
+
+    if stratify is not None:
+        test_count = max(num_classes, int(np.ceil(0.25 * len(labels))))
+        test_size = test_count / len(labels)
+    else:
+        test_size = 0.25 if len(labels) >= 8 else 0.5
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        waveforms,
+        labels,
+        test_size=test_size,
+        random_state=42,
+        stratify=stratify,
+    )
+
+    n_components = min(20, X_train.shape[0] - 1, X_train.shape[1])
+    n_components = max(1, n_components)
+
+    classifier = Pipeline(
+        steps=[
+            ("scaler", StandardScaler()),
+            ("pca", PCA(n_components=n_components, random_state=42)),
+            (
+                "rf",
+                RandomForestClassifier(
+                    n_estimators=300,
+                    class_weight="balanced",
+                    random_state=42,
+                    n_jobs=-1,
+                ),
+            ),
+        ]
+    )
+
+    classifier.fit(X_train, y_train)
+    y_pred = classifier.predict(X_test)
+
+    target_names = [SPECIAL_PULSE_CLASSES[i] for i in sorted(unique_labels)]
+    labels_sorted = sorted(unique_labels)
+
+    con.log("\nClassifier performance on held-out labeled pulses:")
+    print(
+        classification_report(
+            y_test,
+            y_pred,
+            labels=labels_sorted,
+            target_names=target_names,
+            zero_division=0,
+        )
+    )
+    con.log("Confusion matrix:")
+    print(confusion_matrix(y_test, y_pred, labels=labels_sorted))
+
+    with model_path.open("wb") as f:
+        pickle.dump(
+            {
+                "classifier": classifier,
+                "classes": SPECIAL_PULSE_CLASSES,
+                "array_names": SPECIAL_CLASS_ARRAYS,
+                "multiclass_array": MULTICLASS_ARRAY_NAME,
+            },
+            f,
+        )
+
+    con.log(f"Saved trained classifier to {model_path}")
+    return model_path
+
+
+def write_or_create_data_array(block, array_name, values):
+    data_array_names = [da.name for da in block.data_arrays]
+    values = np.asarray(values, dtype=np.int64)
+
+    if array_name in data_array_names:
+        block.data_arrays[array_name][:] = values
+    else:
+        block.create_data_array(array_name, array_name, data=values)
+
+
+def predict_special_pulses_in_file(file_path, classifier):
+    file = nixio.File.open(str(file_path), nixio.FileMode.ReadWrite)
+
+    try:
+        block = file.blocks["pulses"]
+        data_array_names = [da.name for da in block.data_arrays]
+
+        if "raw_pulses" not in data_array_names:
+            con.log(f"  {Path(file_path).name}: no raw_pulses array. Skipping.")
+            return {"status": "skipped", "reason": "no raw_pulses"}
+
+        raw_pulses = block.data_arrays["raw_pulses"]
+        num_pulses = len(raw_pulses)
+
+        if "predicted_labels" in data_array_names:
+            predicted_labels = block.data_arrays["predicted_labels"][:]
+            candidate_indices = np.where(predicted_labels == 1)[0]
+        else:
+            candidate_indices = np.arange(num_pulses)
+
+        predicted_classes = np.zeros(num_pulses, dtype=np.int64)
+
+        if len(candidate_indices) > 0:
+            waveforms = []
+            for pulse_idx in candidate_indices:
+                pulse_data = raw_pulses[int(pulse_idx)][:]
+                trace, _ = get_representative_waveform(pulse_data)
+                waveforms.append(trace)
+
+            waveforms = normalize_waveforms_for_pca(np.asarray(waveforms, dtype=float))
+            predicted_classes[candidate_indices] = classifier.predict(waveforms)
+
+        write_or_create_data_array(block, MULTICLASS_ARRAY_NAME, predicted_classes)
+
+        for label_id, array_name in SPECIAL_CLASS_ARRAYS.items():
+            binary_values = (predicted_classes == label_id).astype(np.int64)
+            write_or_create_data_array(block, array_name, binary_values)
+
+        counts = {
+            SPECIAL_PULSE_CLASSES[label_id]: int(np.sum(predicted_classes == label_id))
+            for label_id in SPECIAL_PULSE_CLASSES
+        }
+
+        con.log(f"  {Path(file_path).name}: {counts}")
+        return {"status": "completed", "counts": counts}
+
+    finally:
+        file.close()
+
+
+def apply_special_pulse_classifier(data_path, model_path=None):
+    ml_paths = get_default_ml_paths()
+    model_path = Path(model_path) if model_path else ml_paths["model"]
+
+    with model_path.open("rb") as f:
+        model_data = pickle.load(f)
+
+    classifier = model_data["classifier"]
+    path_list = get_path_list(Path(data_path))
+
+    results = []
+    for file_idx, file_path in enumerate(path_list, 1):
+        con.log(f"Predicting [{file_idx}/{len(path_list)}] {file_path.name}")
+        results.append(predict_special_pulses_in_file(file_path, classifier))
+
+    return results
+
+
+def supervised_learning_workflow(data_path):
+    """
+    End-to-end workflow:
+    1. optionally label pulses,
+    2. train/evaluate PCA + random forest classifier,
+    3. apply predictions to h5 files.
+    """
+    ml_paths = get_default_ml_paths()
+
+    con.log("\n" + "=" * 60)
+    con.log("SUPERVISED SPECIAL PULSE CLASSIFIER")
+    con.log("=" * 60)
+    con.log(f"Label dataset: {ml_paths['labels']}")
+    con.log(f"Model file:     {ml_paths['model']}")
+    con.log("=" * 60)
+
+    should_label = input("Label pulses now? [y/N]: ").strip().lower() == "y"
+    if should_label:
+        pulses_per_type_raw = input(
+            "Pulses to sample per type for labeling [300]: "
+        ).strip()
+        pulses_per_type = int(pulses_per_type_raw) if pulses_per_type_raw else 300
+        interactive_label_pulses(
+            data_path,
+            labels_path=ml_paths["labels"],
+            pulses_per_type=pulses_per_type,
+        )
+
+    should_train = (
+        input("Train classifier from labeled pulses? [Y/n]: ").strip().lower()
+    )
+    if should_train != "n":
+        train_special_pulse_classifier(
+            labels_path=ml_paths["labels"],
+            model_path=ml_paths["model"],
+        )
+
+    should_apply = input("Apply classifier to h5 files now? [Y/n]: ").strip().lower()
+    if should_apply != "n":
+        apply_special_pulse_classifier(data_path, model_path=ml_paths["model"])
+
+
 if __name__ == "__main__":
     # Path to directory containing h5 files with detected pulses
     data_path = Path(
-        "/home/eisele/wrk/mscthesis/data/raw/eels-mfn2021_dummy_pulses_redetected/subtestset/"
+        "/home/eisele/wrk/mscthesis/data/raw/eels-mfn2021_dummy_pulses_redetected/berlin_tank_site/"
     )
 
-    # Process all h5 files to detect double peaks or wide pulses
-    results = process_all_h5_files(data_path)
+    con.log("\n" + "=" * 60)
+    con.log("SPECIAL PULSE DETECTION OPTIONS")
+    con.log("=" * 60)
+    con.log("1. Run old rule-based detector")
+    con.log("2. Run supervised PCA + random forest workflow")
+    con.log("=" * 60)
+
+    mode = input("Select mode (1 or 2): ").strip()
+
+    if mode == "1":
+        # Process all h5 files to detect double peaks or wide pulses
+        results = process_all_h5_files(data_path)
+    elif mode == "2":
+        supervised_learning_workflow(data_path)
+    else:
+        con.log("Invalid selection. Please enter 1 or 2.")
