@@ -7,7 +7,6 @@
 # Double peaks are identified by analyzing the peak structure of each pulse waveform.
 # The script adds an "is_double_peak", "is_wide_pulse", or "is_fat_pulse" data array to each h5 file containing binary labels (0 or 1).
 
-# TODO: plotting von double peak detection trennen, double peaks finden verbessern
 
 from pathlib import Path
 import pickle
@@ -19,7 +18,11 @@ import matplotlib.pyplot as plt
 from rich.console import Console
 from sklearn.decomposition import PCA
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.metrics import (
+    classification_report,
+    confusion_matrix,
+    precision_recall_fscore_support,
+)
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -926,6 +929,7 @@ def get_default_ml_paths():
         "base": base_path,
         "labels": base_path / "labeled_special_pulses.npz",
         "model": base_path / "special_pulse_rf_pca.pkl",
+        "pca_plot": base_path / "labeled_pulses_pca_space.png",
     }
 
 
@@ -1156,6 +1160,7 @@ def load_balanced_detector_labeled_pulses(
                 "fs": record["fs"],
                 "best_channel": int(best_channel),
                 "sampling_pool": record["sampling_pool"],
+                "all_channels": np.asarray(pulse_data, dtype=float),
             }
         )
 
@@ -1180,11 +1185,46 @@ def normalize_waveforms_for_pca(waveforms):
     return corrected
 
 
+def normalize_channels_for_label_plot(pulse_data):
+    """
+    Baseline-correct all channels and normalize them with one shared scale.
+    """
+    pulse_data = np.asarray(pulse_data, dtype=float)
+    corrected = pulse_data.copy()
+
+    baseline_window = max(1, corrected.shape[0] // 5)
+    baseline = np.median(corrected[:baseline_window, :], axis=0, keepdims=True)
+    corrected -= baseline
+
+    scale = np.max(np.abs(corrected))
+    if scale == 0:
+        scale = 1.0
+
+    return corrected / scale
+
+
 def plot_labeling_pulse(ax, waveform, record, label_counts, current_idx, total):
     ax.clear()
     fs = record["fs"]
-    time_axis = np.arange(len(waveform)) / fs * 1000
-    ax.plot(time_axis, waveform, linewidth=2.0, color="steelblue")
+
+    if "all_channels" in record:
+        pulse_data = normalize_channels_for_label_plot(record["all_channels"])
+        time_axis = np.arange(pulse_data.shape[0]) / fs * 1000
+        best_channel = record.get("best_channel")
+
+        for channel_idx in range(pulse_data.shape[1]):
+            is_best_channel = channel_idx == best_channel
+            ax.plot(
+                time_axis,
+                pulse_data[:, channel_idx],
+                linewidth=1.8 if is_best_channel else 0.9,
+                alpha=0.95 if is_best_channel else 0.45,
+                label=f"ch {channel_idx}" if is_best_channel else None,
+            )
+    else:
+        time_axis = np.arange(len(waveform)) / fs * 1000
+        ax.plot(time_axis, waveform, linewidth=2.0, color="steelblue")
+
     ax.axhline(0, color="black", linewidth=0.8, alpha=0.4)
     ax.set_xlabel("Time (ms)")
     ax.set_ylabel("Amplitude (normalized)")
@@ -1351,6 +1391,71 @@ def load_labeled_dataset(labels_path):
     return data["waveforms"], data["labels"], data["records"]
 
 
+def plot_labeled_pulses_pca_space(waveforms, labels, output_path=None, show=True):
+    """
+    Plot the first two PCA components of the manually labeled pulse waveforms.
+    """
+    if len(labels) < 2:
+        con.log("Need at least two labeled pulses to plot PCA space.")
+        return None, None
+
+    labels_sorted = sorted(np.unique(labels))
+    n_components = min(2, waveforms.shape[0], waveforms.shape[1])
+    if n_components < 1:
+        con.log("No waveform features available to plot PCA space.")
+        return None, None
+
+    pca_pipeline = Pipeline(
+        steps=[
+            ("scaler", StandardScaler()),
+            ("pca", PCA(n_components=n_components, random_state=42)),
+        ]
+    )
+    projected = pca_pipeline.fit_transform(waveforms)
+
+    if n_components == 1:
+        projected = np.column_stack([projected[:, 0], np.zeros(len(projected))])
+
+    explained = pca_pipeline.named_steps["pca"].explained_variance_ratio_
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    colors = plt.cm.tab10(np.linspace(0, 1, max(len(labels_sorted), 1)))
+
+    for color, label_id in zip(colors, labels_sorted):
+        mask = labels == label_id
+        class_name = SPECIAL_PULSE_CLASSES.get(int(label_id), f"class {label_id}")
+        ax.scatter(
+            projected[mask, 0],
+            projected[mask, 1],
+            s=42,
+            alpha=0.75,
+            edgecolors="black",
+            linewidths=0.3,
+            color=color,
+            label=f"{class_name} (n={int(np.sum(mask))})",
+        )
+
+    pc1_var = explained[0] * 100 if len(explained) > 0 else 0
+    pc2_var = explained[1] * 100 if len(explained) > 1 else 0
+    ax.set_xlabel(f"PC1 ({pc1_var:.1f}% variance)")
+    ax.set_ylabel(f"PC2 ({pc2_var:.1f}% variance)")
+    ax.set_title("PCA Space of Manually Labeled Pulses", fontweight="bold")
+    ax.grid(True, alpha=0.25, linestyle="--")
+    ax.legend(title="Manual label", frameon=True)
+    fig.tight_layout()
+
+    if output_path is not None:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_path, dpi=200)
+        con.log(f"Saved labeled-pulse PCA plot to {output_path}")
+
+    if show:
+        plt.show()
+
+    return fig, ax
+
+
 def train_special_pulse_classifier(labels_path=None, model_path=None):
     """
     Train a PCA + random forest multiclass classifier and print precision/recall/f1.
@@ -1375,6 +1480,13 @@ def train_special_pulse_classifier(labels_path=None, model_path=None):
     unique_labels, label_counts = np.unique(labels, return_counts=True)
     if len(unique_labels) < 2:
         raise ValueError("Need at least two labeled classes to train a classifier.")
+
+    plot_labeled_pulses_pca_space(
+        waveforms,
+        labels,
+        output_path=ml_paths["pca_plot"],
+        show=True,
+    )
 
     min_class_count = int(np.min(label_counts))
     num_classes = len(unique_labels)
@@ -1433,6 +1545,23 @@ def train_special_pulse_classifier(labels_path=None, model_path=None):
     con.log("Confusion matrix:")
     print(confusion_matrix(y_test, y_pred, labels=labels_sorted))
 
+    macro_precision, macro_recall, macro_f1, _ = precision_recall_fscore_support(
+        y_test,
+        y_pred,
+        labels=labels_sorted,
+        average="macro",
+        zero_division=0,
+    )
+    weighted_precision, weighted_recall, weighted_f1, _ = (
+        precision_recall_fscore_support(
+            y_test,
+            y_pred,
+            labels=labels_sorted,
+            average="weighted",
+            zero_division=0,
+        )
+    )
+
     with model_path.open("wb") as f:
         pickle.dump(
             {
@@ -1445,6 +1574,15 @@ def train_special_pulse_classifier(labels_path=None, model_path=None):
         )
 
     con.log(f"Saved trained classifier to {model_path}")
+    con.log("\nFinal held-out classifier metrics:")
+    print(
+        f"macro    precision={macro_precision:.3f} "
+        f"recall={macro_recall:.3f} f1={macro_f1:.3f}"
+    )
+    print(
+        f"weighted precision={weighted_precision:.3f} "
+        f"recall={weighted_recall:.3f} f1={weighted_f1:.3f}"
+    )
     return model_path
 
 
