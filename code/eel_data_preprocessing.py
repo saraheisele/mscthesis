@@ -32,7 +32,7 @@ from pathlib import Path
 import numpy as np
 import nixio
 import tqdm
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 
 # Initialize console for logging
@@ -201,9 +201,33 @@ def load_eods(file_paths, pulse_type="all"):
 
 
 # calculate number of pulses per time bin
-def make_histogram(pulse_centers, sampling_rates, start_times):
+def month_start(dt):
+    return dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def month_index(dt, first_month):
+    return (dt.year - first_month.year) * 12 + (dt.month - first_month.month)
+
+
+def histogram_time_bounds(start_times, end_times):
+    first_start = min(start_times)
+    last_end = max(end_times)
+    first_month = month_start(first_start)
+    last_month = month_start(last_end)
+    first_year = first_start.year
+
+    return {
+        "first_month": first_month,
+        "first_year": first_year,
+        "month_count": month_index(last_month, first_month) + 1,
+        "year_count": last_end.year - first_year + 1,
+    }
+
+
+def make_histogram(pulse_centers, sampling_rates, start_times, end_times):
     # create list to store unix timestamps of each pulse for later storage in hdf5 file
     timestamp_list = []  # TODO: make seperate function to store timestamps??
+    time_bounds = histogram_time_bounds(start_times, end_times)
 
     # create histograms in a dict
     hist_sizes = {
@@ -211,9 +235,9 @@ def make_histogram(pulse_centers, sampling_rates, start_times):
         "hour": 24,
         "day": 366,
         "month": 12,
-        "year": (date.today().year - 2023) + 1,
+        "month_since_start": time_bounds["month_count"],
+        "year": time_bounds["year_count"],
     }
-    # TODO: dont hardcode start year, but get it from start_times list - make extra function for this
 
     # histogram dict to hold pulse counts over all rec sessions for each time scale
     hist = {k: np.zeros(v, dtype=int) for k, v in hist_sizes.items()}
@@ -246,13 +270,15 @@ def make_histogram(pulse_centers, sampling_rates, start_times):
             hour = pulse_time_abs.hour
             day = pulse_time_abs.timetuple().tm_yday - 1  # day of year (0‑365)
             month = pulse_time_abs.month - 1  # month of year (0‑11)
-            year = pulse_time_abs.year - 2023  # year since start of recordings
+            month_since_start = month_index(pulse_time_abs, time_bounds["first_month"])
+            year = pulse_time_abs.year - time_bounds["first_year"]
 
             # append counts for each time bin of the current pulse to the array of the current hdf5 file
             hist_i["minute"][minute] += 1
             hist_i["hour"][hour] += 1
             hist_i["day"][day] += 1
             hist_i["month"][month] += 1
+            hist_i["month_since_start"][month_since_start] += 1
             hist_i["year"][year] += 1
 
             ## convert pulse to Unix timestamp and append to list for later storage in hdf5 file
@@ -272,6 +298,7 @@ def make_histogram(pulse_centers, sampling_rates, start_times):
 
 def rec_time_per_bin(start_times, end_times):
     con.log("Calculating recording time histograms...")
+    time_bounds = histogram_time_bounds(start_times, end_times)
 
     # create dict to hold rec times per bin
     hist_sizes = {
@@ -279,96 +306,41 @@ def rec_time_per_bin(start_times, end_times):
         "hour": 24,
         "day": 366,
         "month": 12,
-        "year": (date.today().year - 2023) + 1,
+        "month_since_start": time_bounds["month_count"],
+        "year": time_bounds["year_count"],
     }
-    # TODO: dont hardcode start year, but get it from start_times list - make extra function for this
 
     rec_time_hist = {k: np.zeros(v, dtype=float) for k, v in hist_sizes.items()}
 
     # list to hold all dicts per rec session
     session_rec_times = []
 
-    # iterate through recording sessions bzw. the respective  start times
     for i, st in enumerate(tqdm.tqdm(start_times, desc="Processing recording times")):
-        ## find starting bin for all timescales
-        start_idx = {
-            "minute": st.hour * 60 + st.minute,
-            "hour": st.hour,
-            "day": st.timetuple().tm_yday - 1,  # day of year (0‑365)
-            "month": st.month - 1,  # month of year (0‑11)
-            "year": st.year - 2023,  # year since start of recordings
-        }
-
-        ## find end bin for all timescales
-        end_idx = {
-            "minute": end_times[i].hour * 60 + end_times[i].minute,
-            "hour": end_times[i].hour,
-            "day": end_times[i].timetuple().tm_yday - 1,  # day of year (0‑365)
-            "month": end_times[i].month - 1,  # month of year (0‑11)
-            "year": end_times[i].year - 2023,  # year since start of recordings
-        }
-
-        ## find the start of the next bin for all timescales
-        # using dateutil.relativdelta bc. it also does variable units like months and years unlike timedelta
-        next_bins = {
-            "minute": st.replace(second=0, microsecond=0) + relativedelta(minutes=1),
-            "hour": st.replace(minute=0, second=0, microsecond=0)
-            + relativedelta(hours=1),
-            "day": st.replace(hour=0, minute=0, second=0, microsecond=0)
-            + relativedelta(days=1),
-            "month": st.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            + relativedelta(months=1),
-            "year": st.replace(
-                month=1, day=1, hour=0, minute=0, second=0, microsecond=0
-            )
-            + relativedelta(years=1),
-        }
-
-        # calculate time deltas to next bin for each scale in new dict
-        start_dt = {k: (v - st).total_seconds() for k, v in next_bins.items()}
-
-        ## check where rec session ends - start of the last bin for each timescale
-        last_bins = {
-            "minute": end_times[i].replace(second=0, microsecond=0),
-            "hour": end_times[i].replace(minute=0, second=0, microsecond=0),
-            "day": end_times[i].replace(hour=0, minute=0, second=0, microsecond=0),
-            "month": end_times[i].replace(
-                day=1, hour=0, minute=0, second=0, microsecond=0
-            ),
-            "year": end_times[i].replace(
-                month=1, day=1, hour=0, minute=0, second=0, microsecond=0
-            ),
-        }
-
-        # last bin timedelta to end of rec session (per-scale dict)
-        end_dt = {k: (end_times[i] - v).total_seconds() for k, v in last_bins.items()}
-
-        # prepare per-bin duration arrays for full bins (exclusive start/end)
-        fixed_dur = {"minute": 60, "hour": 60 * 60, "day": 24 * 60 * 60}
-
         # build a per-session rec time dict to avoid mutating the global one
         rec_time_i = {
             k: np.zeros_like(v, dtype=float) for k, v in rec_time_hist.items()
         }
 
-        # fill the per-session rec time dict
-        for item in rec_time_hist:
-            # add partial seconds for the start and end bins
-            rec_time_i[item][start_idx[item]] += start_dt[item]
-            rec_time_i[item][end_idx[item]] += end_dt[item]
+        cursor = st
+        while cursor < end_times[i]:
+            next_minute = cursor.replace(second=0, microsecond=0) + relativedelta(
+                minutes=1
+            )
+            segment_end = min(next_minute, end_times[i])
+            segment_seconds = (segment_end - cursor).total_seconds()
 
-            # add full-bin durations for bins strictly between start and end
-            if item in fixed_dur:
-                dur = fixed_dur[item]
-                # constant-duration full bins
-                if start_idx[item] + 1 <= end_idx[item] - 1:
-                    rec_time_i[item][start_idx[item] + 1 : end_idx[item]] += dur
-                else:
-                    # wrap-around
-                    if start_idx[item] + 1 < rec_time_i[item].shape[0]:
-                        rec_time_i[item][start_idx[item] + 1 :] += dur
-                    if end_idx[item] > 0:
-                        rec_time_i[item][: end_idx[item]] += dur
+            rec_time_i["minute"][cursor.hour * 60 + cursor.minute] += segment_seconds
+            rec_time_i["hour"][cursor.hour] += segment_seconds
+            rec_time_i["day"][cursor.timetuple().tm_yday - 1] += segment_seconds
+            rec_time_i["month"][cursor.month - 1] += segment_seconds
+            rec_time_i["month_since_start"][
+                month_index(cursor, time_bounds["first_month"])
+            ] += segment_seconds
+            rec_time_i["year"][cursor.year - time_bounds["first_year"]] += (
+                segment_seconds
+            )
+
+            cursor = segment_end
 
         # add the per-session durations to the global histogram
         for item in rec_time_hist:
@@ -379,46 +351,24 @@ def rec_time_per_bin(start_times, end_times):
     return rec_time_hist, session_rec_times
 
 
-def normalized_fr(session_counts, session_rec_times):
-    ### normalize count histograms
-    # list to store the normalized count histograms for each rec session
-    norm_count = []
-    # iterate through each session
+def pulse_rate_hz(count_hist, rec_time_hist):
+    pulse_rates = {}
+    for k in count_hist:
+        counts = np.asarray(count_hist[k], dtype=float)
+        rec_times = np.asarray(rec_time_hist[k], dtype=float)
+        rate = np.full_like(counts, np.nan, dtype=float)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            np.divide(counts, rec_times, out=rate, where=rec_times != 0)
+        pulse_rates[k] = rate
+    return pulse_rates
+
+
+def session_pulse_rate_hz(session_counts, session_rec_times):
+    # list to store pulse rate histograms for each rec session
+    session_rates = []
     for count_hist, rec_time_hist in zip(session_counts, session_rec_times):
-        # dict to hold normalized counts for the current session
-        normalized = {}
-        for k in count_hist:
-            # safe elementwise division: avoid divide-by-zero
-            num = np.asarray(count_hist[k], dtype=float)
-            den = np.asarray(rec_time_hist[k], dtype=float)
-            out = np.full_like(num, np.nan, dtype=float)
-            with np.errstate(divide="ignore", invalid="ignore"):
-                np.divide(num, den, out=out, where=den != 0)
-            # if there are no pulses in a bin, set the fr to nan instead of 0, to avoid confusion with bins that had 0 rec time and thus couldnt have any pulses (and thus also should be nan)
-            out[(num == 0) & (den != 0)] = np.nan
-            normalized[k] = out
-        norm_count.append(normalized)
-
-    ### get firing rates
-    # make dict to hold values by which to normalize for each time scale to get to Hz/counts per second)
-    bin_sizes = {
-        "minute": 60,
-        "hour": 60 * 60,
-        "day": 24 * 60 * 60,
-        "month": 30 * 24 * 60 * 60,  # rough estimate, not exact
-        "year": 365 * 24 * 60 * 60,  # rough estimate, not exact
-    }
-
-    # iterate through the dicts in normalized_count (one per session)
-    for session in norm_count:
-        # iterate through the keys in the dict (keys are time scales)
-        for k in session:
-            # divide normalized counts by the respective bin size in sec to get firing rates in Hz
-            session[k] /= bin_sizes[k]
-
-    norm_fr = norm_count
-
-    return norm_fr
+        session_rates.append(pulse_rate_hz(count_hist, rec_time_hist))
+    return session_rates
 
 
 #################################
@@ -486,12 +436,37 @@ def save_histograms(count_hist, rec_hist, rec_time_hist, output_path: Path):
     np.savez_compressed(save_time, **clean_rec_time)
 
 
-# normalized_fr_list: list of dicts, one dict per session, keys=timescales
-def save_normalized_fr(normalized_fr_list, out_path):
-    timescales = list(normalized_fr_list[0].keys())
-    arrs = {k: np.vstack([sess[k] for sess in normalized_fr_list]) for k in timescales}
+def save_pulse_rate_histograms(pulse_rate_hist, output_path: Path):
+    con.log(f"Saving pulse rate dictionaries to {output_path}.")
+    clean_pulse_rates = {k: np.asarray(v) for k, v in pulse_rate_hist.items()}
+    parent_dir = output_path if output_path.is_dir() else output_path.parent
+    parent_dir.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        parent_dir / "berlin_dummypulses_pulse_rate_hz_hist_dict.npz",
+        **clean_pulse_rates,
+    )
+
+
+def save_histogram_metadata(start_times, end_times, output_path: Path):
+    time_bounds = histogram_time_bounds(start_times, end_times)
+    parent_dir = output_path if output_path.is_dir() else output_path.parent
+    parent_dir.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        parent_dir / "berlin_dummypulses_hist_metadata.npz",
+        first_month_year=time_bounds["first_month"].year,
+        first_month_month=time_bounds["first_month"].month,
+        first_year=time_bounds["first_year"],
+    )
+
+
+def save_session_pulse_rate_hz(session_pulse_rate_hz_list, out_path):
+    timescales = list(session_pulse_rate_hz_list[0].keys())
+    arrs = {
+        k: np.vstack([sess[k] for sess in session_pulse_rate_hz_list])
+        for k in timescales
+    }
     # Save the file inside the out_path directory, not in the parent directory
-    filename = "berlin_dummypulses_normalized_fr.npz"
+    filename = "berlin_dummypulses_session_pulse_rate_hz.npz"
     save_file = (
         out_path / filename if out_path.is_dir() else out_path.with_name(filename)
     )
@@ -534,14 +509,17 @@ def main():
 
     # calculate histogram of number of pulses per minute for 24‑h period (0…1439 minutes)
     count_histogram_dict, rec_count_hist_dict, timestamps, pulse_count_per_session = (
-        make_histogram(pulse_centers, sampling_rates, start_times)
+        make_histogram(pulse_centers, sampling_rates, start_times, end_times)
     )
 
     # calculate the recording time for each bin for all timescales
     rec_time_hist_dict, rec_time_per_session = rec_time_per_bin(start_times, end_times)
 
-    # calculate normalized firing rates for each session and time scale
-    normalized_fr_list = normalized_fr(pulse_count_per_session, rec_time_per_session)
+    # calculate pulse rates as pulse count / recording time in each bin
+    pulse_rate_hist_dict = pulse_rate_hz(count_histogram_dict, rec_time_hist_dict)
+    session_pulse_rate_hz_list = session_pulse_rate_hz(
+        pulse_count_per_session, rec_time_per_session
+    )
 
     # # create a hdf5 file with nixio to later save the timestamp of each pulse in it (only for all_pulses case)
     # if pulse_type == "all":
@@ -557,8 +535,10 @@ def main():
         rec_time_hist_dict,
         Path(save_path),
     )
+    save_pulse_rate_histograms(pulse_rate_hist_dict, Path(save_path))
+    save_histogram_metadata(start_times, end_times, Path(save_path))
 
-    save_normalized_fr(normalized_fr_list, Path(save_path))
+    save_session_pulse_rate_hz(session_pulse_rate_hz_list, Path(save_path))
 
 
 if __name__ == "__main__":

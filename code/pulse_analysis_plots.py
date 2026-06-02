@@ -3,6 +3,7 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path
+from dateutil.relativedelta import relativedelta
 
 #################################
 ############# CONFIG #############
@@ -59,18 +60,25 @@ suffix = pulse_config["suffix"]
 figures_subdir = pulse_config["figures_subdir"]
 hist_subdir = pulse_config["hist_subdir"]
 
-# load histogram dictionaries from .npz files
+# load pulse rate dictionaries from .npz files
 data_path = Path(
     f"/home/eisele/wrk/mscthesis/data/intermediate/eels-mfn2021_dummy_activity_histograms/{hist_subdir}"
 )
-count_data = np.load(data_path / "berlin_dummypulses_count_hist_dict.npz")
-histogram_dict = {k: count_data[k] for k in count_data.files}
+pulse_rate_data = np.load(
+    data_path / "berlin_dummypulses_pulse_rate_hz_hist_dict.npz"
+)
+pulse_rate_hist_dict = {k: pulse_rate_data[k] for k in pulse_rate_data.files}
 
-rec_count_data = np.load(data_path / "berlin_dummypulses_rec_hist_dict.npz")
-rec_hist_dict = {k: rec_count_data[k] for k in rec_count_data.files}
-
-rec_time_data = np.load(data_path / "berlin_dummypulses_rec_time_hist_dict.npz")
-rec_time_hist_dict = {k: rec_time_data[k] for k in rec_time_data.files}
+metadata_path = data_path / "berlin_dummypulses_hist_metadata.npz"
+if metadata_path.exists():
+    metadata = np.load(metadata_path)
+    first_month_year = int(metadata["first_month_year"])
+    first_month_month = int(metadata["first_month_month"])
+    first_year = int(metadata["first_year"])
+else:
+    first_month_year = 2023
+    first_month_month = 1
+    first_year = 2023
 
 #################################
 ############# PLOTS #############
@@ -91,129 +99,136 @@ def start_axes_at_zero(axes, x_max=None):
         axis.set_ylim(bottom=0)
 
 
+def month_since_start_labels(n_months):
+    first_month = datetime(first_month_year, first_month_month, 1)
+    return [
+        (first_month + relativedelta(months=i)).strftime("%b %Y")
+        for i in range(n_months)
+    ]
+
+
+def plot_pulse_rate(
+    timescale, title, xlabel, filename, tick_positions=None, tick_labels=None
+):
+    if timescale not in pulse_rate_hist_dict:
+        return
+
+    rate = pulse_rate_hist_dict[timescale]
+    x = np.arange(len(rate))
+    fig, ax = plt.subplots(figsize=(20, 6))
+
+    ax.plot(x, rate, color="green")
+    if tick_positions is not None and tick_labels is not None:
+        ax.set_xticks(tick_positions)
+        ax.set_xticklabels(tick_labels, rotation=45, ha="right")
+
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel("Pulse Rate (Hz)")
+    start_axes_at_zero(ax, x_max=len(rate))
+    fig.suptitle(title)
+
+    plt.tight_layout()
+    plt.savefig(save_path / filename, dpi=300)
+    plt.show()
+
+
+def nan_summary(arr):
+    median = np.full(arr.shape[1], np.nan)
+    p_lo = np.full(arr.shape[1], np.nan)
+    p_hi = np.full(arr.shape[1], np.nan)
+
+    for j in range(arr.shape[1]):
+        values = arr[:, j]
+        values = values[~np.isnan(values)]
+        if values.size == 0:
+            continue
+        median[j] = np.median(values)
+        p_lo[j] = np.percentile(values, 16)
+        p_hi[j] = np.percentile(values, 84)
+
+    return median, p_lo, p_hi
+
+
 # %%
 ## 24 hours - minute bins
-pulse_rate_minute = histogram_dict["minute"] / 60.0  # Hz
-pulse_rate_minute_normalized = (
-    histogram_dict["minute"] / rec_time_hist_dict["minute"]
-)  # Hz, normalized by recording time per bin
-
-
-x = np.arange(len(pulse_rate_minute))
-fig, ax = plt.subplots(2, 1, figsize=(20, 10), sharex=True)
-
-ax[0].plot(x, pulse_rate_minute)
-ax[1].plot(x, pulse_rate_minute_normalized, color="green")
-
-hour_ticks = np.arange(0, len(histogram_dict["minute"]), 60)
-hour_labels = [f"{h:02d}:00" for h in range(hour_ticks.size)]
-for a in ax:
-    a.set_xticks(hour_ticks)
-    a.set_xticklabels(hour_labels, rotation=45)
-    a.set_xlabel("time of day")
-start_axes_at_zero(ax, x_max=len(pulse_rate_minute))
-
-ax[0].set_ylabel("Pulse Rate (Hz)")
-ax[1].set_ylabel("Normalized Pulse Rate (Hz)")
-
-fig.suptitle("24-hour histogram (1-min bins)")
-
-plt.tight_layout()
-plt.savefig(save_path / f"24h_minute{suffix}.png", dpi=300)
-plt.show()
+minute_ticks = np.arange(0, len(pulse_rate_hist_dict["minute"]), 60)
+minute_tick_labels = [f"{h:02d}:00" for h in range(len(minute_ticks))]
+plot_pulse_rate(
+    "minute",
+    "24-hour pulse rate histogram (1-min bins)",
+    "time of day",
+    f"24h_minute{suffix}.png",
+    minute_ticks,
+    minute_tick_labels,
+)
 
 
 # %%
 ## 24 hours - hourly bins
-pulse_rate_hour = histogram_dict["hour"] / 60.0 / 60.0  # Hz
-pulse_rate_hour_normalized = (
-    histogram_dict["hour"] / rec_time_hist_dict["hour"]
-)  # Hz, normalized by recording time per bin
+hour_ticks = np.arange(len(pulse_rate_hist_dict["hour"]))
+hour_tick_labels = [f"{h:02d}:00" for h in hour_ticks]
+plot_pulse_rate(
+    "hour",
+    "24-hour pulse rate histogram (hourly bins)",
+    "time of day",
+    f"24h_hour{suffix}.png",
+    hour_ticks,
+    hour_tick_labels,
+)
 
-
-x = np.arange(len(pulse_rate_hour))
-fig, ax = plt.subplots(2, 1, figsize=(20, 10), sharex=True)
-
-ax[0].plot(x, pulse_rate_hour)
-ax[1].plot(x, pulse_rate_hour_normalized, color="green")
-
-hour_labels = [f"{h:02d}:00" for h in range(len(x))]
-for a in ax:
-    a.set_xticks(x)
-    a.set_xticklabels(hour_labels, rotation=45)
-    a.set_xlabel("time of day")
-start_axes_at_zero(ax, x_max=len(pulse_rate_hour))
-
-ax[0].set_ylabel("Pulse Rate (Hz)")
-ax[1].set_ylabel("Normalized Pulse Rate (Hz)")
-
-fig.suptitle("24-hour histogram (hourly bins)")
-
-plt.tight_layout()
-plt.savefig(save_path / f"24h_hour{suffix}.png", dpi=300)
-plt.show()
 
 # %%
 ## months - monthly bins
-pulse_rate_month = histogram_dict["month"] / 30 / 24 / 60 / 60  # Hz
-# TODO: use actual number of days per month instead of hardcoding 30 days for all months
-pulse_rate_month_normalized = (
-    histogram_dict["month"] / (rec_time_hist_dict["month"])
-)  # Hz, normalized by recording time per bin
+month_ticks = np.arange(len(pulse_rate_hist_dict["month"]))
+month_tick_labels = [datetime(2000, m, 1).strftime("%b") for m in range(1, 13)]
+plot_pulse_rate(
+    "month",
+    "monthly pulse rate histogram (monthly bins)",
+    "month",
+    f"12month_month{suffix}.png",
+    month_ticks,
+    month_tick_labels,
+)
 
-x = np.arange(len(pulse_rate_month))
-fig, ax = plt.subplots(2, 1, figsize=(20, 10), sharex=True)
 
-ax[0].plot(x, pulse_rate_month)
-ax[1].plot(x, pulse_rate_month_normalized, color="green")
+# %%
+## months since recording start - monthly bins
+if "month_since_start" in pulse_rate_hist_dict:
+    month_since_start_ticks = np.arange(
+        len(pulse_rate_hist_dict["month_since_start"])
+    )
+    month_since_start_tick_step = max(1, len(month_since_start_ticks) // 18)
+    month_since_start_tick_idx = month_since_start_ticks[::month_since_start_tick_step]
+    month_since_start_all_labels = month_since_start_labels(
+        len(month_since_start_ticks)
+    )
+    plot_pulse_rate(
+        "month_since_start",
+        "monthly pulse rate histogram since recording start (monthly bins)",
+        "month since recording start",
+        f"months_since_start_month{suffix}.png",
+        month_since_start_tick_idx,
+        [month_since_start_all_labels[i] for i in month_since_start_tick_idx],
+    )
 
-month_labels = [datetime(2000, m, 1).strftime("%b") for m in range(1, 13)]
-for a in ax:
-    a.set_xticks(x)
-    a.set_xticklabels(month_labels, rotation=45)
-    a.set_xlabel("month")
-start_axes_at_zero(ax, x_max=len(pulse_rate_month))
-
-ax[0].set_ylabel("Pulse Rate (Hz)")
-ax[1].set_ylabel("Normalized Pulse Rate (Hz)")
-
-fig.suptitle("monthly histogram (monthly bins)")
-
-plt.tight_layout()
-plt.savefig(save_path / f"12month_month{suffix}.png", dpi=300)
-plt.show()
 
 # %%
 ## years
-pulse_rate_year = histogram_dict["year"] / 365 / 24 / 60 / 60  # Hz
-pulse_rate_year_normalized = (
-    histogram_dict["year"] / (rec_time_hist_dict["year"])
-)  # Hz, normalized by recording time per bin
-
-x = np.arange(len(pulse_rate_year))
-fig, ax = plt.subplots(2, 1, figsize=(20, 10), sharex=True)
-
-ax[0].plot(x, pulse_rate_year)
-ax[1].plot(x, pulse_rate_year_normalized, color="green")
-
-year_labels = [str(y) for y in range(2023, 2023 + len(histogram_dict["year"]))]
-for a in ax:
-    a.set_xticks(x)
-    a.set_xticklabels(year_labels, rotation=45)
-    a.set_xlabel("year")
-start_axes_at_zero(ax, x_max=len(pulse_rate_year))
-
-ax[0].set_ylabel("Pulse Rate (Hz)")
-ax[1].set_ylabel("Normalized Pulse Rate (Hz)")
-
-fig.suptitle("yearly histogram (yearly bins)")
-
-plt.tight_layout()
-plt.savefig(save_path / f"years_year{suffix}.png", dpi=300)
-plt.show()
+year_ticks = np.arange(len(pulse_rate_hist_dict["year"]))
+year_tick_labels = [
+    str(y) for y in range(first_year, first_year + len(pulse_rate_hist_dict["year"]))
+]
+plot_pulse_rate(
+    "year",
+    "yearly pulse rate histogram (yearly bins)",
+    "year",
+    f"years_year{suffix}.png",
+    year_ticks,
+    year_tick_labels,
+)
 
 
-data = np.load(data_path / "berlin_dummypulses_normalized_fr.npz")
+data = np.load(data_path / "berlin_dummypulses_session_pulse_rate_hz.npz")
 for timescale in data.files:
     if timescale == "day":
         continue
@@ -236,10 +251,10 @@ for timescale in data.files:
         # plt.boxplot(valid_per_bin)
         # TODO: maybe do violin plots/heatmaps instead
 
-    # robust summary (choose percentiles you prefer)
-    median = np.nanmedian(arr, axis=0)
-    p_lo = np.nanpercentile(arr, 16, axis=0)  # e.g. 16th percentile
-    p_hi = np.nanpercentile(arr, 84, axis=0)  # e.g. 84th percentile
+    # Summarize active sessions only. Keeping true zero-rate sessions in this
+    # summary makes sparse pulse types collapse to a flat 0 Hz median.
+    active_arr = np.where(arr > 0, arr, np.nan)
+    median, p_lo, p_hi = nan_summary(active_arr)
 
     # mask invalid values so plotting skips all-NaN bins
     median_m = np.ma.masked_invalid(median)
@@ -247,9 +262,20 @@ for timescale in data.files:
     p_hi_m = np.ma.masked_invalid(p_hi)
 
     # thicker median line + shaded percentile band
-    plt.plot(x, median_m, color="tab:red", linewidth=1.5, label="nan-median")
+    plt.plot(
+        x,
+        median_m,
+        color="tab:red",
+        linewidth=1.5,
+        label="active-session median",
+    )
     plt.fill_between(
-        x, p_lo_m, p_hi_m, color="tab:red", alpha=0.25, label="16–84th pct"
+        x,
+        p_lo_m,
+        p_hi_m,
+        color="tab:red",
+        alpha=0.25,
+        label="active-session 16-84th pct",
     )
 
     plt.title(timescale)
