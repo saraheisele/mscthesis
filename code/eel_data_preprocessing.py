@@ -1,30 +1,34 @@
 """
-This script loads .npz files created from Patricks deep_peak_sieve package.
-.npz files are created in collect_peaks.py.
-.npz files contain:
-dict_keys(['labels', 'peaks', 'channels', 'amplitudes', 'centers', 'start_stop_index', 'rate', 'predicted_labels', 'predicted_probs'])
-    "peaks" - Window of amplitude values for each detected peak
-    "centers" - avg index of highest amplitude value of peaks on all 16 channels
-    "channels" - contains True/False for all 16 channels for all peaks, depending if peak showed up on that channel
-    "start_stop_idx" - start and stop index of the peak (to find peak in original data)
-    "labels" - only exists if peaks were labeled in later step of deep_peak_sieve. -1 default; not labeled, 1 = spike, 0 = noise
+Load pulse detection data from HDF5 files and generate activity histograms.
 
-peak_data contains as many entries/dicts as there are .npz files in the folder.
+This script processes .h5 files containing detected electric organ discharges (EODs) from
+the deep_peak_sieve package. It generates multi-timescale histograms of pulse activity
+and calculates pulse rates normalized by recording effort.
 
-The script consists of 4 steps:
-1. Access and store paths of npz files and corresponding wav files in seperate sorted lists.
-2. Check both lists for missing, empty or corrupt files and exclude them from further analysis.
-3. Sort npz file paths into recording sessions based on the time stamps in the file names.
-This step is necessary because sometimes there are several recording sessions within the same folder.
-This step produces a dictionary that contains as many keys as rec sessions,
-each key contains a list of npz file paths that belong to that session.
-4. Save the dictionary with the session paths to a json file for later use.
+Data Structure:
+    Input files contain arrays:
+    - "centers": Index of peak center for each detected pulse
+    - "predicted_labels": Model predictions (1 = pulse, 0 = noise)
+    - Optional markers: "is_double_peak", "is_wide_pulse", "is_fat_pulse" for pulse classification
+    - Metadata: Sampling rate, duration, recording start time
 
-The json file created in this script is loaded and used in the next step of this analysis (eel_data_analysis.py).
+Workflow:
+    1. Load .h5 files from specified directory
+    2. Extract pulse centers based on model predictions and pulse type
+    3. Generate activity histograms at multiple timescales (minute, hour, day, month, year)
+    4. Calculate pulse rates by normalizing pulse counts by recording time per bin
+    5. Save histograms and pulse rates as compressed .npz files
+
+Output files:
+    - berlin_dummypulses_count_hist_dict.npz: Raw pulse counts per bin
+    - berlin_dummypulses_rec_hist_dict.npz: Number of recordings contributing to each bin
+    - berlin_dummypulses_rec_time_hist_dict.npz: Total recording time per bin (seconds)
+    - berlin_dummypulses_pulse_rate_hz_hist_dict.npz: Pulse rate (Hz) per bin
+    - berlin_dummypulses_session_pulse_rate_hz.npz: Per-session pulse rates
+    - berlin_dummypulses_hist_metadata.npz: Histogram metadata for plotting
+
+TODO: Maybe store fs, rec length and start time in npz file/dictionary
 """
-
-# TODO: write documentation and comments for this script
-# TODO: Maybe store fs, rec length and start time in npz file/dictionary
 
 # %%
 from rich.console import Console
@@ -46,9 +50,17 @@ con = Console()
 
 def get_path_list(datapath):
     """
-    Make a list fo all the paths of hdf5 files from the given file, directory or supdirectory.
+    Recursively find all .h5 files in the given path (file, directory, or subdirectories).
+
+    Args:
+        datapath (Path): Path to an .h5 file or directory containing .h5 files
+
+    Returns:
+        list: Sorted list of Path objects for all found .h5 files
+
+    Raises:
+        FileNotFoundError: If path doesn't exist or is not a file/directory
     """
-    # Print status
     con.log("Loading detected pulses from hdf5 files.")
 
     # Check if the path exists
@@ -103,9 +115,25 @@ PULSE_TYPES = {
         "hist_subdir": "fat_pulses_hist",
     },
 }
+# Configuration for different pulse type analyses. Each type specifies:
+# - label: Human-readable name for logging
+# - array: Name of the binary marker array in .h5 file, or None to use all predicted positive pulses
+# - hist_subdir: Output subdirectory for this pulse type's results
 
 
 def select_pulse_type(default="all"):
+    """
+    Prompt user to select which pulse type to analyze.
+
+    Args:
+        default (str): Default pulse type if user provides no input
+
+    Returns:
+        str: Selected pulse type key from PULSE_TYPES
+
+    Raises:
+        ValueError: If selected type is not in PULSE_TYPES
+    """
     choices = ", ".join(PULSE_TYPES)
     selected = input(f"Pulse analysis type ({choices}) [{default}]: ").strip().lower()
     if not selected:
@@ -118,6 +146,24 @@ def select_pulse_type(default="all"):
 
 
 def load_eods(file_paths, pulse_type="all"):
+    """
+    Load pulse detection data from HDF5 files with nixio.
+
+    Extracts pulse centers, sampling rates, and recording times from .h5 files.
+    Filters pulses based on model predictions and optional pulse type markers.
+
+    Args:
+        file_paths (list): List of Path objects to .h5 files
+        pulse_type (str): Type of pulses to extract (from PULSE_TYPES keys)
+
+    Returns:
+        tuple: (pulse_center_list, fs_list, dt_start_list, dt_end_list, duration_list)
+               - pulse_center_list: List of numpy arrays with pulse indices per file
+               - fs_list: Sampling rates (Hz) per file
+               - dt_start_list: Recording start times (datetime) per file
+               - dt_end_list: Recording end times (datetime) per file
+               - duration_list: Recording durations (seconds) per file
+    """
     pulse_config = PULSE_TYPES[pulse_type]
     pulse_marker = pulse_config["array"]
     con.log(f"Loading hdf5 files. Pulse analysis type: {pulse_config['label']}")
@@ -134,23 +180,20 @@ def load_eods(file_paths, pulse_type="all"):
         ## load hdf5 file with nixio
         file = nixio.File.open(str(fp), nixio.FileMode.ReadWrite)
 
-        ## access data
-        # pulses block contains the detected pulses and their metadata
+        ## access data from "pulses" block
         block = file.blocks["pulses"]
-        # get the names of the data arrays in the block
         data_array_names = [da.name for da in block.data_arrays]
 
-        # check if centers data array exists, if no pulses were detected, its not created and we can skip the file
+        # Skip files with no detected pulses (no 'centers' array means no detections)
         if "centers" not in data_array_names:
             con.log(f"File {fp} does not contain 'centers' data array. Skipping.")
             continue
 
-        ## extract relevant data from h5 file
-        # center index of each detected pulse in the original data
+        ## extract pulse data and model predictions
         pulses_center_idx = block.data_arrays["centers"]
-        # predicted labels for each detected pulse, 1 = pulse, 0 = no pulse
         pred_labels = block.data_arrays["predicted_labels"]
 
+        # Filter pulses based on model prediction and pulse type marker
         if pulse_marker is not None:
             if pulse_marker not in data_array_names:
                 con.log(
@@ -159,39 +202,32 @@ def load_eods(file_paths, pulse_type="all"):
                 )
                 selected_centers = pulses_center_idx[:0]
             else:
+                # Keep only pulses predicted positive AND marked as the selected pulse type
                 marker = block.data_arrays[pulse_marker]
-                # Keep pulses that are predicted positive and marked as the selected type.
                 mask = (pred_labels[:] == 1) & (marker[:] == 1)
                 selected_centers = pulses_center_idx[mask]
         else:
-            # Filter by predicted labels only (all pulses predicted as positive)
+            # For "all" pulses: keep only those predicted as positive
             selected_centers = pulses_center_idx[pred_labels[:] == 1]
 
-        ## access metadata
+        ## extract metadata from .h5 file
         section = file.sections["pulses_metadata"]
-
-        ## extract relevant metadata
-        # sampling rate in Hz
         fs = section["metadata"]["samplerate"]
-        # start time of recording session as string
         starttime_str = section["metadata"]["metadata"]["INFO"]["DateTimeOriginal"]
-        # recording length in seconds
         duration = section["metadata"]["duration"]
 
-        # convert start time string to datetime object
+        # Convert start time string to datetime and calculate end time
         dt_start = datetime.strptime(starttime_str, "%Y-%m-%dT%H:%M:%S")
-
-        # add recording length to start time to get end time of recording session
         dt_end = dt_start + timedelta(seconds=duration)
 
-        ## append lists
+        ## append to output lists
         pulse_center_list.append(selected_centers)
         fs_list.append(fs)
         dt_start_list.append(dt_start)
         dt_end_list.append(dt_end)
         duration_list.append(duration)
 
-    return pulse_center_list, fs_list, dt_start_list, dt_end_list, duration
+    return pulse_center_list, fs_list, dt_start_list, dt_end_list, duration_list
 
 
 ###########################################
@@ -200,16 +236,36 @@ def load_eods(file_paths, pulse_type="all"):
 # TODO: maybe change make_histogram approach to session_fr approach (session wise and then just add up al the session lists to get total pulse counts)
 
 
-# calculate number of pulses per time bin
 def month_start(dt):
+    """Return datetime object with time set to start of the month."""
     return dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
 
 def month_index(dt, first_month):
+    """
+    Calculate the month index relative to a reference month.
+
+    Args:
+        dt (datetime): Target datetime
+        first_month (datetime): Reference month
+
+    Returns:
+        int: Number of months between first_month and dt
+    """
     return (dt.year - first_month.year) * 12 + (dt.month - first_month.month)
 
 
 def histogram_time_bounds(start_times, end_times):
+    """
+    Calculate histogram bin counts and temporal bounds for all timescales.
+
+    Args:
+        start_times (list): Recording start times (datetime objects)
+        end_times (list): Recording end times (datetime objects)
+
+    Returns:
+        dict: Contains first_month, first_year, month_count (bins), year_count (bins)
+    """
     first_start = min(start_times)
     last_end = max(end_times)
     first_month = month_start(first_start)
@@ -225,6 +281,25 @@ def histogram_time_bounds(start_times, end_times):
 
 
 def make_histogram(pulse_centers, sampling_rates, start_times, end_times):
+    """
+    Generate activity histograms at multiple timescales.
+
+    Creates histograms binning pulse counts at different temporal resolutions
+    (minute, hour, day, month, year). Also converts pulse indices to Unix timestamps.
+
+    Args:
+        pulse_centers (list): List of pulse index arrays (one per recording file)
+        sampling_rates (list): Sampling rates (Hz) for each file
+        start_times (list): Recording start times (datetime) for each file
+        end_times (list): Recording end times (datetime) for each file
+
+    Returns:
+        tuple: (hist, rec_hist, timestamp_list, session_counts)
+               - hist: Dict of histograms (pulse counts per bin at each timescale)
+               - rec_hist: Dict of counts (number of recordings contributing to each bin)
+               - timestamp_list: List of Unix timestamps for all pulses
+               - session_counts: Per-session histograms
+    """
     # create list to store unix timestamps of each pulse for later storage in hdf5 file
     timestamp_list = []  # TODO: make seperate function to store timestamps??
     time_bounds = histogram_time_bounds(start_times, end_times)
@@ -273,7 +348,7 @@ def make_histogram(pulse_centers, sampling_rates, start_times, end_times):
             month_since_start = month_index(pulse_time_abs, time_bounds["first_month"])
             year = pulse_time_abs.year - time_bounds["first_year"]
 
-            # append counts for each time bin of the current pulse to the array of the current hdf5 file
+            # increment histogram bins for each timescale
             hist_i["minute"][minute] += 1
             hist_i["hour"][hour] += 1
             hist_i["day"][day] += 1
@@ -281,15 +356,14 @@ def make_histogram(pulse_centers, sampling_rates, start_times, end_times):
             hist_i["month_since_start"][month_since_start] += 1
             hist_i["year"][year] += 1
 
-            ## convert pulse to Unix timestamp and append to list for later storage in hdf5 file
-            pulse_time_abs_unix = pulse_time_abs.timestamp()  # float64
+            # store Unix timestamp for this pulse
+            pulse_time_abs_unix = pulse_time_abs.timestamp()
             timestamp_list.append(pulse_time_abs_unix)
 
-        ## append global counters (counts of pulses and whether this recording contributed any pulses)
+        ## accumulate global counters and track which recordings contributed to each bin
         for item in hist:
             hist[item] += hist_i[item]
             rec_hist[item][hist_i[item] > 0] += 1
-            # TODO: do i even need rec count hist when i have rec time hist?
         session_counts.append(hist_i)
 
     con.log("Finished calculating histogram.")
@@ -297,6 +371,21 @@ def make_histogram(pulse_centers, sampling_rates, start_times, end_times):
 
 
 def rec_time_per_bin(start_times, end_times):
+    """
+    Calculate total recording time per histogram bin.
+
+    Handles partial bin coverage when recordings span multiple time bins.
+    Tracks per-session recording times for later normalization.
+
+    Args:
+        start_times (list): Recording start times (datetime objects)
+        end_times (list): Recording end times (datetime objects)
+
+    Returns:
+        tuple: (rec_time_hist, session_rec_times)
+               - rec_time_hist: Dict of recording seconds per bin at each timescale
+               - session_rec_times: Per-session recording time histograms
+    """
     con.log("Calculating recording time histograms...")
     time_bounds = histogram_time_bounds(start_times, end_times)
 
@@ -352,6 +441,18 @@ def rec_time_per_bin(start_times, end_times):
 
 
 def pulse_rate_hz(count_hist, rec_time_hist):
+    """
+    Calculate pulse rates by normalizing pulse counts by recording time.
+
+    Handles bins with no recording time (sets rate to NaN).
+
+    Args:
+        count_hist (dict): Pulse counts per bin at each timescale
+        rec_time_hist (dict): Recording time per bin at each timescale
+
+    Returns:
+        dict: Pulse rates (Hz) per bin at each timescale
+    """
     pulse_rates = {}
     for k in count_hist:
         counts = np.asarray(count_hist[k], dtype=float)
@@ -364,6 +465,16 @@ def pulse_rate_hz(count_hist, rec_time_hist):
 
 
 def session_pulse_rate_hz(session_counts, session_rec_times):
+    """
+    Calculate per-session pulse rates.
+
+    Args:
+        session_counts (list): Per-session pulse count histograms
+        session_rec_times (list): Per-session recording time histograms
+
+    Returns:
+        list: Per-session pulse rate histograms (one dict per session)
+    """
     # list to store pulse rate histograms for each rec session
     session_rates = []
     for count_hist, rec_time_hist in zip(session_counts, session_rec_times):
@@ -376,8 +487,16 @@ def session_pulse_rate_hz(session_counts, session_rec_times):
 #################################
 
 
-# create a hdf5 file with nixio to later save the timestamp of each pulse in it
 def open_nix_for_output(output_path: Path):
+    """
+    Create and open a new .nix file for storing pulse timestamps.
+
+    Args:
+        output_path (Path): Base output path (filename will be constructed)
+
+    Returns:
+        tuple: (nix_file, nix_timestamps_block)
+    """
     nix_file = nixio.File.open(
         str(
             output_path.with_name(
@@ -395,6 +514,17 @@ def open_nix_for_output(output_path: Path):
 def append_cluster_block(
     time_stamp_block, time_stamp_list: list, created: bool
 ) -> bool:
+    """
+    Append pulse timestamps to a .nix timestamp block.
+
+    Args:
+        time_stamp_block: .nix block to append timestamps to
+        time_stamp_list (list): Unix timestamps to append
+        created (bool): Whether the data_array has already been created
+
+    Returns:
+        bool: True after timestamps are appended
+    """
     con.log("Saving pulse timestamps to nix file.")
 
     if not time_stamp_list:
@@ -414,6 +544,15 @@ def append_cluster_block(
 
 
 def save_histograms(count_hist, rec_hist, rec_time_hist, output_path: Path):
+    """
+    Save histogram dictionaries to compressed .npz files.
+
+    Args:
+        count_hist (dict): Pulse count histograms
+        rec_hist (dict): Recording count histograms
+        rec_time_hist (dict): Recording time histograms
+        output_path (Path): Output directory or file path
+    """
     con.log(f"Saving dictionaries to {output_path}.")
     # ensure values are numpy arrays
     clean_count_hist = {k: np.asarray(v) for k, v in count_hist.items()}
@@ -437,6 +576,13 @@ def save_histograms(count_hist, rec_hist, rec_time_hist, output_path: Path):
 
 
 def save_pulse_rate_histograms(pulse_rate_hist, output_path: Path):
+    """
+    Save pulse rate histograms to compressed .npz file.
+
+    Args:
+        pulse_rate_hist (dict): Pulse rates (Hz) per bin at each timescale
+        output_path (Path): Output directory or file path
+    """
     con.log(f"Saving pulse rate dictionaries to {output_path}.")
     clean_pulse_rates = {k: np.asarray(v) for k, v in pulse_rate_hist.items()}
     parent_dir = output_path if output_path.is_dir() else output_path.parent
@@ -448,6 +594,14 @@ def save_pulse_rate_histograms(pulse_rate_hist, output_path: Path):
 
 
 def save_histogram_metadata(start_times, end_times, output_path: Path):
+    """
+    Save histogram metadata needed for time axis formatting in plots.
+
+    Args:
+        start_times (list): Recording start times (datetime objects)
+        end_times (list): Recording end times (datetime objects)
+        output_path (Path): Output directory or file path
+    """
     time_bounds = histogram_time_bounds(start_times, end_times)
     parent_dir = output_path if output_path.is_dir() else output_path.parent
     parent_dir.mkdir(parents=True, exist_ok=True)
@@ -460,6 +614,15 @@ def save_histogram_metadata(start_times, end_times, output_path: Path):
 
 
 def save_session_pulse_rate_hz(session_pulse_rate_hz_list, out_path):
+    """
+    Save per-session pulse rates to compressed .npz file.
+
+    Stacks per-session rate arrays by timescale into 2D arrays (sessions × bins).
+
+    Args:
+        session_pulse_rate_hz_list (list): Per-session pulse rate dicts
+        out_path (Path): Output directory or file path
+    """
     timescales = list(session_pulse_rate_hz_list[0].keys())
     arrs = {
         k: np.vstack([sess[k] for sess in session_pulse_rate_hz_list])
@@ -481,8 +644,14 @@ def save_session_pulse_rate_hz(session_pulse_rate_hz_list, out_path):
 #################################
 
 
-# %%
 def main():
+    """
+    Main workflow: Load pulse data, generate histograms, and save results.
+
+    Prompts user for pulse type, loads all .h5 files, extracts pulses,
+    generates multi-timescale activity histograms and pulse rates, then saves
+    all outputs to .npz files.
+    """
     pulse_type = select_pulse_type(default="all")
 
     # path to directory containing hdf5 files with detected pulses
