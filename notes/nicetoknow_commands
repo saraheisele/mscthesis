@@ -29,6 +29,8 @@ bash:
 - sudo apt update: adds everything that needs to be updated to list
 - sudo apt upgrade: updates everything on that list
 
+Cursor:
+Practical tips to stretch usage: use Ask for explanations, start new chats for new topics, keep prompts focused, use Auto for routine edits.
 
 put downloaded/new eel files into file system:
 1. navigate to eels-mfn2021/new
