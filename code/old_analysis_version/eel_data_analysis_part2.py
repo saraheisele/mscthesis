@@ -1,6 +1,11 @@
 # %%
 from rich.console import Console
 import numpy as np
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from data_paths import LEGACY_INTERMEDIATE_PULSE_DATA_NPZ, LEGACY_PULSE_DATA_NPZ
 # from IPython import embed
 
 # Initialize console for logging
@@ -148,7 +153,7 @@ def save_data(
 def main():
     # load data from previous script
     rec_ids, session_ids, minute_idx, eod_counts, rec_count_min = load_data(
-        path="/home/eisele/wrk/mscthesis/data/intermediate/intermediate_pulse_data.npz",
+        path=str(LEGACY_INTERMEDIATE_PULSE_DATA_NPZ),
     )
 
     # global variables to adjust timescale of analysis
@@ -184,7 +189,7 @@ def main():
         firing_rates,
         sem_eod_counts,
         sem_eod_rate,
-        save_path="/home/eisele/wrk/mscthesis/data/intermediate/pulse_data.npz",
+        save_path=str(LEGACY_PULSE_DATA_NPZ),
     )
 
 

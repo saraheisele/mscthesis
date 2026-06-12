@@ -17,6 +17,8 @@ import matplotlib.pyplot as plt
 import nixio
 from rich.console import Console
 
+from data_paths import H5_DIR
+
 # Initialize console for logging
 con = Console()
 
@@ -1360,10 +1362,7 @@ def interactive_double_peak_verification(data_path):
 
 
 if __name__ == "__main__":
-    # Path to directory containing h5 files with detected pulses
-    data_path = Path(
-        "/home/eisele/wrk/mscthesis/data/raw/eels-mfn2021_dummy_pulses_redetected/berlin_tank_site/"
-    )
+    data_path = H5_DIR
 
     # Process all h5 files to detect double peaks
     results = process_all_h5_files(data_path)

@@ -18,6 +18,14 @@ import json
 from pathlib import Path
 # from IPython import embed
 
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from data_paths import (
+    LEGACY_INTERMEDIATE_PULSE_DATA_NPZ,
+    SESSION_PATHS_JSON,
+)
+
 # Initialize console for logging
 con = Console()
 
@@ -45,9 +53,7 @@ def change_paths_in_json(load_path):
         data[key] = [path.replace(old_base, new_base) for path in data[key]]
 
     # define path where json file is created
-    path = Path(
-        "/home/eisele/wrk/mscthesis/data/intermediate/eellogger_session_paths.json"
-    )
+    path = SESSION_PATHS_JSON
 
     # Save the updated JSON
     with path.open("w") as f:
@@ -273,7 +279,7 @@ def main():
 
     # extract data from json file
     data_paths, session_ids = extract_data(
-        load_path="/home/eisele/wrk/mscthesis/data/intermediate/eellogger_session_paths.json"
+        load_path=str(SESSION_PATHS_JSON)
     )
 
     # get path, session id, minute and eod count for that minute for each recording
@@ -288,7 +294,7 @@ def main():
         minute_idx,
         eod_counts,
         rec_count_min,
-        save_path="/home/eisele/wrk/mscthesis/data/intermediate/intermediate_pulse_data.npz",  # TODO: make variable for file name of intermediate data file
+        save_path=str(LEGACY_INTERMEDIATE_PULSE_DATA_NPZ),  # TODO: make variable for file name of intermediate data file
     )
 
 

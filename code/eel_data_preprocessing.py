@@ -39,6 +39,8 @@ import tqdm
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 
+from data_paths import H5_DIR, activity_hist_dir
+
 # Initialize console for logging
 con = Console()
 
@@ -655,16 +657,12 @@ def main():
     pulse_type = select_pulse_type(default="all")
 
     # path to directory containing hdf5 files with detected pulses
-    data_path = Path(
-        "/home/eisele/wrk/mscthesis/data/raw/eels-mfn2021_dummy_pulses_redetected/berlin_tank_site/"
-    )
+    data_path = H5_DIR
 
     # path to output directory - adjust based on selected pulse type
     hist_subdir = PULSE_TYPES[pulse_type]["hist_subdir"]
 
-    save_path = Path(
-        f"/home/eisele/wrk/mscthesis/data/intermediate/eels-mfn2021_dummy_activity_histograms/{hist_subdir}/"
-    )
+    save_path = activity_hist_dir(hist_subdir)
     # Ensure the output directory exists
     save_path.mkdir(parents=True, exist_ok=True)
 

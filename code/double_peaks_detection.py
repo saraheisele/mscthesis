@@ -27,6 +27,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
+from data_paths import H5_DIR, SPECIAL_PULSE_CLASSIFIER_DIR
+
 # Initialize console for logging
 con = Console()
 
@@ -922,9 +924,7 @@ def process_all_h5_files(data_path):
 
 
 def get_default_ml_paths():
-    base_path = Path(
-        "/home/eisele/wrk/mscthesis/data/intermediate/special_pulse_classifier/"
-    )
+    base_path = SPECIAL_PULSE_CLASSIFIER_DIR
     return {
         "base": base_path,
         "labels": base_path / "labeled_special_pulses.npz",
@@ -1707,10 +1707,7 @@ def supervised_learning_workflow(data_path):
 
 
 if __name__ == "__main__":
-    # Path to directory containing h5 files with detected pulses
-    data_path = Path(
-        "/home/eisele/wrk/mscthesis/data/raw/eels-mfn2021_dummy_pulses_redetected/berlin_tank_site/"
-    )
+    data_path = H5_DIR
 
     con.log("\n" + "=" * 60)
     con.log("SPECIAL PULSE DETECTION OPTIONS")

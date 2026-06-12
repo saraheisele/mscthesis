@@ -6,7 +6,12 @@ It plots the number of detected peaks per minute/hour as histogram.
 # %%
 import matplotlib.pyplot as plt
 import numpy as np
+from pathlib import Path
 from rich.console import Console
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from data_paths import LEGACY_PULSE_DATA_NPZ, PROCESSED_DIR
 
 con = Console()
 
@@ -143,7 +148,7 @@ def main():
         sem_eod_counts,
         sem_eod_rate,
     ) = load_data(
-        load_path="/home/eisele/wrk/mscthesis/data/intermediate/pulse_data.npz"
+        load_path=str(LEGACY_PULSE_DATA_NPZ)
     )
 
     # plot eod count histogram
@@ -152,14 +157,14 @@ def main():
         binned_rec_counts,
         eod_per_min,
         sem_eod_counts,
-        save_path="/home/eisele/wrk/mscthesis/data/processed/eod_count_min_hour_rec_count.png",
+        save_path=str(PROCESSED_DIR / "eod_count_min_hour_rec_count.png"),
     )
 
     # plot firing rate over time
     plot_firing_rate(
         eod_rates,
         sem_eod_rate,
-        save_path="/home/eisele/wrk/mscthesis/data/processed/eod_firing_rate_over_time.png",
+        save_path=str(PROCESSED_DIR / "eod_firing_rate_over_time.png"),
     )
 
 

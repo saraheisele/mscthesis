@@ -9,6 +9,8 @@ from datetime import datetime, timedelta, date
 import json
 from thunderlab.dataloader import DataLoader
 
+from data_paths import SESSION_PATHS_JSON
+
 
 # Initialize console for logging
 con = Console()
@@ -253,9 +255,7 @@ def save_session_paths(session_paths):
     Save the session paths to a JSON file.
     """
     # define path where json file is created
-    path = Path(
-        "/home/eisele/wrk/mscthesis/data/intermediate/eellogger_session_paths.json"
-    )
+    path = SESSION_PATHS_JSON
 
     # Convert Path objects to strings
     session_paths_str = {k: [str(p) for p in v] for k, v in session_paths.items()}

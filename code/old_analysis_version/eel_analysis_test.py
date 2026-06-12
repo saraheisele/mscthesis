@@ -46,6 +46,10 @@ from pathlib import Path
 from scipy.signal import find_peaks
 from rich.console import Console
 from audioio.audioloader import AudioLoader
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from data_paths import EXAMPLE_WAV_DIR
 
 
 con = Console()
@@ -54,9 +58,7 @@ con = Console()
 ### Import data
 con.log("Loading data")
 # Define the path to the data (this is for one folder only for now!)
-wavpath = Path(
-    "/home/eisele/wrk/mscthesis/data/raw/eellogger_example_data/recordings2025-03-31-20250401/"
-)
+wavpath = EXAMPLE_WAV_DIR
 
 # Get all wav files of one folder and store them alphabetically in a list
 wavfiles = sorted(list(wavpath.glob("*.wav")))

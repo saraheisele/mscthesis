@@ -25,6 +25,8 @@ from double_peaks_detection import (
     DISPLAY_NAME,
 )
 
+from data_paths import H5_DIR
+
 # Initialize console for logging
 con = Console()
 
@@ -1224,10 +1226,7 @@ def interactive_pulse_verification(data_path):
 
 
 if __name__ == "__main__":
-    # Path to directory containing h5 files with detected pulses
-    data_path = Path(
-        "/home/eisele/wrk/mscthesis/data/raw/eels-mfn2021_dummy_pulses_redetected/berlin_tank_site/"
-    )
+    data_path = H5_DIR
 
     # Choose visualization mode
     con.log("\n" + "=" * 60)

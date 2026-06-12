@@ -31,17 +31,19 @@ import nixio
 
 warnings.filterwarnings("ignore")
 
+from data_paths import (
+    ENVIRONMENT_CORRELATION_DIR,
+    EXCEL_DIR,
+    H5_ROOT,
+    activity_hist_dir,
+)
+
 #################################
 ############# CONFIG #############
 #################################
 
-# Data paths
-EXCEL_DIR = Path("/home/eisele/wrk/mscthesis/code")
-PULSE_DATA_PATH = Path(
-    "/home/eisele/wrk/mscthesis/data/intermediate/eels-mfn2021_dummy_activity_histograms/all_pulses_hist"
-)
-OUTPUT_DIR = Path("/home/eisele/wrk/mscthesis/data/processed/environment_correlation")
-
+PULSE_DATA_PATH = activity_hist_dir("all_pulses_hist")
+OUTPUT_DIR = ENVIRONMENT_CORRELATION_DIR
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 PULSE_TYPES = {
@@ -172,9 +174,7 @@ def load_pulse_data(pulse_type="all"):
         tuple: (pulse_rate_dict, metadata, pulse_config)
     """
     hist_subdir = PULSE_TYPES[pulse_type]["hist_subdir"]
-    data_path = Path(
-        f"/home/eisele/wrk/mscthesis/data/intermediate/eels-mfn2021_dummy_activity_histograms/{hist_subdir}"
-    )
+    data_path = activity_hist_dir(hist_subdir)
 
     metadata = np.load(data_path / "berlin_dummypulses_hist_metadata.npz")
     pulse_rate_dict = np.load(
@@ -1101,44 +1101,97 @@ def detect_file_volleys(h5_file, strategy):
     return volleys, sampling_rate
 
 
+def _merge_sample_intervals(intervals):
+    """Merge overlapping (start, end) sample intervals."""
+    if not intervals:
+        return []
+
+    intervals = sorted(intervals, key=lambda item: item[0])
+    merged = [intervals[0]]
+
+    for start, end in intervals[1:]:
+        prev_start, prev_end = merged[-1]
+        if start <= prev_end:
+            merged[-1] = (prev_start, max(prev_end, end))
+        else:
+            merged.append((start, end))
+
+    return merged
+
+
+def _intervals_duration_s(intervals, sampling_rate):
+    if not intervals:
+        return 0.0
+    return sum((end - start) / sampling_rate for start, end in intervals)
+
+
+def _pulse_mask_outside_intervals(pulse_centers, intervals):
+    mask = np.ones(len(pulse_centers), dtype=bool)
+    for start, end in intervals:
+        mask &= ~((pulse_centers >= start) & (pulse_centers <= end))
+    return mask
+
+
 def analyze_pulses_around_volleys(
     pulse_centers,
     pulse_markers,
     volleys,
     sampling_rate,
+    recording_duration_s=None,
     window_s=VOLLEY_CONTEXT_WINDOW_S,
 ):
     """
-    Analyze which pulse types occur within, before, and after volleys.
+    Analyze special pulse shapes around volleys with rate-corrected baselines.
 
-    Args:
-        pulse_centers (np.array): All pulse center sample indices
-        pulse_markers (dict): Pulse type markers (double, wide, fat)
-        volleys (list): List of detected volleys
-        sampling_rate (float): Sampling rate in Hz
-        window_s (float): Time window before/after volley in seconds
-
-    Returns:
-        dict: Statistics on pulse types within/before/after volleys and baseline
+    Baseline pulses and rates are computed outside +/- ``window_s`` around every
+    volley. Before/after contexts use fixed-duration windows; significance tests
+    compare each pulse type to the count expected from its clean baseline
+    proportion given the total pulses actually observed in that context.
     """
     window_samples = int(window_s * sampling_rate)
     pulse_types = ["double", "wide", "fat"]
+
+    if recording_duration_s is None:
+        recording_duration_s = (
+            pulse_centers[-1] / sampling_rate if len(pulse_centers) > 0 else 0.0
+        )
+    duration_samples = max(1, int(recording_duration_s * sampling_rate))
+
+    neighborhood_intervals = _merge_sample_intervals(
+        [
+            (
+                max(0, volley["start_sample"] - window_samples),
+                min(duration_samples, volley["end_sample"] + window_samples),
+            )
+            for volley in volleys
+        ]
+    )
+    baseline_mask = _pulse_mask_outside_intervals(
+        pulse_centers, neighborhood_intervals
+    )
+    baseline_time_s = recording_duration_s - _intervals_duration_s(
+        neighborhood_intervals, sampling_rate
+    )
 
     stats_dict = {
         "total_volleys": len(volleys),
         "within": {ptype: 0 for ptype in pulse_types},
         "within_total": 0,
+        "within_time_s": 0.0,
         "before": {ptype: 0 for ptype in pulse_types},
         "after": {ptype: 0 for ptype in pulse_types},
         "before_total": 0,
         "after_total": 0,
+        "before_time_s": len(volleys) * window_s,
+        "after_time_s": len(volleys) * window_s,
         "baseline": {ptype: 0 for ptype in pulse_types},
-        "baseline_total": len(pulse_centers),
+        "baseline_total": int(np.sum(baseline_mask)),
+        "baseline_time_s": baseline_time_s,
     }
 
     for ptype in pulse_types:
         if ptype in pulse_markers:
-            stats_dict["baseline"][ptype] = int(np.sum(pulse_markers[ptype]))
+            stats_dict["baseline"][ptype] = int(np.sum(pulse_markers[ptype][baseline_mask]))
 
     for volley in volleys:
         start_sample = volley["start_sample"]
@@ -1161,6 +1214,7 @@ def analyze_pulses_around_volleys(
         stats_dict["within_total"] += int(np.sum(in_volley))
         stats_dict["before_total"] += int(np.sum(before_mask))
         stats_dict["after_total"] += int(np.sum(after_mask))
+        stats_dict["within_time_s"] += volley["end_time_s"] - volley["start_time_s"]
 
         for ptype in pulse_types:
             if ptype not in pulse_markers:
@@ -1173,47 +1227,87 @@ def analyze_pulses_around_volleys(
     return stats_dict
 
 
-def compare_volley_pulse_type_enrichment(all_pulse_stats):
+def compare_volley_pulse_type_rate_corrected(all_pulse_stats):
     """
-    Compare pulse-type proportions in volleys vs baseline using two-proportion z-tests.
+    Test whether each pulse type deviates from its clean baseline rate.
 
-    Returns:
-        dict: Enrichment statistics per pulse type and context (within/before/after)
+    For each context window, the expected count of a pulse type is:
+
+        expected = N_context * p_type_baseline
+
+    where ``N_context`` is the total number of pulses observed in that window
+    (thereby correcting for higher/lower overall pulse rate) and
+    ``p_type_baseline`` comes from time outside all volley neighborhoods.
     """
     results = {}
     baseline_total = all_pulse_stats["baseline_total"]
+    baseline_time_s = all_pulse_stats["baseline_time_s"]
     baseline_counts = all_pulse_stats["baseline"]
+    baseline_overall_rate = (
+        baseline_total / baseline_time_s if baseline_time_s > 0 else np.nan
+    )
 
-    for context in ["within", "before", "after"]:
-        context_total_key = f"{context}_total"
-        context_total = all_pulse_stats[context_total_key]
+    for context in ["before", "after", "within"]:
+        context_total = all_pulse_stats[f"{context}_total"]
+        context_time_s = all_pulse_stats[f"{context}_time_s"]
         context_counts = all_pulse_stats[context]
+        context_overall_rate = (
+            context_total / context_time_s if context_time_s > 0 else np.nan
+        )
 
         for ptype in ["double", "wide", "fat"]:
             baseline_n = baseline_counts[ptype]
             context_n = context_counts[ptype]
+            baseline_prop = (
+                baseline_n / baseline_total if baseline_total > 0 else np.nan
+            )
+            baseline_rate = (
+                baseline_n / baseline_time_s if baseline_time_s > 0 else np.nan
+            )
+            context_rate = (
+                context_n / context_time_s if context_time_s > 0 else np.nan
+            )
+            expected_count = (
+                context_total * baseline_prop
+                if context_total > 0 and not np.isnan(baseline_prop)
+                else np.nan
+            )
+            expected_rate = (
+                baseline_prop * context_overall_rate
+                if not np.isnan(baseline_prop) and not np.isnan(context_overall_rate)
+                else np.nan
+            )
 
-            if baseline_total == 0 or context_total == 0:
-                z_stat, p_value = np.nan, np.nan
+            if (
+                context_total > 0
+                and baseline_total > 0
+                and not np.isnan(baseline_prop)
+            ):
+                p_value = stats.binomtest(
+                    context_n, context_total, baseline_prop
+                ).pvalue
             else:
-                p_pool = (baseline_n + context_n) / (baseline_total + context_total)
-                se = np.sqrt(
-                    p_pool * (1 - p_pool) * (1 / baseline_total + 1 / context_total)
-                )
-                if se == 0:
-                    z_stat, p_value = np.nan, np.nan
-                else:
-                    p_baseline = baseline_n / baseline_total
-                    p_context = context_n / context_total
-                    z_stat = (p_context - p_baseline) / se
-                    p_value = 2 * stats.norm.sf(abs(z_stat))
+                p_value = np.nan
 
             results[(context, ptype)] = {
-                "baseline_pct": 100 * baseline_n / baseline_total
-                if baseline_total
+                "baseline_rate_hz": baseline_rate,
+                "context_rate_hz": context_rate,
+                "expected_rate_hz": expected_rate,
+                "baseline_prop_pct": 100 * baseline_prop
+                if not np.isnan(baseline_prop)
                 else np.nan,
-                "context_pct": 100 * context_n / context_total if context_total else np.nan,
-                "z_stat": z_stat,
+                "observed_count": context_n,
+                "expected_count": expected_count,
+                "overall_rate_ratio": (
+                    context_overall_rate / baseline_overall_rate
+                    if baseline_overall_rate and not np.isnan(context_overall_rate)
+                    else np.nan
+                ),
+                "fold_vs_expected": (
+                    context_n / expected_count
+                    if expected_count and expected_count > 0
+                    else np.nan
+                ),
                 "p_value": p_value,
             }
 
@@ -1237,47 +1331,91 @@ def print_volley_analysis(volley_stats, strategy=None):
         return
 
     baseline_total = volley_stats["baseline_total"]
-    print(f"\nBaseline pulse composition (all detected pulses, n={baseline_total}):")
+    baseline_time_s = volley_stats["baseline_time_s"]
+    baseline_rate = baseline_total / baseline_time_s if baseline_time_s > 0 else np.nan
+
+    print(
+        f"\nClean baseline (outside +/- {VOLLEY_CONTEXT_WINDOW_S:.0f}s of all volleys):"
+    )
+    print(
+        f"  {baseline_total} pulses over {baseline_time_s:.1f} s "
+        f"({baseline_rate:.2f} Hz overall)"
+    )
     print("-" * 70)
     for pulse_type in ["double", "wide", "fat"]:
         count = volley_stats["baseline"][pulse_type]
         pct = 100 * count / baseline_total if baseline_total else 0
-        print(f"  {pulse_type.upper():6}: {count:5d} pulses ({pct:5.1f}%)")
+        rate = count / baseline_time_s if baseline_time_s > 0 else np.nan
+        print(
+            f"  {pulse_type.upper():6}: {count:5d} pulses ({pct:5.1f}%)"
+            f" | {rate:.3f} Hz"
+        )
 
-    enrichment = compare_volley_pulse_type_enrichment(volley_stats)
+    corrected = compare_volley_pulse_type_rate_corrected(volley_stats)
     contexts = [
-        ("within", "WITHIN volleys", "within_total"),
         (
             "before",
             f"BEFORE volleys ({VOLLEY_CONTEXT_WINDOW_S:.0f}s window)",
             "before_total",
+            "before_time_s",
         ),
         (
             "after",
             f"AFTER volleys ({VOLLEY_CONTEXT_WINDOW_S:.0f}s window)",
             "after_total",
+            "after_time_s",
+        ),
+        (
+            "within",
+            "WITHIN volleys",
+            "within_total",
+            "within_time_s",
         ),
     ]
 
-    for context_key, context_label, total_key in contexts:
+    print(
+        f"\nRate-corrected enrichment (expected count = observed total pulses"
+        f" x baseline proportion):"
+    )
+
+    for context_key, context_label, total_key, time_key in contexts:
         total = volley_stats[total_key]
-        print(f"\nPulse Types {context_label} (n={total}):")
+        time_s = volley_stats[time_key]
+        overall_rate = total / time_s if time_s > 0 else np.nan
+        rate_ratio = corrected[(context_key, "double")]["overall_rate_ratio"]
+
+        print(f"\n{context_label}:")
         print("-" * 70)
+        print(
+            f"  Pulses: {total} over {time_s:.1f} s ({overall_rate:.2f} Hz)"
+        )
+        if not np.isnan(rate_ratio):
+            print(
+                f"  Overall pulse rate vs clean baseline: {rate_ratio:.2f}x"
+            )
         if total == 0:
             print("  No pulses in this context.")
             continue
 
         for pulse_type in ["double", "wide", "fat"]:
-            count = volley_stats[context_key][pulse_type]
-            pct = 100 * count / total
-            enrich = enrichment[(context_key, pulse_type)]
+            result = corrected[(context_key, pulse_type)]
             sig = ""
-            if not np.isnan(enrich["p_value"]) and enrich["p_value"] < 0.05:
-                direction = "enriched" if enrich["context_pct"] > enrich["baseline_pct"] else "depleted"
-                sig = f" * {direction} vs baseline (p={enrich['p_value']:.4f})"
+            if not np.isnan(result["p_value"]) and result["p_value"] < 0.05:
+                direction = (
+                    "more"
+                    if result["fold_vs_expected"] > 1
+                    else "fewer"
+                )
+                sig = (
+                    f" * significantly {direction} than expected"
+                    f" (p={result['p_value']:.4f})"
+                )
             print(
-                f"  {pulse_type.upper():6}: {count:5d} pulses ({pct:5.1f}%)"
-                f" | baseline {enrich['baseline_pct']:5.1f}%{sig}"
+                f"  {pulse_type.upper():6}: observed {result['observed_count']:5d}"
+                f" | expected {result['expected_count']:6.1f}"
+                f" | fold {result['fold_vs_expected']:.2f}x"
+                f" | rate {result['context_rate_hz']:.3f} vs"
+                f" {result['baseline_rate_hz']:.3f} Hz baseline{sig}"
             )
 
 
@@ -1521,9 +1659,7 @@ def main():
     print(f"  Pulse-type context window: +/- {VOLLEY_CONTEXT_WINDOW_S:.0f} s")
     print(f"{'=' * 70}")
 
-    h5_root = Path(
-        "/home/eisele/wrk/mscthesis/data/raw/eels-mfn2021_dummy_pulses_redetected"
-    )
+    h5_root = H5_ROOT
     h5_files = sorted(h5_root.glob("**/*.h5"))
 
     if len(h5_files) > 0:
@@ -1533,12 +1669,16 @@ def main():
             "total_volleys": 0,
             "within": {"double": 0, "wide": 0, "fat": 0},
             "within_total": 0,
+            "within_time_s": 0.0,
             "before": {"double": 0, "wide": 0, "fat": 0},
             "after": {"double": 0, "wide": 0, "fat": 0},
             "before_total": 0,
             "after_total": 0,
+            "before_time_s": 0.0,
+            "after_time_s": 0.0,
             "baseline": {"double": 0, "wide": 0, "fat": 0},
             "baseline_total": 0,
+            "baseline_time_s": 0.0,
         }
 
         if strategy is not None:
@@ -1550,6 +1690,7 @@ def main():
                 volleys, sampling_rate = detect_file_volleys(h5_file, strategy)
                 if sampling_rate is None:
                     sampling_rate = metadata[0]
+                recording_duration_s = metadata[1] if metadata else None
 
                 if len(volleys) > 0:
                     print(
@@ -1563,13 +1704,18 @@ def main():
                         pulse_markers,
                         volleys,
                         sampling_rate,
+                        recording_duration_s=recording_duration_s,
                     )
 
                     all_pulse_stats["total_volleys"] += stats["total_volleys"]
                     all_pulse_stats["within_total"] += stats["within_total"]
+                    all_pulse_stats["within_time_s"] += stats["within_time_s"]
                     all_pulse_stats["before_total"] += stats["before_total"]
                     all_pulse_stats["after_total"] += stats["after_total"]
+                    all_pulse_stats["before_time_s"] += stats["before_time_s"]
+                    all_pulse_stats["after_time_s"] += stats["after_time_s"]
                     all_pulse_stats["baseline_total"] += stats["baseline_total"]
+                    all_pulse_stats["baseline_time_s"] += stats["baseline_time_s"]
                     for context in ["within", "before", "after", "baseline"]:
                         for ptype in ["double", "wide", "fat"]:
                             all_pulse_stats[context][ptype] += stats[context][ptype]
