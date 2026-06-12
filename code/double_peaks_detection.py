@@ -9,6 +9,8 @@
 
 
 from pathlib import Path
+import csv
+import json
 import pickle
 from scipy.signal import find_peaks
 from scipy.optimize import curve_fit
@@ -16,8 +18,11 @@ import numpy as np
 import nixio
 import matplotlib.pyplot as plt
 from rich.console import Console
+from rich.table import Table
 from sklearn.decomposition import PCA
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import SVC
 from sklearn.metrics import (
     classification_report,
     confusion_matrix,
@@ -1456,6 +1461,599 @@ def plot_labeled_pulses_pca_space(waveforms, labels, output_path=None, show=True
     return fig, ax
 
 
+def _prepare_classifier_train_test_split(waveforms, labels, records=None):
+    """
+    Shared stratified train/test split for classifier training and benchmarking.
+    """
+    waveforms = np.asarray(waveforms, dtype=float)
+    labels = np.asarray(labels, dtype=np.int64)
+    unique_labels, label_counts = np.unique(labels, return_counts=True)
+    if len(unique_labels) < 2:
+        raise ValueError("Need at least two labeled classes to train a classifier.")
+
+    min_class_count = int(np.min(label_counts))
+    num_classes = len(unique_labels)
+    enough_for_stratify = min_class_count >= 2 and len(labels) >= 2 * num_classes
+    stratify = labels if enough_for_stratify else None
+
+    if stratify is not None:
+        test_count = max(num_classes, int(np.ceil(0.25 * len(labels))))
+        test_size = test_count / len(labels)
+    else:
+        test_size = 0.25 if len(labels) >= 8 else 0.5
+
+    split_indices = np.arange(len(waveforms))
+    train_idx, test_idx = train_test_split(
+        split_indices,
+        test_size=test_size,
+        random_state=42,
+        stratify=stratify,
+    )
+
+    labels_sorted = sorted(unique_labels)
+    target_names = [SPECIAL_PULSE_CLASSES[int(i)] for i in labels_sorted]
+    result = {
+        "X_train": waveforms[train_idx],
+        "X_test": waveforms[test_idx],
+        "y_train": labels[train_idx],
+        "y_test": labels[test_idx],
+        "labels_sorted": labels_sorted,
+        "target_names": target_names,
+    }
+    if records is not None:
+        records = np.asarray(records)
+        result["test_records"] = records[test_idx]
+    return result
+
+
+def _get_pca_n_components(X_train):
+    n_components = min(20, X_train.shape[0] - 1, X_train.shape[1])
+    return max(1, n_components)
+
+
+def _compute_multiclass_metrics(y_test, y_pred, labels_sorted):
+    macro_precision, macro_recall, macro_f1, _ = precision_recall_fscore_support(
+        y_test,
+        y_pred,
+        labels=labels_sorted,
+        average="macro",
+        zero_division=0,
+    )
+    weighted_precision, weighted_recall, weighted_f1, _ = (
+        precision_recall_fscore_support(
+            y_test,
+            y_pred,
+            labels=labels_sorted,
+            average="weighted",
+            zero_division=0,
+        )
+    )
+    return {
+        "macro_precision": float(macro_precision),
+        "macro_recall": float(macro_recall),
+        "macro_f1": float(macro_f1),
+        "weighted_precision": float(weighted_precision),
+        "weighted_recall": float(weighted_recall),
+        "weighted_f1": float(weighted_f1),
+    }
+
+
+def _build_benchmark_classifier_pipelines():
+    return {
+        "random_forest": RandomForestClassifier(
+            n_estimators=300,
+            class_weight="balanced",
+            random_state=42,
+            n_jobs=-1,
+        ),
+        "svc_rbf": Pipeline(
+            steps=[
+                ("scaler", StandardScaler()),
+                (
+                    "svc",
+                    SVC(
+                        kernel="rbf",
+                        class_weight="balanced",
+                        random_state=42,
+                    ),
+                ),
+            ]
+        ),
+        "hist_gradient_boosting": HistGradientBoostingClassifier(random_state=42),
+        "knn": KNeighborsClassifier(n_neighbors=5),
+    }
+
+
+def _wrap_benchmark_pipeline(estimator, feature_space, n_components):
+    if isinstance(estimator, Pipeline):
+        if feature_space == "pca":
+            return Pipeline(
+                steps=[
+                    ("scaler", StandardScaler()),
+                    ("pca", PCA(n_components=n_components, random_state=42)),
+                    ("classifier", estimator.named_steps["svc"]),
+                ]
+            )
+        return estimator
+
+    steps = [("scaler", StandardScaler())]
+    if feature_space == "pca":
+        steps.append(("pca", PCA(n_components=n_components, random_state=42)))
+    steps.append(("classifier", estimator))
+    return Pipeline(steps=steps)
+
+
+def plot_benchmark_pca_scatter(
+    X_train,
+    y_train,
+    X_test,
+    y_test,
+    output_path,
+    title,
+    fit_on="train",
+    show_splits=("train", "test"),
+):
+    """
+    Plot labeled pulses in PCA space.
+
+    fit_on:
+        "train" — fit StandardScaler + PCA on the training split only (matches
+        the classifier pipeline).
+        "all" — fit on train + test combined (exploratory view of full labels).
+    show_splits:
+        Which splits to draw, e.g. ("train", "test") or ("train", "test") for both.
+    """
+    show_splits = tuple(show_splits)
+    X_train = np.asarray(X_train, dtype=float)
+    X_test = np.asarray(X_test, dtype=float)
+    y_train = np.asarray(y_train, dtype=np.int64)
+    y_test = np.asarray(y_test, dtype=np.int64)
+
+    if fit_on == "train":
+        fit_waveforms = X_train
+    elif fit_on == "all":
+        fit_waveforms = np.vstack([X_train, X_test])
+    else:
+        raise ValueError("fit_on must be 'train' or 'all'")
+
+    n_components = min(2, fit_waveforms.shape[0] - 1, fit_waveforms.shape[1])
+    n_components = max(1, n_components)
+
+    pca_pipeline = Pipeline(
+        steps=[
+            ("scaler", StandardScaler()),
+            ("pca", PCA(n_components=n_components, random_state=42)),
+        ]
+    )
+    pca_pipeline.fit(fit_waveforms)
+
+    split_data = {}
+    if "train" in show_splits:
+        projected_train = pca_pipeline.transform(X_train)
+        if n_components == 1:
+            projected_train = np.column_stack(
+                [projected_train[:, 0], np.zeros(len(projected_train))]
+            )
+        split_data["train"] = (projected_train, y_train)
+    if "test" in show_splits:
+        projected_test = pca_pipeline.transform(X_test)
+        if n_components == 1:
+            projected_test = np.column_stack(
+                [projected_test[:, 0], np.zeros(len(projected_test))]
+            )
+        split_data["test"] = (projected_test, y_test)
+
+    explained = pca_pipeline.named_steps["pca"].explained_variance_ratio_
+    all_labels = [labels for _, labels in split_data.values()]
+    labels_sorted = sorted(np.unique(np.concatenate(all_labels)))
+
+    fig, ax = plt.subplots(figsize=(9, 6.5))
+    colors = plt.cm.tab10(np.linspace(0, 1, max(len(labels_sorted), 1)))
+    split_styles = {
+        "train": {"s": 28, "alpha": 0.35, "linewidths": 0.0, "zorder": 1},
+        "test": {"s": 46, "alpha": 0.9, "linewidths": 0.35, "zorder": 2},
+    }
+
+    for color, label_id in zip(colors, labels_sorted):
+        class_name = SPECIAL_PULSE_CLASSES.get(int(label_id), f"class {label_id}")
+        for split_name, (projected, labels) in split_data.items():
+            mask = labels == label_id
+            if not np.any(mask):
+                continue
+            style = split_styles[split_name]
+            ax.scatter(
+                projected[mask, 0],
+                projected[mask, 1],
+                s=style["s"],
+                alpha=style["alpha"],
+                edgecolors="black",
+                linewidths=style["linewidths"],
+                color=color,
+                zorder=style["zorder"],
+                label=(
+                    f"{class_name} ({split_name}, n={int(np.sum(mask))})"
+                ),
+            )
+
+    fit_note = "fit on train" if fit_on == "train" else "fit on full dataset"
+    pc1_var = explained[0] * 100 if len(explained) > 0 else 0
+    pc2_var = explained[1] * 100 if len(explained) > 1 else 0
+    ax.set_xlabel(f"PC1 ({pc1_var:.1f}% variance)")
+    ax.set_ylabel(f"PC2 ({pc2_var:.1f}% variance)")
+    ax.set_title(f"{title}\n({fit_note})", fontweight="bold")
+    ax.grid(True, alpha=0.25, linestyle="--")
+    ax.legend(title="True label (split)", frameon=True, fontsize=8, loc="best")
+    fig.tight_layout()
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=200)
+    plt.close(fig)
+    return output_path
+
+
+def plot_benchmark_waveform_sanity(
+    X_test,
+    y_test,
+    y_pred,
+    test_records,
+    output_path,
+    title,
+    examples_per_type=2,
+):
+    labels_sorted = sorted(np.unique(y_test))
+    n_rows = len(labels_sorted)
+    n_cols = 2
+    fig, axes = plt.subplots(
+        n_rows,
+        n_cols,
+        figsize=(11, 2.8 * n_rows),
+        squeeze=False,
+    )
+
+    for row_idx, label_id in enumerate(labels_sorted):
+        class_name = SPECIAL_PULSE_CLASSES.get(int(label_id), f"class {label_id}")
+        class_mask = y_test == label_id
+        class_indices = np.where(class_mask)[0]
+
+        correct_indices = class_indices[y_pred[class_indices] == label_id]
+        wrong_indices = class_indices[y_pred[class_indices] != label_id]
+
+        selections = [
+            ("correct", correct_indices),
+            ("misclassified", wrong_indices),
+        ]
+
+        for col_idx, (example_type, candidate_indices) in enumerate(selections):
+            ax = axes[row_idx, col_idx]
+            if len(candidate_indices) == 0:
+                ax.text(
+                    0.5,
+                    0.5,
+                    f"No {example_type} examples",
+                    ha="center",
+                    va="center",
+                    transform=ax.transAxes,
+                )
+                ax.set_axis_off()
+                continue
+
+            pick_count = min(examples_per_type, len(candidate_indices))
+            picked = candidate_indices[:pick_count]
+
+            for example_idx in picked:
+                waveform = X_test[example_idx]
+                record = test_records[example_idx]
+                fs = float(record["fs"]) if record is not None else 1.0
+                time_axis = np.arange(len(waveform)) / fs * 1000
+                pred_name = SPECIAL_PULSE_CLASSES.get(
+                    int(y_pred[example_idx]), f"class {y_pred[example_idx]}"
+                )
+                ax.plot(
+                    time_axis,
+                    waveform,
+                    alpha=0.85,
+                    linewidth=1.4,
+                    label=f"pred={pred_name}",
+                )
+
+            ax.axhline(0, color="black", linewidth=0.8, alpha=0.4)
+            ax.set_xlabel("Time (ms)")
+            ax.set_ylabel("Amplitude")
+            ax.grid(True, alpha=0.25, linestyle="--")
+            ax.legend(fontsize=8, loc="upper right")
+            ax.set_title(
+                f"{class_name}: {example_type} (true={class_name})",
+                fontsize=10,
+                fontweight="bold",
+            )
+
+    fig.suptitle(title, fontsize=12, fontweight="bold")
+    fig.tight_layout()
+
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=200)
+    plt.close(fig)
+    return output_path
+
+
+def _print_benchmark_comparison_table(results):
+    table = Table(title="Pulse classifier benchmark (held-out test set)")
+    table.add_column("Run", style="cyan")
+    table.add_column("Classifier")
+    table.add_column("Features")
+    table.add_column("Macro P/R/F1")
+    table.add_column("Weighted P/R/F1")
+    table.add_column("Best?", justify="center")
+
+    best_macro_f1 = max(row["macro_f1"] for row in results)
+    best_rows = [row for row in results if row["macro_f1"] == best_macro_f1]
+
+    for row in results:
+        is_best = row in best_rows
+        table.add_row(
+            row["run_id"],
+            row["classifier"],
+            row["feature_space"],
+            (
+                f"{row['macro_precision']:.3f} / "
+                f"{row['macro_recall']:.3f} / "
+                f"{row['macro_f1']:.3f}"
+            ),
+            (
+                f"{row['weighted_precision']:.3f} / "
+                f"{row['weighted_recall']:.3f} / "
+                f"{row['weighted_f1']:.3f}"
+            ),
+            "★" if is_best else "",
+        )
+
+    con.print(table)
+    return best_rows
+
+
+def _summarize_benchmark_findings(results, best_rows):
+    pca_runs = [row for row in results if row["feature_space"] == "pca"]
+    raw_runs = [row for row in results if row["feature_space"] == "raw"]
+    best_pca = max(pca_runs, key=lambda row: row["macro_f1"])
+    best_raw = max(raw_runs, key=lambda row: row["macro_f1"])
+    pca_vs_raw_gap = best_pca["macro_f1"] - best_raw["macro_f1"]
+
+    classifier_best = {}
+    for row in results:
+        current = classifier_best.get(row["classifier"])
+        if current is None or row["macro_f1"] > current["macro_f1"]:
+            classifier_best[row["classifier"]] = row
+
+    ranked_classifiers = sorted(
+        classifier_best.values(), key=lambda row: row["macro_f1"], reverse=True
+    )
+    top = ranked_classifiers[0]
+    second = ranked_classifiers[1] if len(ranked_classifiers) > 1 else None
+    classifier_gap = top["macro_f1"] - second["macro_f1"] if second else 0.0
+
+    con.log("\nBenchmark summary:")
+    con.log(
+        f"  Best overall: {best_rows[0]['classifier']} + {best_rows[0]['feature_space']} "
+        f"(macro F1={best_rows[0]['macro_f1']:.3f})"
+    )
+    if len(best_rows) > 1:
+        tied = ", ".join(
+            f"{row['classifier']}+{row['feature_space']}" for row in best_rows
+        )
+        con.log(f"  Tied best runs: {tied}")
+
+    if abs(pca_vs_raw_gap) < 0.02:
+        pca_verdict = "marginal difference"
+    elif pca_vs_raw_gap > 0:
+        pca_verdict = f"PCA slightly better by {pca_vs_raw_gap:.3f} macro F1"
+    else:
+        pca_verdict = f"raw waveforms slightly better by {-pca_vs_raw_gap:.3f} macro F1"
+    con.log(f"  PCA vs raw: {pca_verdict}")
+
+    if classifier_gap < 0.02:
+        classifier_verdict = "marginal difference between top classifiers"
+    else:
+        classifier_verdict = (
+            f"{top['classifier']} leads by {classifier_gap:.3f} macro F1 "
+            f"over {second['classifier']}"
+        )
+    con.log(f"  Classifier spread: {classifier_verdict}")
+
+
+def benchmark_pulse_classifiers(labels_path=None):
+    """
+    Compare multiclass classifiers on PCA features vs raw waveforms.
+
+    Saves metrics and plots under SPECIAL_PULSE_CLASSIFIER_DIR/benchmark/.
+    """
+    ml_paths = get_default_ml_paths()
+    labels_path = Path(labels_path) if labels_path else ml_paths["labels"]
+    benchmark_dir = ml_paths["base"] / "benchmark"
+    pca_plot_dir = benchmark_dir / "pca"
+    waveform_plot_dir = benchmark_dir / "waveforms"
+    benchmark_dir.mkdir(parents=True, exist_ok=True)
+
+    if not labels_path.exists():
+        con.log(f"No labeled dataset found at {labels_path}.")
+        con.log("Run the supervised labeling workflow first (main menu option 2).")
+        return None
+
+    waveforms, labels, records = load_labeled_dataset(labels_path)
+    active_label_mask = np.isin(labels, list(LABELING_PULSE_CLASSES))
+    if not np.all(active_label_mask):
+        ignored_count = int(np.sum(~active_label_mask))
+        con.log(f"Ignoring {ignored_count} labels outside normal/double/wide/fat.")
+        waveforms = waveforms[active_label_mask]
+        labels = labels[active_label_mask]
+        records = records[active_label_mask]
+
+    if len(labels) == 0:
+        con.log("No normal/double/wide/fat labels available for benchmarking.")
+        return None
+
+    split = _prepare_classifier_train_test_split(waveforms, labels, records=records)
+    X_train = split["X_train"]
+    X_test = split["X_test"]
+    y_train = split["y_train"]
+    y_test = split["y_test"]
+    labels_sorted = split["labels_sorted"]
+    test_records = split["test_records"]
+    n_components = _get_pca_n_components(X_train)
+
+    con.log("\n" + "=" * 60)
+    con.log("PULSE CLASSIFIER BENCHMARK")
+    con.log("=" * 60)
+    con.log(f"Labels: {labels_path}")
+    con.log(f"Train/test split: {len(y_train)} / {len(y_test)} pulses")
+    con.log(f"PCA components (when used): {n_components}")
+    con.log(f"Output directory: {benchmark_dir}")
+    con.log("=" * 60)
+
+    pca_plot_train_test_path = pca_plot_dir / "dataset_pca_train_test.png"
+    pca_plot_full_fit_path = pca_plot_dir / "dataset_pca_full_fit.png"
+    con.log("Saving shared PCA scatter plots (classifier-independent)...")
+    plot_benchmark_pca_scatter(
+        X_train,
+        y_train,
+        X_test,
+        y_test,
+        pca_plot_train_test_path,
+        title="Labeled pulses in PCA space",
+        fit_on="train",
+        show_splits=("train", "test"),
+    )
+    plot_benchmark_pca_scatter(
+        X_train,
+        y_train,
+        X_test,
+        y_test,
+        pca_plot_full_fit_path,
+        title="Labeled pulses in PCA space",
+        fit_on="all",
+        show_splits=("train", "test"),
+    )
+    con.log(
+        "PCA plots are identical across classifier runs because they visualize "
+        "waveform geometry, not model predictions."
+    )
+
+    classifier_estimators = _build_benchmark_classifier_pipelines()
+    feature_spaces = ("pca", "raw")
+    results = []
+
+    for classifier_name, estimator in classifier_estimators.items():
+        for feature_space in feature_spaces:
+            run_id = f"{classifier_name}__{feature_space}"
+            con.log(f"Training {classifier_name} on {feature_space} features...")
+
+            pipeline = _wrap_benchmark_pipeline(
+                estimator, feature_space, n_components
+            )
+            pipeline.fit(X_train, y_train)
+            y_pred = pipeline.predict(X_test)
+            metrics = _compute_multiclass_metrics(y_test, y_pred, labels_sorted)
+
+            waveform_plot_path = waveform_plot_dir / f"{run_id}_waveforms.png"
+            plot_benchmark_waveform_sanity(
+                X_test,
+                y_test,
+                y_pred,
+                test_records,
+                waveform_plot_path,
+                title=(
+                    f"Test-set waveform examples | {classifier_name} | "
+                    f"{feature_space} features"
+                ),
+            )
+
+            run_result = {
+                "run_id": run_id,
+                "classifier": classifier_name,
+                "feature_space": feature_space,
+                **metrics,
+                "pca_plot_train_test": str(pca_plot_train_test_path),
+                "pca_plot_full_fit": str(pca_plot_full_fit_path),
+                "waveform_plot": str(waveform_plot_path),
+            }
+            results.append(run_result)
+
+            con.log(
+                f"  macro F1={metrics['macro_f1']:.3f}, "
+                f"weighted F1={metrics['weighted_f1']:.3f}"
+            )
+
+    best_rows = _print_benchmark_comparison_table(results)
+    _summarize_benchmark_findings(results, best_rows)
+
+    metrics_json_path = benchmark_dir / "benchmark_metrics.json"
+    metrics_csv_path = benchmark_dir / "benchmark_metrics.csv"
+    best_macro_f1 = max(row["macro_f1"] for row in results)
+
+    with metrics_json_path.open("w", encoding="utf-8") as f:
+        json.dump(
+            {
+                "labels_path": str(labels_path),
+                "train_size": int(len(y_train)),
+                "test_size": int(len(y_test)),
+                "pca_n_components": int(n_components),
+                "pca_plot_train_test": str(pca_plot_train_test_path),
+                "pca_plot_full_fit": str(pca_plot_full_fit_path),
+                "best_macro_f1": float(best_macro_f1),
+                "best_runs": [
+                    {
+                        "run_id": row["run_id"],
+                        "classifier": row["classifier"],
+                        "feature_space": row["feature_space"],
+                        "macro_f1": row["macro_f1"],
+                    }
+                    for row in best_rows
+                ],
+                "results": results,
+            },
+            f,
+            indent=2,
+        )
+
+    fieldnames = [
+        "run_id",
+        "classifier",
+        "feature_space",
+        "macro_precision",
+        "macro_recall",
+        "macro_f1",
+        "weighted_precision",
+        "weighted_recall",
+        "weighted_f1",
+        "is_best",
+        "pca_plot_train_test",
+        "pca_plot_full_fit",
+        "waveform_plot",
+    ]
+    with metrics_csv_path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in results:
+            writer.writerow(
+                {
+                    **{key: row[key] for key in fieldnames if key != "is_best"},
+                    "is_best": row["macro_f1"] == best_macro_f1,
+                }
+            )
+
+    con.log(f"Saved benchmark metrics to {metrics_json_path}")
+    con.log(f"Saved benchmark metrics to {metrics_csv_path}")
+    con.log(f"Saved PCA plots to {pca_plot_dir}")
+    con.log(f"Saved waveform sanity plots to {waveform_plot_dir}")
+
+    return {
+        "benchmark_dir": benchmark_dir,
+        "results": results,
+        "best_runs": best_rows,
+    }
+
+
 def train_special_pulse_classifier(labels_path=None, model_path=None):
     """
     Train a PCA + random forest multiclass classifier and print precision/recall/f1.
@@ -1488,27 +2086,16 @@ def train_special_pulse_classifier(labels_path=None, model_path=None):
         show=True,
     )
 
-    min_class_count = int(np.min(label_counts))
-    num_classes = len(unique_labels)
-    enough_for_stratify = min_class_count >= 2 and len(labels) >= 2 * num_classes
-    stratify = labels if enough_for_stratify else None
+    split = _prepare_classifier_train_test_split(waveforms, labels)
+    X_train = split["X_train"]
+    X_test = split["X_test"]
+    y_train = split["y_train"]
+    y_test = split["y_test"]
+    labels_sorted = split["labels_sorted"]
+    target_names = split["target_names"]
+    unique_labels = labels_sorted
 
-    if stratify is not None:
-        test_count = max(num_classes, int(np.ceil(0.25 * len(labels))))
-        test_size = test_count / len(labels)
-    else:
-        test_size = 0.25 if len(labels) >= 8 else 0.5
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        waveforms,
-        labels,
-        test_size=test_size,
-        random_state=42,
-        stratify=stratify,
-    )
-
-    n_components = min(20, X_train.shape[0] - 1, X_train.shape[1])
-    n_components = max(1, n_components)
+    n_components = _get_pca_n_components(X_train)
 
     classifier = Pipeline(
         steps=[
@@ -1529,9 +2116,6 @@ def train_special_pulse_classifier(labels_path=None, model_path=None):
     classifier.fit(X_train, y_train)
     y_pred = classifier.predict(X_test)
 
-    target_names = [SPECIAL_PULSE_CLASSES[i] for i in sorted(unique_labels)]
-    labels_sorted = sorted(unique_labels)
-
     con.log("\nClassifier performance on held-out labeled pulses:")
     print(
         classification_report(
@@ -1545,22 +2129,13 @@ def train_special_pulse_classifier(labels_path=None, model_path=None):
     con.log("Confusion matrix:")
     print(confusion_matrix(y_test, y_pred, labels=labels_sorted))
 
-    macro_precision, macro_recall, macro_f1, _ = precision_recall_fscore_support(
-        y_test,
-        y_pred,
-        labels=labels_sorted,
-        average="macro",
-        zero_division=0,
-    )
-    weighted_precision, weighted_recall, weighted_f1, _ = (
-        precision_recall_fscore_support(
-            y_test,
-            y_pred,
-            labels=labels_sorted,
-            average="weighted",
-            zero_division=0,
-        )
-    )
+    metrics = _compute_multiclass_metrics(y_test, y_pred, labels_sorted)
+    macro_precision = metrics["macro_precision"]
+    macro_recall = metrics["macro_recall"]
+    macro_f1 = metrics["macro_f1"]
+    weighted_precision = metrics["weighted_precision"]
+    weighted_recall = metrics["weighted_recall"]
+    weighted_f1 = metrics["weighted_f1"]
 
     with model_path.open("wb") as f:
         pickle.dump(
@@ -1714,14 +2289,17 @@ if __name__ == "__main__":
     con.log("=" * 60)
     con.log("1. Run old rule-based detector")
     con.log("2. Run supervised PCA + random forest workflow")
+    con.log("3. Benchmark pulse classifiers (PCA vs raw)")
     con.log("=" * 60)
 
-    mode = input("Select mode (1 or 2): ").strip()
+    mode = input("Select mode (1, 2, or 3): ").strip()
 
     if mode == "1":
         # Process all h5 files to detect double peaks or wide pulses
         results = process_all_h5_files(data_path)
     elif mode == "2":
         supervised_learning_workflow(data_path)
+    elif mode == "3":
+        benchmark_pulse_classifiers()
     else:
-        con.log("Invalid selection. Please enter 1 or 2.")
+        con.log("Invalid selection. Please enter 1, 2, or 3.")
