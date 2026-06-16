@@ -54,6 +54,14 @@ PROCESSED_DIR = PROJECT_ROOT / "data/processed"
 FEEDING_CORRELATION_DIR = PROCESSED_DIR / "feeding_correlation"
 ENVIRONMENT_CORRELATION_DIR = PROCESSED_DIR / "environment_correlation"
 PULSE_SHAPE_CORRELATION_DIR = PROCESSED_DIR / "pulse_shape_correlation"
+POSITION_HISTOGRAMS_DIR = INTERMEDIATE_DIR / "eels-mfn2021_dummy_position_histograms"
+POSITION_FIGURES_DIR = PROCESSED_DIR / "position_analysis"
+
+# Full dataset — optionally use separate output folders:
+# POSITION_HISTOGRAMS_DIR = INTERMEDIATE_DIR / "eels-mfn2021_position_histograms"
+
+# Berlin tank electrode line layout (cm coordinates, bright → dark)
+ELECTRODE_LAYOUT_JSON = LAB_DATA_DIR / "electrode_layout.json"
 
 
 def activity_hist_dir(hist_subdir: str) -> Path:
@@ -64,3 +72,10 @@ def activity_hist_dir(hist_subdir: str) -> Path:
 def processed_figures_dir(figures_subdir: str) -> Path:
     """Output directory for pulse analysis figures."""
     return PROCESSED_DIR / figures_subdir
+
+
+def position_hist_dir(hist_subdir: str = "") -> Path:
+    """Directory with preprocessed position histogram .npz files."""
+    if hist_subdir:
+        return POSITION_HISTOGRAMS_DIR / hist_subdir
+    return POSITION_HISTOGRAMS_DIR
