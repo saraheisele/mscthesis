@@ -1,4 +1,7 @@
-"""Shared utilities for eel position analysis along the Berlin line logger.
+"""Shared geometry and I/O for eel head position along the 16-electrode line.
+
+Analysis part: position analysis infrastructure (Part 5).
+Dependencies: data_paths.
 
 Electrode geometry: 16 electrodes spaced 25 cm apart along a 3.75 m line.
 Channel 0 is in the bright tank area; channel 15 extends toward the dark area.
@@ -23,9 +26,6 @@ LINE_LENGTH_M = (N_ELECTRODES - 1) * ELECTRODE_SPACING_M
 DEFAULT_BRIGHT_DARK_BOUNDARY_M = 2.5
 
 WAV_TIME_RE = re.compile(r"(\d{8}T\d{6})")
-SESSION_FROM_WAV_RE = re.compile(
-    r"recordings[_]?(\d{4}-\d{2}-\d{2}(?:_\d{2}-\d{2}-\d{2})?)"
-)
 
 
 @dataclass

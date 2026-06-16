@@ -1,9 +1,10 @@
 """Plot prototype pulse waveforms for each pulse shape.
 
-For each pulse type (normal, double, wide, fat), randomly samples pulses from
-all h5 files, extracts the biggest unclipped channel per pulse, aligns them
-at a shape-specific reference point, and overlays the individual waveforms with
-their mean. Detection criteria are annotated on each plot.
+Analysis part: special-pulse visualization (Part 2c of Berlin activity analysis).
+Dependencies: double_peaks_detection, data_paths, h5_io.
+
+Randomly samples pulses, aligns waveforms at shape-specific reference points,
+and overlays individual traces with their mean for normal/double/wide/fat types.
 """
 
 from pathlib import Path
@@ -20,8 +21,8 @@ from double_peaks_detection import (
     detect_double_pulse,
     detect_fat_pulse,
     detect_wide_pulse,
-    get_path_list,
 )
+from h5_io import get_path_list
 
 console = Console()
 
@@ -147,10 +148,6 @@ def normalize_trace(trace):
     if peak <= 0:
         return trace
     return trace / peak
-
-
-def baseline_correct_and_normalize(trace):
-    return normalize_trace(baseline_correct(trace))
 
 
 def shift_waveform(trace, shift):

@@ -1,12 +1,10 @@
-"""
-Plot spatial usage of electric eels along the Berlin line logger.
+"""Plot spatial eel usage along the Berlin line logger.
 
-Loads position histograms from position_data_preprocessing.py and produces:
-    - Mean position vs time (minute, hour, month, month_since_start, year)
-    - 24h occupancy heatmap (time of day × position along line)
-    - Bright vs dark occupancy fraction over 24h
-    - Position distribution histogram
-    - Session-wise mean position scatter plots (mirrors activity plots)
+Analysis part: position visualization (Part 5b of Berlin activity analysis).
+Dependencies: data_paths, position_utils; requires position_data_preprocessing.py output.
+
+Produces mean-position time series, occupancy heatmaps, bright/dark fractions,
+and session-wise position scatter plots.
 """
 
 from __future__ import annotations

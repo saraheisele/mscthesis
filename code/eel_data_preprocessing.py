@@ -1,36 +1,12 @@
-"""
-Load pulse detection data from HDF5 files and generate activity histograms.
+"""Load predetected pulses from HDF5 and build multi-timescale activity histograms.
 
-This script processes .h5 files containing detected electric organ discharges (EODs) from
-the deep_peak_sieve package. It generates multi-timescale histograms of pulse activity
-and calculates pulse rates normalized by recording effort.
+Analysis part: pulse activity preprocessing (Part 1 of Berlin activity analysis).
+Dependencies: data_paths, pulse_config, h5_io; input .h5 files from deep_peak_sieve.
 
-Data Structure:
-    Input files contain arrays:
-    - "centers": Index of peak center for each detected pulse
-    - "predicted_labels": Model predictions (1 = pulse, 0 = noise)
-    - Optional markers: "is_double_peak", "is_wide_pulse", "is_fat_pulse" for pulse classification
-    - Metadata: Sampling rate, duration, recording start time
-
-Workflow:
-    1. Load .h5 files from specified directory
-    2. Extract pulse centers based on model predictions and pulse type
-    3. Generate activity histograms at multiple timescales (minute, hour, day, month, year)
-    4. Calculate pulse rates by normalizing pulse counts by recording time per bin
-    5. Save histograms and pulse rates as compressed .npz files
-
-Output files:
-    - berlin_dummypulses_count_hist_dict.npz: Raw pulse counts per bin
-    - berlin_dummypulses_rec_hist_dict.npz: Number of recordings contributing to each bin
-    - berlin_dummypulses_rec_time_hist_dict.npz: Total recording time per bin (seconds)
-    - berlin_dummypulses_pulse_rate_hz_hist_dict.npz: Pulse rate (Hz) per bin
-    - berlin_dummypulses_session_pulse_rate_hz.npz: Per-session pulse rates
-    - berlin_dummypulses_hist_metadata.npz: Histogram metadata for plotting
-
-TODO: Maybe store fs, rec length and start time in npz file/dictionary
+Generates pulse-count and pulse-rate .npz files at minute/hour/day/month/year scales,
+normalized by recording effort. Run once per pulse type (all, double, wide, fat).
 """
 
-# %%
 from rich.console import Console
 from pathlib import Path
 import numpy as np
@@ -40,6 +16,8 @@ from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 
 from data_paths import H5_DIR, activity_hist_dir
+from h5_io import get_path_list
+from pulse_config import PULSE_TYPES, select_pulse_type
 
 # Initialize console for logging
 con = Console()
@@ -48,103 +26,6 @@ con = Console()
 #################################
 ############# LOAD ##############
 #################################
-
-
-def get_path_list(datapath):
-    """
-    Recursively find all .h5 files in the given path (file, directory, or subdirectories).
-
-    Args:
-        datapath (Path): Path to an .h5 file or directory containing .h5 files
-
-    Returns:
-        list: Sorted list of Path objects for all found .h5 files
-
-    Raises:
-        FileNotFoundError: If path doesn't exist or is not a file/directory
-    """
-    con.log("Loading detected pulses from hdf5 files.")
-
-    # Check if the path exists
-    if not datapath.exists():
-        raise FileNotFoundError(f"Path {datapath} does not exist.")
-
-    # Initialize list to store file paths
-    path_list = []
-
-    # Check if the path is a directory, a file or a directory containing files
-    if datapath.is_file():
-        # Check if the file is an hdf5 file
-        if datapath.suffix == ".h5":
-            con.log(f"Path {datapath} is a single hdf5 file.")
-            # Store objects in list for consistency with directory case
-            path_list.append(datapath)
-        else:
-            raise FileNotFoundError(f"File {datapath} is not an hdf5 file.")
-
-    # Recursively find all .h5 files in the directory and subdirectories
-    elif datapath.is_dir():
-        for file in datapath.rglob("*.h5"):
-            path_list.append(file)
-
-    else:
-        raise FileNotFoundError(
-            f"Path {datapath} is not a file, directory containing files or directory containing folders containing files."
-        )
-
-    return sorted(path_list)
-
-
-PULSE_TYPES = {
-    "all": {
-        "label": "all pulses",
-        "array": None,
-        "hist_subdir": "all_pulses_hist",
-    },
-    "double": {
-        "label": "double pulses",
-        "array": "is_double_peak",
-        "hist_subdir": "double_pulses_hist",
-    },
-    "wide": {
-        "label": "wide pulses",
-        "array": "is_wide_pulse",
-        "hist_subdir": "wide_pulses_hist",
-    },
-    "fat": {
-        "label": "fat pulses",
-        "array": "is_fat_pulse",
-        "hist_subdir": "fat_pulses_hist",
-    },
-}
-# Configuration for different pulse type analyses. Each type specifies:
-# - label: Human-readable name for logging
-# - array: Name of the binary marker array in .h5 file, or None to use all predicted positive pulses
-# - hist_subdir: Output subdirectory for this pulse type's results
-
-
-def select_pulse_type(default="all"):
-    """
-    Prompt user to select which pulse type to analyze.
-
-    Args:
-        default (str): Default pulse type if user provides no input
-
-    Returns:
-        str: Selected pulse type key from PULSE_TYPES
-
-    Raises:
-        ValueError: If selected type is not in PULSE_TYPES
-    """
-    choices = ", ".join(PULSE_TYPES)
-    selected = input(f"Pulse analysis type ({choices}) [{default}]: ").strip().lower()
-    if not selected:
-        return default
-    if selected not in PULSE_TYPES:
-        raise ValueError(
-            f"Unknown pulse analysis type '{selected}'. Choose one of: {choices}."
-        )
-    return selected
 
 
 def load_eods(file_paths, pulse_type="all"):
@@ -489,62 +370,6 @@ def session_pulse_rate_hz(session_counts, session_rec_times):
 #################################
 
 
-def open_nix_for_output(output_path: Path):
-    """
-    Create and open a new .nix file for storing pulse timestamps.
-
-    Args:
-        output_path (Path): Base output path (filename will be constructed)
-
-    Returns:
-        tuple: (nix_file, nix_timestamps_block)
-    """
-    nix_file = nixio.File.open(
-        str(
-            output_path.with_name(
-                output_path.stem + "berlin_dummypulses_timestamps.nix"
-            )
-        ),
-        nixio.FileMode.Overwrite,
-    )
-    nix_timestamps = nix_file.create_block(name="Timestamp", type_="datetime")
-
-    return nix_file, nix_timestamps
-
-
-# save the unix timestamp of each pulse in the earlier created nix_timestamp block of nix_file
-def append_cluster_block(
-    time_stamp_block, time_stamp_list: list, created: bool
-) -> bool:
-    """
-    Append pulse timestamps to a .nix timestamp block.
-
-    Args:
-        time_stamp_block: .nix block to append timestamps to
-        time_stamp_list (list): Unix timestamps to append
-        created (bool): Whether the data_array has already been created
-
-    Returns:
-        bool: True after timestamps are appended
-    """
-    con.log("Saving pulse timestamps to nix file.")
-
-    if not time_stamp_list:
-        return created
-
-    if not created:
-        time_stamp_block.create_data_array(
-            "timestamps", "timestamps", data=time_stamp_list
-        )
-
-    # TODO: do this in chunks
-    # for time in time_stamp_list:
-
-    time_stamp_block.data_arrays["timestamps"].append(time_stamp_list)
-
-    return True
-
-
 def save_histograms(count_hist, rec_hist, rec_time_hist, output_path: Path):
     """
     Save histogram dictionaries to compressed .npz files.
@@ -688,14 +513,6 @@ def main():
         pulse_count_per_session, rec_time_per_session
     )
 
-    # # create a hdf5 file with nixio to later save the timestamp of each pulse in it (only for all_pulses case)
-    # if pulse_type == "all":
-    #     nix_file, nix_block = open_nix_for_output(Path(save_path))
-
-    #     # save the unix timestamp of each pulse in the earlier created nix_timestamp block of nix_file
-    #     created = append_cluster_block(nix_block, timestamps, created=False)  # noqa: F841
-
-    # save histogram dictionaries to .npz file for later use in plotting
     save_histograms(
         count_histogram_dict,
         rec_count_hist_dict,
@@ -710,6 +527,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-# %%

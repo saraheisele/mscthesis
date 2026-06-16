@@ -1,14 +1,10 @@
-"""
-Extract eel head positions from predetected pulse h5 files and build spatial
-usage histograms at the same timescales as the activity analysis.
+"""Extract eel head positions from predetected .h5 files and build spatial histograms.
 
-Outputs (under POSITION_HISTOGRAMS_DIR):
-    - berlin_position_sum_hist_dict.npz      position sum per bin (for mean position)
-    - berlin_position_count_hist_dict.npz    pulse counts per bin
-    - berlin_position_occurrence_hist.npz    2D occupancy (time_bin × position_bin)
-    - berlin_position_bright_count_hist_dict.npz
-    - berlin_position_dark_count_hist_dict.npz
-    - berlin_dummypulses_hist_metadata.npz   shared metadata for axis formatting
+Analysis part: position preprocessing (Part 5a of Berlin activity analysis).
+Dependencies: data_paths, h5_io, eel_data_preprocessing, position_utils.
+
+Mirrors the activity histogram pipeline but bins pulse head positions along the
+16-electrode line at multiple timescales.
 """
 
 from __future__ import annotations
@@ -23,12 +19,12 @@ from rich.console import Console
 
 from data_paths import H5_DIR, position_hist_dir
 from eel_data_preprocessing import (
-    get_path_list,
     histogram_time_bounds,
     month_index,
     rec_time_per_bin,
     save_histogram_metadata,
 )
+from h5_io import get_path_list
 from position_utils import (
     DEFAULT_BRIGHT_DARK_BOUNDARY_M,
     N_ELECTRODES,

@@ -1,12 +1,7 @@
-"""Correlate pulse-shape activity histograms with the all-pulses reference.
+"""Correlate special-pulse activity histograms with the all-pulses reference.
 
-Loads preprocessed pulse-rate histograms (from eel_data_preprocessing.py) and
-computes Pearson and Spearman correlations between each pulse shape (double,
-wide, fat) and the all-pulses histogram at every timescale plotted in
-pulse_analysis_plots.py.
-
-Also reports the peak of the normalized cross-correlation (same metric as
-Pearson r at zero lag, but useful for detecting phase shifts on cyclic scales).
+Analysis part: pulse-shape correlation (Part 1c of Berlin activity analysis).
+Dependencies: data_paths, pulse_config; requires eel_data_preprocessing.py output.
 """
 
 from pathlib import Path
@@ -16,18 +11,12 @@ import numpy as np
 from scipy import stats
 
 from data_paths import ACTIVITY_HISTOGRAMS_DIR, PULSE_SHAPE_CORRELATION_DIR
+from pulse_config import SPECIAL_PULSE_TYPES, TIMESCALES
 
 BASE = ACTIVITY_HISTOGRAMS_DIR
 OUTPUT_DIR = PULSE_SHAPE_CORRELATION_DIR
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-PULSE_TYPES = {
-    "double": {"label": "double pulses", "hist_subdir": "double_pulses_hist"},
-    "wide": {"label": "wide pulses", "hist_subdir": "wide_pulses_hist"},
-    "fat": {"label": "fat pulses", "hist_subdir": "fat_pulses_hist"},
-}
-
-TIMESCALES = ["minute", "hour", "day", "month", "month_since_start", "year"]
+PULSE_TYPES = SPECIAL_PULSE_TYPES
 
 
 def load_hist(subdir):

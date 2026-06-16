@@ -1,12 +1,11 @@
-##### attempt to filter double peaked peaks #####
+"""Detect and label special pulse shapes (double, wide, fat) in predetected .h5 files.
 
-# wave show function in lib rosa (plots hist of audio data)
-# let this run for whole dataset and get info of in which files and times double peaks are -> make histogram
+Analysis part: special-pulse detection and ML classifier (Part 2 of Berlin activity analysis).
+Dependencies: data_paths, h5_io; writes marker arrays back into input .h5 files.
 
-# This script detects special pulse shapes in h5 files.
-# Double peaks are identified by analyzing the peak structure of each pulse waveform.
-# The script adds an "is_double_peak", "is_wide_pulse", or "is_fat_pulse" data array to each h5 file containing binary labels (0 or 1).
-
+Rule-based detectors annotate each pulse; optional supervised workflow trains a
+Random Forest classifier on manually labeled examples.
+"""
 
 from pathlib import Path
 import csv
@@ -33,6 +32,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from data_paths import H5_DIR, SPECIAL_PULSE_CLASSIFIER_DIR
+from h5_io import get_path_list
 
 # Initialize console for logging
 con = Console()
@@ -97,109 +97,6 @@ MULTICLASS_ARRAY_NAME = "special_pulse_class"
 #################################
 ############# ANALYSIS ##########
 #################################
-
-
-# old version from claude
-def analyze_pulse_for_double_peak(
-    pulse_waveform,
-    sample_rate,
-    amplitude_threshold=0.7,
-    max_peak_distance=0.002,
-    min_valley_ratio=0.5,
-    local_max_window=0.004,
-):
-    """
-    Analyze a single pulse waveform to determine if it's a double peak.
-
-    Parameters:
-    -----------
-    pulse_waveform : np.ndarray
-        2D array of shape (num_samples, num_channels)
-    sample_rate : float
-        Sample rate in Hz
-    amplitude_threshold : float
-        Minimum amplitude for a pulse to be considered (excludes very low amplitude pulses)
-    max_peak_distance : float
-        Maximum time distance (in seconds) between two peaks to be considered part of the same double peak
-    min_valley_ratio : float
-        Minimum ratio of valley amplitude to peak amplitude (0 to 1).
-        Valley amplitude must be >= min_valley_ratio * peak_max to be considered a valid double peak.
-    local_max_window : float
-        Time window (in seconds) for checking if a peak is a local maximum. At least one peak must be
-        the highest within this window.
-
-    Returns:
-    --------
-    bool
-        True if the pulse is detected as a double peak, False otherwise
-    """
-    # Compute the mean absolute amplitude across all channels for each time sample
-    # This gives us a 1D representation of the pulse strength over time
-    pulse_strength = np.mean(np.abs(pulse_waveform), axis=1)
-
-    # Get non-absolute mean for sign checking
-    pulse_waveform_mean = np.mean(pulse_waveform, axis=1)
-
-    max_strength = np.max(pulse_strength)
-
-    # Exclude pulses with amplitude below threshold
-    if max_strength < amplitude_threshold:
-        return False
-
-    # Find peaks with prominence threshold
-    # Use 10% of max strength as minimum prominence
-    prominence = 0.1 * max_strength
-    peaks, peak_properties = find_peaks(pulse_strength, prominence=prominence)
-
-    # A double peak must have EXACTLY 2 peaks
-    if len(peaks) != 2:
-        return False
-
-    # Convert time thresholds to samples
-    distance_threshold_samples = max_peak_distance * sample_rate
-    window_samples = int(local_max_window * sample_rate)
-
-    peak1_idx = peaks[0]
-    peak2_idx = peaks[1]
-
-    # Check if peaks are within the maximum time distance
-    peak_distance_samples = peak2_idx - peak1_idx
-    if peak_distance_samples > distance_threshold_samples:
-        return False
-
-    # Check that both peaks have the same sign (both above 0 or both below 0)
-    peak1_value = pulse_waveform_mean[peak1_idx]
-    peak2_value = pulse_waveform_mean[peak2_idx]
-
-    # If peaks have different signs, reject
-    if (peak1_value > 0 and peak2_value < 0) or (peak1_value < 0 and peak2_value > 0):
-        return False
-
-    # Check if at least one peak is a local maximum within the time window
-    def is_local_max_in_window(signal, idx, window_size):
-        start = max(0, idx - window_size)
-        end = min(len(signal), idx + window_size + 1)
-        return signal[idx] == np.max(signal[start:end])
-
-    peak1_is_local_max = is_local_max_in_window(
-        pulse_strength, peak1_idx, window_samples
-    )
-    peak2_is_local_max = is_local_max_in_window(
-        pulse_strength, peak2_idx, window_samples
-    )
-
-    if not (peak1_is_local_max or peak2_is_local_max):
-        return False
-
-    # Find the valley (minimum amplitude) between the two peaks
-    valley_amplitude = np.min(pulse_strength[peak1_idx : peak2_idx + 1])
-    peak_max = max(pulse_strength[peak1_idx], pulse_strength[peak2_idx])
-
-    # Check if valley is not too deep (amplitude doesn't drop below min_valley_ratio threshold)
-    if valley_amplitude >= min_valley_ratio * peak_max:
-        return True
-
-    return False
 
 
 def get_representative_waveform(pulse_waveform):
@@ -703,30 +600,6 @@ def detect_pulse(pulse_waveform, sample_rate):
         raise ValueError(f"Unknown DETECTION_MODE: {DETECTION_MODE}")
 
 
-def get_path_list(datapath):
-    """
-    Get a sorted list of all .h5 files in the given directory or subdirectories.
-    """
-    con.log("Discovering h5 files.")
-
-    if not datapath.exists():
-        raise FileNotFoundError(f"Path {datapath} does not exist.")
-
-    path_list = []
-
-    if datapath.is_file():
-        if datapath.suffix == ".h5":
-            path_list.append(datapath)
-    elif datapath.is_dir():
-        for file in datapath.rglob("*.h5"):
-            path_list.append(file)
-    else:
-        raise FileNotFoundError(f"Path {datapath} is not valid.")
-
-    con.log(f"Found {len(path_list)} h5 files.")
-    return sorted(path_list)
-
-
 def detect_special_pulses_in_file(file_path):
     """
     Detect the selected special pulse type in all pulses of a single h5 file
@@ -936,65 +809,6 @@ def get_default_ml_paths():
         "model": base_path / "special_pulse_rf_pca.pkl",
         "pca_plot": base_path / "labeled_pulses_pca_space.png",
     }
-
-
-def load_predicted_positive_pulses(data_path, max_pulses=None, random_seed=42):
-    """
-    Load predicted-positive pulses and their source locations from h5 files.
-    """
-    path_list = get_path_list(Path(data_path))
-    records = []
-    waveforms = []
-
-    for file_idx, file_path in enumerate(path_list, 1):
-        con.log(f"  Loading candidates [{file_idx}/{len(path_list)}] {file_path.name}")
-        file = nixio.File.open(str(file_path), nixio.FileMode.ReadOnly)
-
-        try:
-            block = file.blocks["pulses"]
-            data_array_names = [da.name for da in block.data_arrays]
-
-            if "raw_pulses" not in data_array_names:
-                con.log("    No raw_pulses array. Skipping.")
-                continue
-
-            raw_pulses = block.data_arrays["raw_pulses"]
-            if "predicted_labels" in data_array_names:
-                predicted_labels = block.data_arrays["predicted_labels"][:]
-                pulse_indices = np.where(predicted_labels == 1)[0]
-            else:
-                pulse_indices = np.arange(len(raw_pulses))
-
-            fs = file.sections["pulses_metadata"]["metadata"]["samplerate"]
-
-            for pulse_idx in pulse_indices:
-                pulse_data = raw_pulses[int(pulse_idx)][:]
-                trace, best_channel = get_representative_waveform(pulse_data)
-                waveforms.append(trace)
-                records.append(
-                    {
-                        "file_path": str(file_path),
-                        "pulse_idx": int(pulse_idx),
-                        "fs": float(fs),
-                        "best_channel": int(best_channel),
-                    }
-                )
-
-        finally:
-            file.close()
-
-    if not waveforms:
-        return np.empty((0, 0)), []
-
-    waveforms = np.asarray(waveforms, dtype=float)
-
-    if max_pulses is not None and len(waveforms) > max_pulses:
-        rng = np.random.default_rng(random_seed)
-        selected = np.sort(rng.choice(len(waveforms), size=max_pulses, replace=False))
-        waveforms = waveforms[selected]
-        records = [records[i] for i in selected]
-
-    return waveforms, records
 
 
 def get_first_available_array(block, data_array_names, array_names):

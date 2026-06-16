@@ -1,8 +1,10 @@
 """Central path configuration for the eel analysis pipeline.
 
+Analysis part: infrastructure — all scripts import paths from here.
+Dependencies: none.
+
 Switch from the development test subset to the full dataset by changing
-H5_DIR (and optionally ACTIVITY_HISTOGRAMS_DIR / PROCESSED_DIR) below.
-All analysis scripts import paths from this module.
+H5_DIR (and optionally ACTIVITY_HISTOGRAMS_DIR / POSITION_HISTOGRAMS_DIR) below.
 """
 
 from pathlib import Path
@@ -26,7 +28,10 @@ H5_ROOT = H5_DIR.parent
 LAB_DATA_DIR = Path("/data2/labdata/eels-mfn2021/berlin_tank_site")
 
 # Environmental sensor Excel files (temperature, conductivity)
-EXCEL_DIR = CODE_DIR
+EXCEL_DIR = (
+    PROJECT_ROOT
+    / "data/raw/eels-mfn2021_dummy_pulses_redetected/leitwerte_metadaten"
+)
 
 #################################
 ########## INTERMEDIATE #########

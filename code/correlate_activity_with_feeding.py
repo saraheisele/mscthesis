@@ -1,14 +1,10 @@
-"""
-Extract feeding times from session Word records and correlate with pulse activity.
+"""Extract feeding times from session Word records and correlate with pulse activity.
 
-For each recording session under the Berlin tank site lab data directory, reads the
-.docx file in images/, extracts feeding-related timestamps, and aligns them with
-predetected pulse .h5 files. Reports:
+Analysis part: feeding correlation (Part 4 of Berlin activity analysis).
+Dependencies: data_paths; requires .h5 files and session .docx logs in LAB_DATA_DIR.
 
-1. A table of extracted feeding events per session / h5 file
-2. Correlation of minute-level pulse rates with a feeding-time indicator
-3. Peri-feeding average pulse-rate trajectories for all pulses and each pulse shape
-4. Feeding vs non-feeding pulse-rate comparison within overlapping recordings
+Parses feeding timestamps from session Word documents, aligns them with predetected
+pulse recordings, and tests whether pulse rates differ around feeding events.
 """
 
 from __future__ import annotations
@@ -43,10 +39,6 @@ PULSE_TYPES = {
     "fat": {"label": "Fat pulses", "array": "is_fat_pulse"},
 }
 
-EELLOGGER_ON_RE = re.compile(
-    r"e+e?llogger\s+on\s+.*?(\d{1,2}:\d{2}(?::\d{2})?)",
-    re.IGNORECASE,
-)
 FEEDING_LINE_RE = re.compile(
     r"(feed|food|strike|füt|fut|pr[äa]sent|present|fress)", re.IGNORECASE
 )

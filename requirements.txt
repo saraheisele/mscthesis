@@ -1,5 +1,10 @@
+# bendalab packages (editable installs from GitHub)
 -e git+https://github.com/bendalab/audian@d84d6d9f12796af63ed6090adf019f9dc29a6b4d#egg=audian
 -e git+https://github.com/bendalab/audioio@941d0446aaeedddbb47bdc21b9fa6020b4d4af80#egg=audioio
+-e git+https://github.com/bendalab/thunderfish@a4d4cf7edc2b7573cedcb3823078d1b4f37f124e#egg=thunderfish
+-e git+https://github.com/bendalab/thunderlab@bb4bd63de2ddfacc67e39a3b126d2acb1a446246#egg=thunderlab
+
+# Core scientific stack
 contourpy==1.3.1
 cycler==0.12.1
 fonttools==4.56.0
@@ -8,7 +13,9 @@ kiwisolver==1.4.8
 llvmlite==0.44.0
 matplotlib==3.10.1
 numba==0.61.0
+nixio>=1.6.0
 numpy==2.1.3
+openpyxl>=3.1.0
 packaging==24.2
 pandas==2.2.3
 pillow==11.1.0
@@ -18,11 +25,12 @@ PyQt5-Qt5==5.15.16
 PyQt5_sip==12.17.0
 pyqtgraph==0.13.7
 python-dateutil==2.9.0.post0
+python-docx>=1.1.0
 pytz==2025.1
+rich>=13.0.0
 scikit-learn==1.6.1
 scipy==1.15.2
 six==1.17.0
 threadpoolctl==3.6.0
--e git+https://github.com/bendalab/thunderfish@a4d4cf7edc2b7573cedcb3823078d1b4f37f124e#egg=thunderfish
--e git+https://github.com/bendalab/thunderlab@bb4bd63de2ddfacc67e39a3b126d2acb1a446246#egg=thunderlab
+tqdm>=4.66.0
 tzdata==2025.1

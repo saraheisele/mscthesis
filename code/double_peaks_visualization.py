@@ -1,11 +1,7 @@
-"""
-Visualization and interactive verification for detected pulses (double peaks or wide pulses).
+"""Visual QA for special-pulse detections (double, wide, fat).
 
-This script reads detection results from h5 files and provides:
-- Static visualization functions (grids, overlays, statistics)
-- Interactive verification tool for manual review and correction
-
-The detection should have been run first using double_peaks_detection.py
+Analysis part: special-pulse visualization (Part 2b of Berlin activity analysis).
+Dependencies: double_peaks_detection, data_paths, h5_io; run detection first.
 """
 
 from pathlib import Path
@@ -14,18 +10,16 @@ import matplotlib.pyplot as plt
 import nixio
 from rich.console import Console
 
-# Import detection functions and utilities from detection script
 from double_peaks_detection import (
     get_representative_waveform,
     detect_pulse,
     compute_half_max_width,
-    get_path_list,
     DETECTION_MODE,
     ARRAY_NAME,
     DISPLAY_NAME,
 )
-
 from data_paths import H5_DIR
+from h5_io import get_path_list
 
 # Initialize console for logging
 con = Console()

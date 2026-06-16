@@ -1,15 +1,10 @@
-"""
-Animate eel movement along the Berlin line logger for one wav chunk.
+"""Animate eel movement along the Berlin line logger for one wav chunk.
 
-Provide a synced eellogger wav file; the script loads matching predetected
-pulses from the session h5, estimates head position per pulse, and renders an
-animation of the eel moving along the electrode line.
+Analysis part: position visualization (Part 5c of Berlin activity analysis).
+Dependencies: data_paths, position_utils.
 
-Example:
-    python3 animate_eel_position.py \\
-        /data2/labdata/eels-mfn2021/berlin_tank_site/recordings_2024-02-13/eellogger1-20240213T082032.wav
-
-    python3 animate_eel_position.py --list-entry-recordings
+Provide a synced eellogger wav file; loads matching predetected pulses from the
+session h5, estimates head position per pulse, and renders an animation.
 """
 
 from __future__ import annotations
@@ -42,9 +37,10 @@ def draw_tank_background(ax, boundary_m: float = DEFAULT_BRIGHT_DARK_BOUNDARY_M)
 
 
 def draw_eel(ax, head_m: float, tail_m: float, direction: float):
-    """Draw a simple eel body segment and head marker."""
+    """Draw a simple eel body segment and head marker. Returns created artists."""
     body_y = 0.5
-    ax.plot(
+    artists = []
+    body = ax.plot(
         [tail_m, head_m],
         [body_y, body_y],
         color="#1a535c",
@@ -52,22 +48,25 @@ def draw_eel(ax, head_m: float, tail_m: float, direction: float):
         solid_capstyle="round",
         zorder=3,
     )
-    ax.scatter([head_m], [body_y], s=120, color="#ff6b6b", edgecolors="black", zorder=4)
+    head = ax.scatter([head_m], [body_y], s=120, color="#ff6b6b", edgecolors="black", zorder=4)
+    artists.extend(body)
+    artists.append(head)
 
     if not np.isnan(direction) and direction != 0:
-        arrow_len = 0.25 * direction
-        ax.add_patch(
-            FancyArrow(
-                head_m,
-                body_y + 0.15,
-                arrow_len,
-                0,
-                width=0.04,
-                length_includes_head=True,
-                color="#ff6b6b",
-                zorder=5,
-            )
+        arrow = FancyArrow(
+            head_m,
+            body_y + 0.15,
+            0.25 * direction,
+            0,
+            width=0.04,
+            length_includes_head=True,
+            color="#ff6b6b",
+            zorder=5,
         )
+        ax.add_patch(arrow)
+        artists.append(arrow)
+
+    return artists
 
 
 def build_animation(
@@ -131,34 +130,7 @@ def build_animation(
         head_m, tail_m = eel_body_endpoints(head_m, direction, body_length_m=body_length_m)
 
         trail_line.set_data(smoothed[: frame_idx + 1], np.full(frame_idx + 1, 0.5))
-
-        body = ax.plot(
-            [tail_m, head_m],
-            [0.5, 0.5],
-            color="#1a535c",
-            linewidth=10,
-            solid_capstyle="round",
-            zorder=3,
-        )
-        head = ax.scatter(
-            [head_m], [0.5], s=120, color="#ff6b6b", edgecolors="black", zorder=4
-        )
-        eel_artists.extend(body)
-        eel_artists.append(head)
-
-        if not np.isnan(direction) and direction != 0:
-            arrow = FancyArrow(
-                head_m,
-                0.65,
-                0.25 * direction,
-                0,
-                width=0.04,
-                length_includes_head=True,
-                color="#ff6b6b",
-                zorder=5,
-            )
-            ax.add_patch(arrow)
-            eel_artists.append(arrow)
+        eel_artists.extend(draw_eel(ax, head_m, tail_m, direction))
 
         ax.set_xlabel(
             f"position along electrode line (m) — t = {t:.1f} s / {duration:.1f} s"
