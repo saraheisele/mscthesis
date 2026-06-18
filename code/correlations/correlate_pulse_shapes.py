@@ -4,7 +4,13 @@ Analysis part: pulse-shape correlation (Part 1c of Berlin activity analysis).
 Dependencies: data_paths, pulse_config; requires eel_data_preprocessing.py output.
 """
 
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from path_setup import setup_script_paths
+
+setup_script_paths(__file__)
 
 import matplotlib.pyplot as plt
 import numpy as np

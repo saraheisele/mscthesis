@@ -29,9 +29,9 @@ All analysis scripts live in [`code/`](code/). See [`code/README.md`](code/READM
 
 **Typical workflow:**
 
-1. Run special-pulse detection (`double_peaks_detection.py`)
-2. Build activity histograms (`eel_data_preprocessing.py`) for each pulse type
-3. Generate plots and correlations (`pulse_analysis_plots.py`, `correlate_pulse_shapes.py`, …)
+1. Run special-pulse detection (`special_pulses/double_peaks_detection.py`)
+2. Build activity histograms (`activity_timescales/eel_data_preprocessing.py`) for each pulse type
+3. Generate plots and correlations (`activity_timescales/pulse_analysis_plots.py`, `correlations/correlate_pulse_shapes.py`, …)
 4. Run environmental, feeding, and position analyses as needed
 
 Paths default to a development subset under `data/raw/eels-mfn2021_dummy_pulses_redetected/`. Switch to the full dataset in `code/data_paths.py`.

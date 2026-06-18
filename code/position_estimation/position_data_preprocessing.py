@@ -9,8 +9,14 @@ Mirrors the activity histogram pipeline but bins pulse head positions along the
 
 from __future__ import annotations
 
+import sys
 from datetime import timedelta
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from path_setup import setup_script_paths
+
+setup_script_paths(__file__, "activity_timescales")
 
 import numpy as np
 import nixio
@@ -24,7 +30,7 @@ from eel_data_preprocessing import (
     rec_time_per_bin,
     save_histogram_metadata,
 )
-from h5_io import get_path_list
+from h5_io import get_path_list, get_pulse_block, open_h5
 from position_utils import (
     DEFAULT_BRIGHT_DARK_BOUNDARY_M,
     N_ELECTRODES,
@@ -49,8 +55,12 @@ def load_positions(file_paths, method: str = "peak_positive"):
     end_times = []
 
     for fp in file_paths:
-        with nixio.File.open(str(fp), "r") as handle:
-            block = handle.blocks["pulses"]
+        handle = open_h5(fp, "r")
+        if handle is None:
+            continue
+
+        try:
+            block = get_pulse_block(handle)
             data_array_names = [da.name for da in block.data_arrays]
             if "centers" not in data_array_names:
                 con.log(f"Skipping {fp.name}: no centers array.")
@@ -65,6 +75,8 @@ def load_positions(file_paths, method: str = "peak_positive"):
             fs = float(section["metadata"]["samplerate"])
             starttime_str = section["metadata"]["metadata"]["INFO"]["DateTimeOriginal"]
             duration = float(section["metadata"]["duration"])
+        finally:
+            handle.close()
 
         from datetime import datetime
 

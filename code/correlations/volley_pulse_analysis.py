@@ -7,7 +7,13 @@ Identifies rapid pulse bursts (volleys), then compares double/wide/fat pulse
 proportions before, during, and after volleys against a clean baseline.
 """
 
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from path_setup import setup_script_paths
+
+setup_script_paths(__file__)
 
 import numpy as np
 import nixio
@@ -15,6 +21,7 @@ from scipy import stats
 from scipy.signal import find_peaks
 
 from data_paths import H5_ROOT
+from h5_io import PULSE_BLOCK_NAMES, get_pulse_block, load_marker_array
 
 VOLLEY_MIN_PULSES = 5
 VOLLEY_MAX_ISI_MS = 2.0
@@ -43,10 +50,11 @@ def load_raw_pulse_data(h5_file_path):
     """
     try:
         with nixio.File.open(str(h5_file_path)) as nix_file:
-            if "pulses" not in [b.name for b in nix_file.blocks]:
+            block_names = [b.name for b in nix_file.blocks]
+            if not any(name in block_names for name in PULSE_BLOCK_NAMES):
                 return None, None, None
 
-            block = nix_file.blocks["pulses"]
+            block = get_pulse_block(nix_file)
             data_array_names = [da.name for da in block.data_arrays]
             if "centers" not in data_array_names:
                 return None, None, None
@@ -65,9 +73,10 @@ def load_raw_pulse_data(h5_file_path):
                 "is_fat_pulse": "fat",
             }
             for array_name, marker_key in marker_map.items():
-                if array_name in data_array_names:
+                marker_values = load_marker_array(h5_file_path, array_name, block)
+                if marker_values is not None:
                     pulse_markers[marker_key] = (
-                        block.data_arrays[array_name][:][positive_mask].astype(bool)
+                        marker_values[positive_mask].astype(bool)
                     )
 
             meta_section = nix_file.sections["pulses_metadata"]["metadata"]
@@ -172,7 +181,7 @@ def extract_waveform_event_times(h5_file_path):
     """
     try:
         with nixio.File.open(str(h5_file_path)) as nix_file:
-            block = nix_file.blocks["pulses"]
+            block = get_pulse_block(nix_file)
             data_array_names = [da.name for da in block.data_arrays]
             if "raw_pulses" not in data_array_names or "centers" not in data_array_names:
                 return None, None

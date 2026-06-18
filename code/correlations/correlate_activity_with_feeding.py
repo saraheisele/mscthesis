@@ -9,6 +9,14 @@ pulse recordings, and tests whether pulse rates differ around feeding events.
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from path_setup import setup_script_paths
+
+setup_script_paths(__file__)
+
 import re
 import warnings
 from datetime import datetime, timedelta
@@ -28,6 +36,7 @@ from data_paths import (
     H5_DIR,
     LAB_DATA_DIR,
 )
+from h5_io import get_pulse_block, load_marker_array, open_h5
 
 OUTPUT_DIR = FEEDING_CORRELATION_DIR
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -271,8 +280,12 @@ def load_pulses_by_type(
     feeding_events: list[dict] | None = None,
     eellogger_on_times: list[datetime] | None = None,
 ) -> tuple[dict[str, np.ndarray], float, datetime, float]:
-    with nixio.File.open(str(h5_path)) as nix_file:
-        block = nix_file.blocks["pulses"]
+    nix_file = open_h5(h5_path)
+    if nix_file is None:
+        return {}, 0.0, datetime.min, 0.0
+
+    try:
+        block = get_pulse_block(nix_file)
         array_names = {da.name for da in block.data_arrays}
         if "centers" not in array_names:
             return {}, 0.0, datetime.min, 0.0
@@ -288,20 +301,25 @@ def load_pulses_by_type(
             marker = cfg["array"]
             if marker is None:
                 pulses[key] = centers[mask]
-            elif marker in array_names:
-                type_mask = block.data_arrays[marker][:][mask].astype(bool)
-                pulses[key] = centers[mask][type_mask]
             else:
-                pulses[key] = centers[:0]
+                marker_values = load_marker_array(h5_path, marker, block)
+                if marker_values is None:
+                    pulses[key] = centers[:0]
+                else:
+                    pulses[key] = centers[mask][marker_values[mask].astype(bool)]
 
         meta = nix_file.sections["pulses_metadata"]["metadata"]
         fs = float(meta["samplerate"])
         duration = float(meta["duration"])
 
-    rec_start, _, _ = infer_recording_start(
-        h5_path, feeding_events=feeding_events, eellogger_on_times=eellogger_on_times
-    )
-    return pulses, fs, rec_start, duration
+        rec_start, _, _ = infer_recording_start(
+            h5_path,
+            feeding_events=feeding_events,
+            eellogger_on_times=eellogger_on_times,
+        )
+        return pulses, fs, rec_start, duration
+    finally:
+        nix_file.close()
 
 
 def minute_pulse_rates(

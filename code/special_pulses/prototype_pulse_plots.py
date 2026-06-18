@@ -7,7 +7,13 @@ Randomly samples pulses, aligns waveforms at shape-specific reference points,
 and overlays individual traces with their mean for normal/double/wide/fat types.
 """
 
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from path_setup import setup_script_paths
+
+setup_script_paths(__file__)
 
 import matplotlib.pyplot as plt
 import nixio
@@ -22,7 +28,7 @@ from double_peaks_detection import (
     detect_fat_pulse,
     detect_wide_pulse,
 )
-from h5_io import get_path_list
+from h5_io import get_path_list, get_pulse_block, open_h5
 
 console = Console()
 
@@ -236,9 +242,11 @@ def expand_marker(marker, candidate_indices, num_pulses):
 def collect_pulse_indices(data_path, array_name):
     entries = []
     for file_path in get_path_list(Path(data_path)):
-        file = nixio.File.open(str(file_path), nixio.FileMode.ReadOnly)
+        file = open_h5(file_path, nixio.FileMode.ReadOnly)
+        if file is None:
+            continue
         try:
-            block = file.blocks["pulses"]
+            block = get_pulse_block(file)
             data_array_names = [da.name for da in block.data_arrays]
             if array_name not in data_array_names:
                 continue
@@ -255,9 +263,11 @@ def collect_pulse_indices(data_path, array_name):
 def collect_normal_pulse_indices(data_path):
     entries = []
     for file_path in get_path_list(Path(data_path)):
-        file = nixio.File.open(str(file_path), nixio.FileMode.ReadOnly)
+        file = open_h5(file_path, nixio.FileMode.ReadOnly)
+        if file is None:
+            continue
         try:
-            block = file.blocks["pulses"]
+            block = get_pulse_block(file)
             data_array_names = [da.name for da in block.data_arrays]
 
             if "predicted_labels" not in data_array_names:
@@ -313,9 +323,11 @@ def load_sampled_waveforms(entries, sample_size, random_seed, align_mode=None):
         if len(normalized_waveforms) >= sample_size:
             break
 
-        file = nixio.File.open(str(file_path), nixio.FileMode.ReadOnly)
+        file = open_h5(file_path, nixio.FileMode.ReadOnly)
+        if file is None:
+            continue
         try:
-            block = file.blocks["pulses"]
+            block = get_pulse_block(file)
             pulse_data = block.data_arrays["raw_pulses"][pulse_idx][:]
             if fs is None:
                 fs = float(file.sections["pulses_metadata"]["metadata"]["samplerate"])

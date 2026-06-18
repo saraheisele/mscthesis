@@ -9,7 +9,14 @@ and session-wise position scatter plots.
 
 from __future__ import annotations
 
+import sys
 from datetime import datetime
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from path_setup import setup_script_paths
+
+setup_script_paths(__file__)
 
 import matplotlib.pyplot as plt
 import numpy as np

@@ -7,6 +7,14 @@ Generates global line plots and session-wise scatter plots with median and
 bootstrap confidence intervals (or percentile bands) for each timescale.
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from path_setup import setup_script_paths
+
+setup_script_paths(__file__)
+
 import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm

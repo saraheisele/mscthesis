@@ -9,6 +9,14 @@ Channel 0 is in the bright tank area; channel 15 extends toward the dark area.
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from path_setup import setup_script_paths
+
+setup_script_paths(__file__)
+
 import json
 import re
 from dataclasses import dataclass
@@ -17,6 +25,7 @@ from pathlib import Path
 
 import numpy as np
 import nixio
+from h5_io import get_pulse_block, open_h5
 
 from data_paths import ELECTRODE_LAYOUT_JSON, H5_DIR, LAB_DATA_DIR
 
@@ -225,7 +234,7 @@ def load_pulses_for_wav(
     electrode_positions_m = electrode_positions_m or default_electrode_positions_m()
 
     with nixio.File.open(str(h5_path), "r") as handle:
-        block = handle.blocks["pulses"]
+        block = get_pulse_block(handle)
         if "centers" not in [da.name for da in block.data_arrays]:
             return [], {
                 "wav_path": str(wav_path),
@@ -289,7 +298,7 @@ def find_entry_recordings(
     for h5_path in sorted(h5_dir.glob("*_pulses.h5")):
         fs, h5_start, duration = load_h5_metadata(h5_path)
         with nixio.File.open(str(h5_path), "r") as handle:
-            block = handle.blocks["pulses"]
+            block = get_pulse_block(handle)
             if "centers" not in [da.name for da in block.data_arrays]:
                 continue
             centers = block.data_arrays["centers"][:]

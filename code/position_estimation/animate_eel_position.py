@@ -10,7 +10,13 @@ session h5, estimates head position per pulse, and renders an animation.
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from path_setup import setup_script_paths
+
+setup_script_paths(__file__)
 
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt

@@ -135,7 +135,7 @@ All outputs saved to: `/home/eisele/wrk/mscthesis/data/processed/environment_cor
 
 ## Script Details
 
-**File**: `correlate_activity_with_environment.py`
+**File**: `correlations/correlate_activity_with_environment.py`
 
 **Functions**:
 - `load_environmental_data()`: Consolidates all Excel files

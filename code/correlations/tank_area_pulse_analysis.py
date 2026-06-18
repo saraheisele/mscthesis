@@ -7,7 +7,13 @@ Uses filename tags (*_brightarea_* / *_darkarea_*) to group recordings and
 tests whether double/wide/fat pulse fractions differ between tank areas.
 """
 
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from path_setup import setup_script_paths
+
+setup_script_paths(__file__)
 
 import numpy as np
 from scipy import stats

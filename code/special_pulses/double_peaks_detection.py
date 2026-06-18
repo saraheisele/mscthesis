@@ -7,7 +7,14 @@ Rule-based detectors annotate each pulse; optional supervised workflow trains a
 Random Forest classifier on manually labeled examples.
 """
 
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from path_setup import setup_script_paths
+
+setup_script_paths(__file__)
+
 import csv
 import json
 import pickle
@@ -18,6 +25,8 @@ import nixio
 import matplotlib.pyplot as plt
 from rich.console import Console
 from rich.table import Table
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.covariance import MinCovDet
 from sklearn.decomposition import PCA
 from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
 from sklearn.neighbors import KNeighborsClassifier
@@ -32,7 +41,14 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from data_paths import H5_DIR, SPECIAL_PULSE_CLASSIFIER_DIR
-from h5_io import get_path_list
+from h5_io import (
+    get_path_list,
+    get_pulse_block,
+    load_marker_array,
+    open_h5,
+    open_h5_readwrite_or_readonly,
+    save_marker_sidecar,
+)
 
 # Initialize console for logging
 con = Console()
@@ -92,6 +108,75 @@ LABELING_CLASS_ARRAYS = {
 }
 
 MULTICLASS_ARRAY_NAME = "special_pulse_class"
+
+# Max PCA dimensions for classifier pipelines (RobustPCA step).
+PCA_MAX_CLASSIFIER_COMPONENTS = 20
+# Max PCA dimensions computed for exploratory scatter plots.
+PCA_MAX_PLOT_COMPONENTS = 10
+
+
+class RobustPCA(BaseEstimator, TransformerMixin):
+    """
+    PCA fit on inlier samples identified by MinCovDet (robust covariance).
+
+    Outliers are excluded from the fit but still projected at transform time.
+    """
+
+    def __init__(self, n_components=2, random_state=42, support_fraction=None):
+        self.n_components = n_components
+        self.random_state = random_state
+        self.support_fraction = support_fraction
+
+    def fit(self, X, y=None):
+        X = np.asarray(X, dtype=float)
+        n_samples, n_features = X.shape
+        n_components = min(self.n_components, n_samples - 1, n_features)
+        n_components = max(1, n_components)
+        self.n_components_ = n_components
+
+        fit_mask = self._robust_inlier_mask(X)
+        self.n_inliers_ = int(np.sum(fit_mask))
+        self.n_outliers_ = int(np.sum(~fit_mask))
+
+        self.pca_ = PCA(n_components=n_components, random_state=self.random_state)
+        self.pca_.fit(X[fit_mask])
+        return self
+
+    def _robust_inlier_mask(self, X):
+        n_samples, n_features = X.shape
+        if n_samples < 3:
+            return np.ones(n_samples, dtype=bool)
+
+        # MinCovDet is expensive in high dimensions; detect outliers in a
+        # compact PCA subspace, then fit the final PCA on those inliers.
+        n_pre = min(50, n_samples - 1, n_features)
+        if n_features > n_pre:
+            pre_pca = PCA(n_components=n_pre, random_state=self.random_state)
+            X_for_mcd = pre_pca.fit_transform(X)
+        else:
+            X_for_mcd = X
+
+        support_fraction = self.support_fraction
+        if support_fraction is None:
+            support_fraction = min(0.75, (n_samples - 1) / n_samples)
+
+        mcd = MinCovDet(
+            support_fraction=support_fraction,
+            random_state=self.random_state,
+        )
+        mcd.fit(X_for_mcd)
+        return mcd.support_
+
+    def transform(self, X):
+        return self.pca_.transform(np.asarray(X, dtype=float))
+
+    @property
+    def explained_variance_ratio_(self):
+        return self.pca_.explained_variance_ratio_
+
+    @property
+    def components_(self):
+        return self.pca_.components_
 
 
 #################################
@@ -618,11 +703,17 @@ def detect_special_pulses_in_file(file_path):
     con.log(f"Processing: {Path(file_path).name}")
 
     # Open h5 file with read/write mode
-    file = nixio.File.open(str(file_path), nixio.FileMode.ReadWrite)
+    file, write_mode = open_h5_readwrite_or_readonly(file_path)
+    if file is None:
+        return {
+            "file": Path(file_path).name,
+            "status": "skipped",
+            "reason": "locked_or_unreadable",
+        }
 
     try:
         # Access pulses block
-        block = file.blocks["pulses"]
+        block = get_pulse_block(file)
         data_array_names = [da.name for da in block.data_arrays]
 
         # Check if required data arrays exist
@@ -657,23 +748,31 @@ def detect_special_pulses_in_file(file_path):
         predicted = predicted_labels[:]
         candidate_indices = np.where(predicted == 1)[0]
 
-        if DETECTION_MODE in {"wide", "fat"} and "is_double_peak" in data_array_names:
-            is_double_peak = expand_marker_to_all_pulses(
-                block.data_arrays["is_double_peak"][:],
-                candidate_indices,
-                num_pulses,
-                "is_double_peak",
-            )
+        if DETECTION_MODE in {"wide", "fat"}:
+            double_marker = load_marker_array(file_path, "is_double_peak", block)
+            if double_marker is not None:
+                is_double_peak = expand_marker_to_all_pulses(
+                    double_marker,
+                    candidate_indices,
+                    num_pulses,
+                    "is_double_peak",
+                )
+            else:
+                is_double_peak = np.zeros(num_pulses, dtype=np.int64)
         else:
             is_double_peak = np.zeros(num_pulses, dtype=np.int64)
 
-        if DETECTION_MODE == "fat" and "is_wide_pulse" in data_array_names:
-            is_wide_pulse = expand_marker_to_all_pulses(
-                block.data_arrays["is_wide_pulse"][:],
-                candidate_indices,
-                num_pulses,
-                "is_wide_pulse",
-            )
+        if DETECTION_MODE == "fat":
+            wide_marker = load_marker_array(file_path, "is_wide_pulse", block)
+            if wide_marker is not None:
+                is_wide_pulse = expand_marker_to_all_pulses(
+                    wide_marker,
+                    candidate_indices,
+                    num_pulses,
+                    "is_wide_pulse",
+                )
+            else:
+                is_wide_pulse = np.zeros(num_pulses, dtype=np.int64)
         else:
             is_wide_pulse = np.zeros(num_pulses, dtype=np.int64)
 
@@ -713,16 +812,20 @@ def detect_special_pulses_in_file(file_path):
                 con.log(f"  Processed {i + 1}/{num_pulses} pulses...")
 
         # Create or overwrite the "is_detection" data array in the h5 file
-        if ARRAY_NAME in data_array_names:
-            con.log(f"  Updating existing '{ARRAY_NAME}' array...")
-            block.data_arrays[ARRAY_NAME][:] = is_detection_array
+        if write_mode == "h5":
+            if ARRAY_NAME in data_array_names:
+                con.log(f"  Updating existing '{ARRAY_NAME}' array...")
+                block.data_arrays[ARRAY_NAME][:] = is_detection_array
+            else:
+                con.log(f"  Creating new '{ARRAY_NAME}' array...")
+                block.create_data_array(
+                    ARRAY_NAME,
+                    ARRAY_NAME,
+                    data=is_detection_array,
+                )
         else:
-            con.log(f"  Creating new '{ARRAY_NAME}' array...")
-            block.create_data_array(
-                ARRAY_NAME,
-                ARRAY_NAME,
-                data=is_detection_array,
-            )
+            sidecar = save_marker_sidecar(file_path, ARRAY_NAME, is_detection_array)
+            con.log(f"  Saved '{ARRAY_NAME}' markers to {sidecar.name}")
 
         # Log summary
         con.log(
@@ -859,10 +962,12 @@ def load_balanced_detector_labeled_pulses(
 
     for file_idx, file_path in enumerate(path_list, 1):
         con.log(f"  Loading candidates [{file_idx}/{len(path_list)}] {file_path.name}")
-        file = nixio.File.open(str(file_path), nixio.FileMode.ReadOnly)
+        file = open_h5(file_path, nixio.FileMode.ReadOnly)
+        if file is None:
+            continue
 
         try:
-            block = file.blocks["pulses"]
+            block = get_pulse_block(file)
             data_array_names = [da.name for da in block.data_arrays]
 
             if "raw_pulses" not in data_array_names:
@@ -962,9 +1067,11 @@ def load_balanced_detector_labeled_pulses(
     for record in selected_records:
         file_path = record["file_path"]
         if file_path not in waveform_cache:
-            file = nixio.File.open(file_path, nixio.FileMode.ReadOnly)
+            file = open_h5(file_path, nixio.FileMode.ReadOnly)
+            if file is None:
+                continue
             try:
-                block = file.blocks["pulses"]
+                block = get_pulse_block(file)
                 waveform_cache[file_path] = block.data_arrays["raw_pulses"][:]
             finally:
                 file.close()
@@ -1002,6 +1109,127 @@ def normalize_waveforms_for_pca(waveforms):
     corrected /= scale
 
     return corrected
+
+
+def _make_pca_estimator(n_components, random_state=42):
+    return RobustPCA(n_components=n_components, random_state=random_state)
+
+
+def _get_pca_n_components(X_train):
+    X_train = np.asarray(X_train)
+    n_components = min(
+        PCA_MAX_CLASSIFIER_COMPONENTS,
+        X_train.shape[0] - 1,
+        X_train.shape[1],
+    )
+    return max(1, n_components)
+
+
+def _get_pca_n_components_for_plot(X):
+    X = np.asarray(X)
+    n_components = min(
+        PCA_MAX_PLOT_COMPONENTS,
+        X.shape[0] - 1,
+        X.shape[1],
+    )
+    return max(1, n_components)
+
+
+def _select_meaningful_pc_pairs(explained_variance_ratio, max_pairs=4):
+    """
+    Choose PC scatter-plot axes beyond PC1/PC2.
+
+    Always includes (PC1, PC2). Adds pairs that involve the next strongest
+    components while both axes retain at least 2% explained variance.
+    """
+    explained = np.asarray(explained_variance_ratio, dtype=float)
+    n_components = len(explained)
+    if n_components < 2:
+        return [(0, 0)]
+
+    candidate_pairs = [(0, 1)]
+    if n_components >= 3:
+        candidate_pairs.extend([(0, 2), (1, 2)])
+    if n_components >= 4:
+        candidate_pairs.extend([(0, 3), (2, 3)])
+    if n_components >= 5:
+        candidate_pairs.append((1, 3))
+
+    seen = set()
+    selected = []
+    min_variance = 0.02
+    for i, j in candidate_pairs:
+        if i >= n_components or j >= n_components:
+            continue
+        if explained[i] < min_variance or explained[j] < min_variance:
+            continue
+        pair = (min(i, j), max(i, j))
+        if pair in seen:
+            continue
+        seen.add(pair)
+        selected.append(pair)
+        if len(selected) >= max_pairs:
+            break
+
+    return selected or [(0, 1)]
+
+
+def _fit_pca_projection(waveforms, n_components):
+    pca_pipeline = Pipeline(
+        steps=[
+            ("scaler", StandardScaler()),
+            ("pca", _make_pca_estimator(n_components)),
+        ]
+    )
+    projected = pca_pipeline.fit_transform(waveforms)
+    explained = pca_pipeline.named_steps["pca"].explained_variance_ratio_
+    return projected, explained, pca_pipeline
+
+
+def _scatter_labeled_pca_pairs(
+    ax,
+    projected,
+    labels,
+    pc_x,
+    pc_y,
+    explained,
+    labels_sorted,
+    colors,
+    split_name=None,
+    split_styles=None,
+):
+    split_styles = split_styles or {
+        "default": {"s": 42, "alpha": 0.75, "linewidths": 0.3, "zorder": 1},
+    }
+    style_key = split_name if split_name in split_styles else "default"
+    style = split_styles[style_key]
+
+    for color, label_id in zip(colors, labels_sorted):
+        mask = labels == label_id
+        if not np.any(mask):
+            continue
+        class_name = SPECIAL_PULSE_CLASSES.get(int(label_id), f"class {label_id}")
+        legend_label = f"{class_name} (n={int(np.sum(mask))})"
+        if split_name is not None:
+            legend_label = f"{class_name} ({split_name}, n={int(np.sum(mask))})"
+
+        ax.scatter(
+            projected[mask, pc_x],
+            projected[mask, pc_y],
+            s=style["s"],
+            alpha=style["alpha"],
+            edgecolors="black",
+            linewidths=style["linewidths"],
+            color=color,
+            zorder=style["zorder"],
+            label=legend_label,
+        )
+
+    pc_x_var = explained[pc_x] * 100 if pc_x < len(explained) else 0.0
+    pc_y_var = explained[pc_y] * 100 if pc_y < len(explained) else 0.0
+    ax.set_xlabel(f"PC{pc_x + 1} ({pc_x_var:.1f}% variance)")
+    ax.set_ylabel(f"PC{pc_y + 1} ({pc_y_var:.1f}% variance)")
+    ax.grid(True, alpha=0.25, linestyle="--")
 
 
 def normalize_channels_for_label_plot(pulse_data):
@@ -1212,67 +1440,79 @@ def load_labeled_dataset(labels_path):
 
 def plot_labeled_pulses_pca_space(waveforms, labels, output_path=None, show=True):
     """
-    Plot the first two PCA components of the manually labeled pulse waveforms.
+    Plot robust-PCA projections of manually labeled pulse waveforms.
+
+    Computes up to PCA_MAX_PLOT_COMPONENTS components and renders the most
+    informative PC pairs (PC1/PC2 plus additional high-variance axes).
     """
     if len(labels) < 2:
         con.log("Need at least two labeled pulses to plot PCA space.")
         return None, None
 
     labels_sorted = sorted(np.unique(labels))
-    n_components = min(2, waveforms.shape[0], waveforms.shape[1])
+    n_components = _get_pca_n_components_for_plot(waveforms)
     if n_components < 1:
         con.log("No waveform features available to plot PCA space.")
         return None, None
 
-    pca_pipeline = Pipeline(
-        steps=[
-            ("scaler", StandardScaler()),
-            ("pca", PCA(n_components=n_components, random_state=42)),
-        ]
+    projected, explained, pca_pipeline = _fit_pca_projection(waveforms, n_components)
+    pca_step = pca_pipeline.named_steps["pca"]
+    con.log(
+        f"Robust PCA plot: {n_components} components "
+        f"({pca_step.n_inliers_} inliers, {pca_step.n_outliers_} outliers excluded from fit)"
     )
-    projected = pca_pipeline.fit_transform(waveforms)
 
-    if n_components == 1:
-        projected = np.column_stack([projected[:, 0], np.zeros(len(projected))])
-
-    explained = pca_pipeline.named_steps["pca"].explained_variance_ratio_
-
-    fig, ax = plt.subplots(figsize=(8, 6))
+    pc_pairs = _select_meaningful_pc_pairs(explained)
+    n_panels = len(pc_pairs)
+    n_cols = min(2, n_panels)
+    n_rows = int(np.ceil(n_panels / n_cols))
+    fig, axes = plt.subplots(
+        n_rows,
+        n_cols,
+        figsize=(6.5 * n_cols, 5.5 * n_rows),
+        squeeze=False,
+    )
     colors = plt.cm.tab10(np.linspace(0, 1, max(len(labels_sorted), 1)))
 
-    for color, label_id in zip(colors, labels_sorted):
-        mask = labels == label_id
-        class_name = SPECIAL_PULSE_CLASSES.get(int(label_id), f"class {label_id}")
-        ax.scatter(
-            projected[mask, 0],
-            projected[mask, 1],
-            s=42,
-            alpha=0.75,
-            edgecolors="black",
-            linewidths=0.3,
-            color=color,
-            label=f"{class_name} (n={int(np.sum(mask))})",
+    for panel_idx, (pc_x, pc_y) in enumerate(pc_pairs):
+        row_idx, col_idx = divmod(panel_idx, n_cols)
+        ax = axes[row_idx, col_idx]
+        _scatter_labeled_pca_pairs(
+            ax,
+            projected,
+            labels,
+            pc_x,
+            pc_y,
+            explained,
+            labels_sorted,
+            colors,
         )
+        if panel_idx == 0:
+            ax.legend(title="Manual label", frameon=True, fontsize=8)
 
-    pc1_var = explained[0] * 100 if len(explained) > 0 else 0
-    pc2_var = explained[1] * 100 if len(explained) > 1 else 0
-    ax.set_xlabel(f"PC1 ({pc1_var:.1f}% variance)")
-    ax.set_ylabel(f"PC2 ({pc2_var:.1f}% variance)")
-    ax.set_title("PCA Space of Manually Labeled Pulses", fontweight="bold")
-    ax.grid(True, alpha=0.25, linestyle="--")
-    ax.legend(title="Manual label", frameon=True)
+    for panel_idx in range(n_panels, n_rows * n_cols):
+        row_idx, col_idx = divmod(panel_idx, n_cols)
+        axes[row_idx, col_idx].set_axis_off()
+
+    fig.suptitle(
+        "Robust PCA Space of Manually Labeled Pulses",
+        fontweight="bold",
+        y=1.02,
+    )
     fig.tight_layout()
 
     if output_path is not None:
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(output_path, dpi=200)
+        fig.savefig(output_path, dpi=200, bbox_inches="tight")
         con.log(f"Saved labeled-pulse PCA plot to {output_path}")
 
     if show:
         plt.show()
+    else:
+        plt.close(fig)
 
-    return fig, ax
+    return fig, axes
 
 
 def _prepare_classifier_train_test_split(waveforms, labels, records=None):
@@ -1318,11 +1558,6 @@ def _prepare_classifier_train_test_split(waveforms, labels, records=None):
         records = np.asarray(records)
         result["test_records"] = records[test_idx]
     return result
-
-
-def _get_pca_n_components(X_train):
-    n_components = min(20, X_train.shape[0] - 1, X_train.shape[1])
-    return max(1, n_components)
 
 
 def _compute_multiclass_metrics(y_test, y_pred, labels_sorted):
@@ -1384,7 +1619,7 @@ def _wrap_benchmark_pipeline(estimator, feature_space, n_components):
             return Pipeline(
                 steps=[
                     ("scaler", StandardScaler()),
-                    ("pca", PCA(n_components=n_components, random_state=42)),
+                    ("pca", _make_pca_estimator(n_components)),
                     ("classifier", estimator.named_steps["svc"]),
                 ]
             )
@@ -1392,7 +1627,7 @@ def _wrap_benchmark_pipeline(estimator, feature_space, n_components):
 
     steps = [("scaler", StandardScaler())]
     if feature_space == "pca":
-        steps.append(("pca", PCA(n_components=n_components, random_state=42)))
+        steps.append(("pca", _make_pca_estimator(n_components)))
     steps.append(("classifier", estimator))
     return Pipeline(steps=steps)
 
@@ -1408,12 +1643,12 @@ def plot_benchmark_pca_scatter(
     show_splits=("train", "test"),
 ):
     """
-    Plot labeled pulses in PCA space.
+    Plot labeled pulses in robust-PCA space across multiple PC pairs.
 
     fit_on:
-        "train" — fit StandardScaler + PCA on the training split only (matches
-        the classifier pipeline).
-        "all" — fit on train + test combined (exploratory view of full labels).
+        "train" — fit StandardScaler + RobustPCA on the training split only
+        (matches the classifier pipeline).
+        "full" — fit on train + test combined (exploratory view of full labels).
     show_splits:
         Which splits to draw, e.g. ("train", "test") or ("train", "test") for both.
     """
@@ -1425,83 +1660,81 @@ def plot_benchmark_pca_scatter(
 
     if fit_on == "train":
         fit_waveforms = X_train
-    elif fit_on == "all":
+    elif fit_on in {"full", "all"}:
         fit_waveforms = np.vstack([X_train, X_test])
     else:
-        raise ValueError("fit_on must be 'train' or 'all'")
+        raise ValueError("fit_on must be 'train' or 'full'")
 
-    n_components = min(2, fit_waveforms.shape[0] - 1, fit_waveforms.shape[1])
-    n_components = max(1, n_components)
-
-    pca_pipeline = Pipeline(
-        steps=[
-            ("scaler", StandardScaler()),
-            ("pca", PCA(n_components=n_components, random_state=42)),
-        ]
+    n_components = _get_pca_n_components_for_plot(fit_waveforms)
+    projected, explained, pca_pipeline = _fit_pca_projection(
+        fit_waveforms, n_components
     )
-    pca_pipeline.fit(fit_waveforms)
+    pca_step = pca_pipeline.named_steps["pca"]
 
     split_data = {}
     if "train" in show_splits:
         projected_train = pca_pipeline.transform(X_train)
-        if n_components == 1:
-            projected_train = np.column_stack(
-                [projected_train[:, 0], np.zeros(len(projected_train))]
-            )
         split_data["train"] = (projected_train, y_train)
     if "test" in show_splits:
         projected_test = pca_pipeline.transform(X_test)
-        if n_components == 1:
-            projected_test = np.column_stack(
-                [projected_test[:, 0], np.zeros(len(projected_test))]
-            )
         split_data["test"] = (projected_test, y_test)
 
-    explained = pca_pipeline.named_steps["pca"].explained_variance_ratio_
     all_labels = [labels for _, labels in split_data.values()]
     labels_sorted = sorted(np.unique(np.concatenate(all_labels)))
+    pc_pairs = _select_meaningful_pc_pairs(explained)
+    n_panels = len(pc_pairs)
+    n_cols = min(2, n_panels)
+    n_rows = int(np.ceil(n_panels / n_cols))
 
-    fig, ax = plt.subplots(figsize=(9, 6.5))
+    fig, axes = plt.subplots(
+        n_rows,
+        n_cols,
+        figsize=(6.5 * n_cols, 5.5 * n_rows),
+        squeeze=False,
+    )
     colors = plt.cm.tab10(np.linspace(0, 1, max(len(labels_sorted), 1)))
     split_styles = {
         "train": {"s": 28, "alpha": 0.35, "linewidths": 0.0, "zorder": 1},
         "test": {"s": 46, "alpha": 0.9, "linewidths": 0.35, "zorder": 2},
     }
 
-    for color, label_id in zip(colors, labels_sorted):
-        class_name = SPECIAL_PULSE_CLASSES.get(int(label_id), f"class {label_id}")
+    for panel_idx, (pc_x, pc_y) in enumerate(pc_pairs):
+        row_idx, col_idx = divmod(panel_idx, n_cols)
+        ax = axes[row_idx, col_idx]
         for split_name, (projected, labels) in split_data.items():
-            mask = labels == label_id
-            if not np.any(mask):
-                continue
-            style = split_styles[split_name]
-            ax.scatter(
-                projected[mask, 0],
-                projected[mask, 1],
-                s=style["s"],
-                alpha=style["alpha"],
-                edgecolors="black",
-                linewidths=style["linewidths"],
-                color=color,
-                zorder=style["zorder"],
-                label=(
-                    f"{class_name} ({split_name}, n={int(np.sum(mask))})"
-                ),
+            _scatter_labeled_pca_pairs(
+                ax,
+                projected,
+                labels,
+                pc_x,
+                pc_y,
+                explained,
+                labels_sorted,
+                colors,
+                split_name=split_name,
+                split_styles=split_styles,
             )
+        if panel_idx == 0:
+            ax.legend(title="True label (split)", frameon=True, fontsize=7, loc="best")
+
+    for panel_idx in range(n_panels, n_rows * n_cols):
+        row_idx, col_idx = divmod(panel_idx, n_cols)
+        axes[row_idx, col_idx].set_axis_off()
 
     fit_note = "fit on train" if fit_on == "train" else "fit on full dataset"
-    pc1_var = explained[0] * 100 if len(explained) > 0 else 0
-    pc2_var = explained[1] * 100 if len(explained) > 1 else 0
-    ax.set_xlabel(f"PC1 ({pc1_var:.1f}% variance)")
-    ax.set_ylabel(f"PC2 ({pc2_var:.1f}% variance)")
-    ax.set_title(f"{title}\n({fit_note})", fontweight="bold")
-    ax.grid(True, alpha=0.25, linestyle="--")
-    ax.legend(title="True label (split)", frameon=True, fontsize=8, loc="best")
+    fig.suptitle(
+        (
+            f"{title}\n({fit_note}; {n_components} components, "
+            f"{pca_step.n_inliers_} inliers, {pca_step.n_outliers_} outliers excluded)"
+        ),
+        fontweight="bold",
+        y=1.02,
+    )
     fig.tight_layout()
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_path, dpi=200)
+    fig.savefig(output_path, dpi=200, bbox_inches="tight")
     plt.close(fig)
     return output_path
 
@@ -1745,7 +1978,7 @@ def benchmark_pulse_classifiers(labels_path=None):
         y_test,
         pca_plot_full_fit_path,
         title="Labeled pulses in PCA space",
-        fit_on="all",
+        fit_on="full",
         show_splits=("train", "test"),
     )
     con.log(
@@ -1868,9 +2101,9 @@ def benchmark_pulse_classifiers(labels_path=None):
     }
 
 
-def train_special_pulse_classifier(labels_path=None, model_path=None):
+def train_special_pulse_classifier(labels_path=None, model_path=None, show_pca_plot=False):
     """
-    Train a PCA + random forest multiclass classifier and print precision/recall/f1.
+    Train a robust PCA + random forest multiclass classifier and print precision/recall/f1.
     """
     ml_paths = get_default_ml_paths()
     labels_path = Path(labels_path) if labels_path else ml_paths["labels"]
@@ -1897,7 +2130,7 @@ def train_special_pulse_classifier(labels_path=None, model_path=None):
         waveforms,
         labels,
         output_path=ml_paths["pca_plot"],
-        show=True,
+        show=show_pca_plot,
     )
 
     split = _prepare_classifier_train_test_split(waveforms, labels)
@@ -1914,7 +2147,7 @@ def train_special_pulse_classifier(labels_path=None, model_path=None):
     classifier = Pipeline(
         steps=[
             ("scaler", StandardScaler()),
-            ("pca", PCA(n_components=n_components, random_state=42)),
+            ("pca", _make_pca_estimator(n_components)),
             (
                 "rf",
                 RandomForestClassifier(
@@ -1986,10 +2219,12 @@ def write_or_create_data_array(block, array_name, values):
 
 
 def predict_special_pulses_in_file(file_path, classifier):
-    file = nixio.File.open(str(file_path), nixio.FileMode.ReadWrite)
+    file = open_h5(file_path, nixio.FileMode.ReadWrite)
+    if file is None:
+        return {"status": "skipped", "reason": "locked_or_unreadable"}
 
     try:
-        block = file.blocks["pulses"]
+        block = get_pulse_block(file)
         data_array_names = [da.name for da in block.data_arrays]
 
         if "raw_pulses" not in data_array_names:

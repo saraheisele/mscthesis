@@ -7,6 +7,14 @@ Loads Excel sensor logs, aligns daily/monthly pulse-rate histograms with
 environmental averages, computes Pearson/Spearman correlations, and saves plots.
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from path_setup import setup_script_paths
+
+setup_script_paths(__file__)
+
 from datetime import datetime, timedelta
 
 import matplotlib.pyplot as plt

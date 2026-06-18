@@ -7,6 +7,14 @@ Runs the three sub-analyses in sequence. Each sub-module can also be executed
 standalone for faster iteration on one analysis type.
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from path_setup import setup_script_paths
+
+setup_script_paths(__file__)
+
 from data_paths import ENVIRONMENT_CORRELATION_DIR, H5_ROOT
 from environment_correlation import main as run_environment_correlation
 from tank_area_pulse_analysis import run_area_analysis

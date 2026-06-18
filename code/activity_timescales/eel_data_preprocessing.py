@@ -7,8 +7,15 @@ Generates pulse-count and pulse-rate .npz files at minute/hour/day/month/year sc
 normalized by recording effort. Run once per pulse type (all, double, wide, fat).
 """
 
-from rich.console import Console
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from path_setup import setup_script_paths
+
+setup_script_paths(__file__)
+
+from rich.console import Console
 import numpy as np
 import nixio
 import tqdm
@@ -16,7 +23,7 @@ from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 
 from data_paths import H5_DIR, activity_hist_dir
-from h5_io import get_path_list
+from h5_io import get_path_list, get_pulse_block, load_marker_array, open_h5
 from pulse_config import PULSE_TYPES, select_pulse_type
 
 # Initialize console for logging
@@ -60,55 +67,58 @@ def load_eods(file_paths, pulse_type="all"):
 
     # iterate through file paths, load hdf5 files
     for fp in file_paths:
-        ## load hdf5 file with nixio
-        file = nixio.File.open(str(fp), nixio.FileMode.ReadWrite)
-
-        ## access data from "pulses" block
-        block = file.blocks["pulses"]
-        data_array_names = [da.name for da in block.data_arrays]
-
-        # Skip files with no detected pulses (no 'centers' array means no detections)
-        if "centers" not in data_array_names:
-            con.log(f"File {fp} does not contain 'centers' data array. Skipping.")
+        file = open_h5(fp, nixio.FileMode.ReadOnly)
+        if file is None:
             continue
 
-        ## extract pulse data and model predictions
-        pulses_center_idx = block.data_arrays["centers"]
-        pred_labels = block.data_arrays["predicted_labels"]
+        try:
+            block = get_pulse_block(file)
+            data_array_names = [da.name for da in block.data_arrays]
 
-        # Filter pulses based on model prediction and pulse type marker
-        if pulse_marker is not None:
-            if pulse_marker not in data_array_names:
-                con.log(
-                    f"File {fp} does not contain '{pulse_marker}' data array. "
-                    "Using zero selected pulses for this file."
-                )
-                selected_centers = pulses_center_idx[:0]
+            # Skip files with no detected pulses (no 'centers' array means no detections)
+            if "centers" not in data_array_names:
+                con.log(f"File {fp} does not contain 'centers' data array. Skipping.")
+                continue
+
+            ## extract pulse data and model predictions
+            pulses_center_idx = block.data_arrays["centers"]
+            pred_labels = block.data_arrays["predicted_labels"]
+
+            # Filter pulses based on model prediction and pulse type marker
+            if pulse_marker is not None:
+                marker_values = load_marker_array(fp, pulse_marker, block)
+                if marker_values is None:
+                    con.log(
+                        f"File {fp} does not contain '{pulse_marker}' data array. "
+                        "Using zero selected pulses for this file."
+                    )
+                    selected_centers = pulses_center_idx[:0]
+                else:
+                    marker = marker_values
+                    mask = (pred_labels[:] == 1) & (marker[:] == 1)
+                    selected_centers = pulses_center_idx[mask]
             else:
-                # Keep only pulses predicted positive AND marked as the selected pulse type
-                marker = block.data_arrays[pulse_marker]
-                mask = (pred_labels[:] == 1) & (marker[:] == 1)
-                selected_centers = pulses_center_idx[mask]
-        else:
-            # For "all" pulses: keep only those predicted as positive
-            selected_centers = pulses_center_idx[pred_labels[:] == 1]
+                # For "all" pulses: keep only those predicted as positive
+                selected_centers = pulses_center_idx[pred_labels[:] == 1]
 
-        ## extract metadata from .h5 file
-        section = file.sections["pulses_metadata"]
-        fs = section["metadata"]["samplerate"]
-        starttime_str = section["metadata"]["metadata"]["INFO"]["DateTimeOriginal"]
-        duration = section["metadata"]["duration"]
+            ## extract metadata from .h5 file
+            section = file.sections["pulses_metadata"]
+            fs = section["metadata"]["samplerate"]
+            starttime_str = section["metadata"]["metadata"]["INFO"]["DateTimeOriginal"]
+            duration = section["metadata"]["duration"]
 
-        # Convert start time string to datetime and calculate end time
-        dt_start = datetime.strptime(starttime_str, "%Y-%m-%dT%H:%M:%S")
-        dt_end = dt_start + timedelta(seconds=duration)
+            # Convert start time string to datetime and calculate end time
+            dt_start = datetime.strptime(starttime_str, "%Y-%m-%dT%H:%M:%S")
+            dt_end = dt_start + timedelta(seconds=duration)
 
-        ## append to output lists
-        pulse_center_list.append(selected_centers)
-        fs_list.append(fs)
-        dt_start_list.append(dt_start)
-        dt_end_list.append(dt_end)
-        duration_list.append(duration)
+            ## append to output lists
+            pulse_center_list.append(selected_centers)
+            fs_list.append(fs)
+            dt_start_list.append(dt_start)
+            dt_end_list.append(dt_end)
+            duration_list.append(duration)
+        finally:
+            file.close()
 
     return pulse_center_list, fs_list, dt_start_list, dt_end_list, duration_list
 

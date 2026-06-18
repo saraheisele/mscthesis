@@ -4,7 +4,14 @@ Analysis part: special-pulse visualization (Part 2b of Berlin activity analysis)
 Dependencies: double_peaks_detection, data_paths, h5_io; run detection first.
 """
 
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from path_setup import setup_script_paths
+
+setup_script_paths(__file__)
+
 import numpy as np
 import matplotlib.pyplot as plt
 import nixio
@@ -19,7 +26,7 @@ from double_peaks_detection import (
     DISPLAY_NAME,
 )
 from data_paths import H5_DIR
-from h5_io import get_path_list
+from h5_io import get_path_list, get_pulse_block, open_h5
 
 # Initialize console for logging
 con = Console()
@@ -55,7 +62,7 @@ def plot_detected_pulses_from_file(file_path, max_plots=20, figsize=(16, 10)):
     file = nixio.File.open(str(file_path), nixio.FileMode.ReadOnly)
 
     try:
-        block = file.blocks["pulses"]
+        block = get_pulse_block(file)
         data_array_names = [da.name for da in block.data_arrays]
 
         if ARRAY_NAME not in data_array_names:
@@ -207,7 +214,7 @@ def plot_detected_pulses_overlay(file_path, figsize=(14, 6)):
     file = nixio.File.open(str(file_path), nixio.FileMode.ReadOnly)
 
     try:
-        block = file.blocks["pulses"]
+        block = get_pulse_block(file)
         data_array_names = [da.name for da in block.data_arrays]
 
         if ARRAY_NAME not in data_array_names:
@@ -296,7 +303,7 @@ def plot_detection_statistics(file_path, figsize=(14, 5)):
     file = nixio.File.open(str(file_path), nixio.FileMode.ReadOnly)
 
     try:
-        block = file.blocks["pulses"]
+        block = get_pulse_block(file)
         data_array_names = [da.name for da in block.data_arrays]
 
         if ARRAY_NAME not in data_array_names:
@@ -448,7 +455,7 @@ def plot_all_pulses_width_histogram(data_path, figsize=(14, 6), bins=50):
         file = nixio.File.open(str(file_path), nixio.FileMode.ReadOnly)
 
         try:
-            block = file.blocks["pulses"]
+            block = get_pulse_block(file)
             data_array_names = [da.name for da in block.data_arrays]
 
             raw_pulses = block.data_arrays["raw_pulses"]
@@ -701,7 +708,7 @@ def plot_all_detected_pulses_combined(
         file = nixio.File.open(str(file_path), nixio.FileMode.ReadOnly)
 
         try:
-            block = file.blocks["pulses"]
+            block = get_pulse_block(file)
             data_array_names = [da.name for da in block.data_arrays]
 
             if ARRAY_NAME not in data_array_names:
@@ -892,7 +899,7 @@ def interactive_pulse_verification(data_path):
         file = nixio.File.open(str(file_path), nixio.FileMode.ReadOnly)
 
         try:
-            block = file.blocks["pulses"]
+            block = get_pulse_block(file)
             data_array_names = [da.name for da in block.data_arrays]
 
             if ARRAY_NAME not in data_array_names:
@@ -972,7 +979,7 @@ def interactive_pulse_verification(data_path):
             )
 
             try:
-                block = file.blocks["pulses"]
+                block = get_pulse_block(file)
 
                 detection_array = block.data_arrays[ARRAY_NAME][:]
 
