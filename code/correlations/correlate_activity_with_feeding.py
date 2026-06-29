@@ -226,16 +226,20 @@ def infer_recording_start(
     h5_path: Path,
     feeding_events: list[dict] | None = None,
     eellogger_on_times: list[datetime] | None = None,
+    *,
+    duration: float | None = None,
+    h5_start: datetime | None = None,
 ) -> tuple[datetime, float, str]:
     session_name = session_name_from_h5(h5_path)
     filename_start = parse_session_date(session_name)
 
-    with nixio.File.open(str(h5_path)) as nix_file:
-        meta = nix_file.sections["pulses_metadata"]["metadata"]
-        duration = float(meta["duration"])
-        h5_start = datetime.strptime(
-            meta["metadata"]["INFO"]["DateTimeOriginal"], "%Y-%m-%dT%H:%M:%S"
-        )
+    if duration is None or h5_start is None:
+        with nixio.File.open(str(h5_path)) as nix_file:
+            meta = nix_file.sections["pulses_metadata"]["metadata"]
+            duration = float(meta["duration"])
+            h5_start = datetime.strptime(
+                meta["metadata"]["INFO"]["DateTimeOriginal"], "%Y-%m-%dT%H:%M:%S"
+            )
 
     if filename_start and SESSION_DATE_RE.match(session_name).group(2):
         return filename_start, duration, "h5_filename"
@@ -311,11 +315,16 @@ def load_pulses_by_type(
         meta = nix_file.sections["pulses_metadata"]["metadata"]
         fs = float(meta["samplerate"])
         duration = float(meta["duration"])
+        h5_start = datetime.strptime(
+            meta["metadata"]["INFO"]["DateTimeOriginal"], "%Y-%m-%dT%H:%M:%S"
+        )
 
         rec_start, _, _ = infer_recording_start(
             h5_path,
             feeding_events=feeding_events,
             eellogger_on_times=eellogger_on_times,
+            duration=duration,
+            h5_start=h5_start,
         )
         return pulses, fs, rec_start, duration
     finally:
@@ -453,7 +462,9 @@ def extract_all_feeding_events() -> pd.DataFrame:
             rows.append(event)
 
     if not rows:
-        return pd.DataFrame()
+        return pd.DataFrame(
+            columns=["session", "docx_file", "event_type", "event_time", "source_line"]
+        )
 
     df = pd.DataFrame(rows)
     df["event_time"] = pd.to_datetime(df["event_time"])
@@ -465,7 +476,8 @@ def run_analysis():
     feeding_df = extract_all_feeding_events()
     feeding_df.to_csv(OUTPUT_DIR / "feeding_events_extracted.csv", index=False)
     write_session_feeding_summary(feeding_df)
-    print(f"Extracted {len(feeding_df)} feeding-related events from {feeding_df['session'].nunique()} sessions")
+    n_sessions = feeding_df["session"].nunique() if not feeding_df.empty else 0
+    print(f"Extracted {len(feeding_df)} feeding-related events from {n_sessions} sessions")
 
     session_events = {
         session: group.to_dict("records")

@@ -41,11 +41,11 @@ from position_utils import (
 
 con = Console()
 
-POSITION_METHODS = ("peak_positive", "weighted_mean")
+POSITION_METHOD = "peak_positive"
 POSITION_BIN_EDGES_M = np.linspace(0.0, 3.75, N_ELECTRODES + 1)
 
 
-def load_positions(file_paths, method: str = "peak_positive"):
+def load_positions(file_paths):
     """Load per-pulse positions and timing metadata from h5 files."""
     electrode_positions_m = default_electrode_positions_m()
     position_lists = []
@@ -86,9 +86,7 @@ def load_positions(file_paths, method: str = "peak_positive"):
         positions = []
         pulse_times_sec = []
         for center_idx, pulse in zip(centers[mask], raw_pulses[mask]):
-            head_m, _ = head_position_from_pulse(
-                pulse, electrode_positions_m, method=method
-            )
+            head_m, _ = head_position_from_pulse(pulse, electrode_positions_m)
             positions.append(head_m)
             pulse_times_sec.append(float(center_idx) / fs)
 
@@ -209,10 +207,10 @@ def session_mean_position(session_sums, session_counts):
     return session_means
 
 
-def save_position_histograms(results, output_path: Path, method: str):
+def save_position_histograms(results, output_path: Path):
     """Save position histogram dictionaries to compressed npz files."""
     output_path.mkdir(parents=True, exist_ok=True)
-    prefix = f"berlin_position_{method}"
+    prefix = f"berlin_position_{POSITION_METHOD}"
 
     np.savez_compressed(
         output_path / f"{prefix}_sum_hist_dict.npz",
@@ -254,24 +252,13 @@ def save_position_histograms(results, output_path: Path, method: str):
     )
 
 
-def select_position_method(default: str = "peak_positive") -> str:
-    choices = ", ".join(POSITION_METHODS)
-    selected = input(f"Position method ({choices}) [{default}]: ").strip()
-    if not selected:
-        return default
-    if selected not in POSITION_METHODS:
-        raise ValueError(f"Unknown position method '{selected}'. Choose: {choices}.")
-    return selected
-
-
 def main():
-    method = select_position_method(default="peak_positive")
-    save_path = position_hist_dir(method)
+    save_path = position_hist_dir(POSITION_METHOD)
     save_path.mkdir(parents=True, exist_ok=True)
 
     path_list = get_path_list(H5_DIR)
     position_lists, time_sec_lists, _fs_list, start_times, end_times = load_positions(
-        path_list, method=method
+        path_list
     )
 
     results = make_position_histograms(
@@ -279,11 +266,11 @@ def main():
     )
     rec_time_hist_dict, _session_rec_times = rec_time_per_bin(start_times, end_times)
     np.savez_compressed(
-        save_path / f"berlin_position_{method}_rec_time_hist_dict.npz",
+        save_path / f"berlin_position_{POSITION_METHOD}_rec_time_hist_dict.npz",
         **{k: np.asarray(v) for k, v in rec_time_hist_dict.items()},
     )
 
-    save_position_histograms(results, save_path, method=method)
+    save_position_histograms(results, save_path)
     save_histogram_metadata(start_times, end_times, save_path)
     con.log(f"Saved position histograms to {save_path}")
 

@@ -81,6 +81,9 @@ MODE_CONFIG = {
 ARRAY_NAME = MODE_CONFIG[DETECTION_MODE]["array_name"]
 DISPLAY_NAME = MODE_CONFIG[DETECTION_MODE]["display_name"]
 
+# Raised from 0.7 to suppress very small noisy pulses in special-shape detection.
+MIN_AMPLITUDE_THRESHOLD = 5.0
+
 SPECIAL_PULSE_CLASSES = {
     0: "normal",
     1: "double",
@@ -267,7 +270,7 @@ def compute_half_max_width(signal, sample_rate):
 def detect_double_pulse(
     pulse_waveform,
     sample_rate,
-    amplitude_threshold=0.7,
+    amplitude_threshold=MIN_AMPLITUDE_THRESHOLD,
     min_peak_distance=0.0005,
     max_peak_distance=0.002,
     min_valley_ratio=0.4,
@@ -499,7 +502,7 @@ def check_pulse_shape_gaussian_exponential(signal, peak_idx, sample_rate):
 def detect_wide_pulse(
     pulse_waveform,
     sample_rate,
-    amplitude_threshold=0.7,
+    amplitude_threshold=MIN_AMPLITUDE_THRESHOLD,
     width_threshold_ms=2.3,
     max_width_ms=4,
     isolation_window_ms=3.0,
@@ -645,7 +648,7 @@ def detect_wide_pulse(
 def detect_fat_pulse(
     pulse_waveform,
     sample_rate,
-    amplitude_threshold=0.7,
+    amplitude_threshold=MIN_AMPLITUDE_THRESHOLD,
     width_threshold_ms=4,
     max_width_ms=None,
     isolation_window_ms=3.0,

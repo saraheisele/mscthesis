@@ -29,17 +29,7 @@ from position_utils import (
     default_electrode_positions_m,
 )
 
-POSITION_METHODS = ("peak_positive", "weighted_mean")
-
-
-def select_position_method(default: str = "peak_positive") -> str:
-    choices = ", ".join(POSITION_METHODS)
-    selected = input(f"Position method ({choices}) [{default}]: ").strip()
-    if not selected:
-        return default
-    if selected not in POSITION_METHODS:
-        raise ValueError(f"Unknown position method '{selected}'. Choose: {choices}.")
-    return selected
+POSITION_METHOD = "peak_positive"
 
 
 def load_metadata(data_path):
@@ -267,22 +257,29 @@ def plot_overall_position_distribution(occurrence_hour, save_path, suffix):
 
 
 def main():
-    method = select_position_method(default="peak_positive")
-    suffix = f"_{method[:4]}"
-    data_path = position_hist_dir(method)
-    save_path = POSITION_FIGURES_DIR / method
+    suffix = f"_{POSITION_METHOD[:4]}"
+    data_path = position_hist_dir(POSITION_METHOD)
+    save_path = POSITION_FIGURES_DIR / POSITION_METHOD
     save_path.mkdir(parents=True, exist_ok=True)
     meta = load_metadata(data_path)
 
-    mean_position = np.load(data_path / f"berlin_position_{method}_mean_position_hist_dict.npz")
+    mean_position = np.load(
+        data_path / f"berlin_position_{POSITION_METHOD}_mean_position_hist_dict.npz"
+    )
     mean_position = {k: mean_position[k] for k in mean_position.files}
 
-    bright_count = np.load(data_path / f"berlin_position_{method}_bright_count_hist_dict.npz")
+    bright_count = np.load(
+        data_path / f"berlin_position_{POSITION_METHOD}_bright_count_hist_dict.npz"
+    )
     bright_count = {k: bright_count[k] for k in bright_count.files}
-    dark_count = np.load(data_path / f"berlin_position_{method}_dark_count_hist_dict.npz")
+    dark_count = np.load(
+        data_path / f"berlin_position_{POSITION_METHOD}_dark_count_hist_dict.npz"
+    )
     dark_count = {k: dark_count[k] for k in dark_count.files}
 
-    occurrence = np.load(data_path / f"berlin_position_{method}_occurrence_hist.npz")
+    occurrence = np.load(
+        data_path / f"berlin_position_{POSITION_METHOD}_occurrence_hist.npz"
+    )
     occurrence = {k: occurrence[k] for k in occurrence.files}
 
     for timescale in ("minute", "hour", "month", "month_since_start", "year"):
@@ -294,7 +291,7 @@ def main():
     if "hour" in occurrence:
         plot_overall_position_distribution(occurrence["hour"], save_path, suffix)
 
-    session_path = data_path / f"berlin_position_{method}_session_mean_position.npz"
+    session_path = data_path / f"berlin_position_{POSITION_METHOD}_session_mean_position.npz"
     if session_path.exists():
         session_data = np.load(session_path)
         for timescale in session_data.files:

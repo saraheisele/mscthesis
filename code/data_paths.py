@@ -3,8 +3,9 @@
 Analysis part: infrastructure — all scripts import paths from here.
 Dependencies: none.
 
-Switch from the development test subset to the full dataset by changing
-H5_DIR (and optionally ACTIVITY_HISTOGRAMS_DIR / POSITION_HISTOGRAMS_DIR) below.
+Set USE_DUMMY_DATASET to switch between the development subset and the full
+Berlin tank dataset. Dummy outputs are written under data/processed/dummy/ so
+full-dataset figures in data/processed/ are never overwritten.
 """
 
 from pathlib import Path
@@ -13,21 +14,30 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CODE_DIR = PROJECT_ROOT / "code"
 
 #################################
+######## DATASET SELECTION ######
+#################################
+
+# True  → dummy subset, outputs under data/processed/dummy/
+# False → full dataset at /home/efish/eelsmfn2021_eods/berlin_tank_site
+USE_DUMMY_DATASET = True
+
+#################################
 ############# INPUT #############
 #################################
 
-# Predetected pulse .h5 files (Berlin tank site)
-H5_DIR = Path("/home/efish/eelsmfn2021_eods/berlin_tank_site")
-# Dev subset:
-# H5_DIR = PROJECT_ROOT / "data/raw/eels-mfn2021_dummy_pulses_redetected/berlin_tank_site"
+FULL_H5_DIR = Path("/home/efish/eelsmfn2021_eods/berlin_tank_site")
+DUMMY_H5_DIR = (
+    PROJECT_ROOT / "data/raw/eels-mfn2021_dummy_pulses_redetected/berlin_tank_site"
+)
+LAB_DATA_DIR = Path("/data2/labdata/eels-mfn2021/berlin_tank_site")
 
-# Parent directory for recursive **/*.h5 searches (e.g. volley analysis)
+if USE_DUMMY_DATASET:
+    H5_DIR = DUMMY_H5_DIR
+else:
+    H5_DIR = FULL_H5_DIR
+
 H5_ROOT = H5_DIR
 
-# Raw lab recordings: wav files and session Word documents (images/*.docx)
-LAB_DATA_DIR = H5_DIR
-
-# Environmental sensor Excel files (temperature, conductivity)
 EXCEL_DIR = (
     PROJECT_ROOT
     / "data/raw/eels-mfn2021_dummy_pulses_redetected/leitwerte_metadaten"
@@ -39,15 +49,17 @@ EXCEL_DIR = (
 
 INTERMEDIATE_DIR = PROJECT_ROOT / "data/intermediate"
 
-ACTIVITY_HISTOGRAMS_DIR = INTERMEDIATE_DIR / "eels-mfn2021_activity_histograms"
-# Dev subset:
-# ACTIVITY_HISTOGRAMS_DIR = INTERMEDIATE_DIR / "eels-mfn2021_dummy_activity_histograms"
+if USE_DUMMY_DATASET:
+    ACTIVITY_HISTOGRAMS_DIR = INTERMEDIATE_DIR / "eels-mfn2021_dummy_activity_histograms"
+    POSITION_HISTOGRAMS_DIR = INTERMEDIATE_DIR / "eels-mfn2021_dummy_position_histograms"
+else:
+    ACTIVITY_HISTOGRAMS_DIR = INTERMEDIATE_DIR / "eels-mfn2021_activity_histograms"
+    POSITION_HISTOGRAMS_DIR = INTERMEDIATE_DIR / "eels-mfn2021_position_histograms"
 
 SPECIAL_PULSE_CLASSIFIER_DIR = INTERMEDIATE_DIR / "special_pulse_classifier"
 SPECIAL_PULSE_MARKERS_DIR = INTERMEDIATE_DIR / "special_pulse_markers"
 SESSION_PATHS_JSON = INTERMEDIATE_DIR / "eellogger_session_paths.json"
 
-# Legacy paths used by old_analysis_version scripts
 LEGACY_PULSE_DATA_NPZ = INTERMEDIATE_DIR / "pulse_data.npz"
 LEGACY_INTERMEDIATE_PULSE_DATA_NPZ = INTERMEDIATE_DIR / "intermediate_pulse_data.npz"
 EXAMPLE_WAV_DIR = PROJECT_ROOT / "data/raw/eellogger_example_data/recordings2025-03-31-20250401"
@@ -57,17 +69,27 @@ EXAMPLE_WAV_DIR = PROJECT_ROOT / "data/raw/eellogger_example_data/recordings2025
 #################################
 
 PROCESSED_DIR = PROJECT_ROOT / "data/processed"
-FEEDING_CORRELATION_DIR = PROCESSED_DIR / "feeding_correlation"
-ENVIRONMENT_CORRELATION_DIR = PROCESSED_DIR / "environment_correlation"
-PULSE_SHAPE_CORRELATION_DIR = PROCESSED_DIR / "pulse_shape_correlation"
-POSITION_HISTOGRAMS_DIR = INTERMEDIATE_DIR / "eels-mfn2021_position_histograms"
-POSITION_FIGURES_DIR = PROCESSED_DIR / "position_analysis"
 
-# Dev subset:
-# POSITION_HISTOGRAMS_DIR = INTERMEDIATE_DIR / "eels-mfn2021_dummy_position_histograms"
+# Full-dataset results live directly under PROCESSED_DIR; dummy results are isolated.
+if USE_DUMMY_DATASET:
+    PROCESSED_DATASET_DIR = PROCESSED_DIR / "dummy"
+else:
+    PROCESSED_DATASET_DIR = PROCESSED_DIR
 
-# Berlin tank electrode line layout (cm coordinates, bright → dark)
+FEEDING_CORRELATION_DIR = PROCESSED_DATASET_DIR / "feeding_correlation"
+ENVIRONMENT_CORRELATION_DIR = PROCESSED_DATASET_DIR / "environment_correlation"
+PULSE_SHAPE_CORRELATION_DIR = PROCESSED_DATASET_DIR / "pulse_shape_correlation"
+POSITION_FIGURES_DIR = PROCESSED_DATASET_DIR / "position_analysis"
+PULSE_SHAPE_PROTOTYPES_DIR = PROCESSED_DATASET_DIR / "pulse_shape_prototypes"
+PULSE_PROPERTIES_DIR = PROCESSED_DATASET_DIR / "pulse_properties"
+HALF_WIDTH_DISTRIBUTIONS_DIR = PROCESSED_DATASET_DIR / "half_width_distributions"
+
 ELECTRODE_LAYOUT_JSON = LAB_DATA_DIR / "electrode_layout.json"
+EEL_SVG = CODE_DIR / "assets" / "eel.svg"
+
+# Recording corrections applied during histogram preprocessing
+DUAL_LINE_START_DATE = "2025-11-25"
+PARTIAL_RECORDING_YEARS = (2023, 2026)
 
 
 def activity_hist_dir(hist_subdir: str) -> Path:
@@ -77,7 +99,7 @@ def activity_hist_dir(hist_subdir: str) -> Path:
 
 def processed_figures_dir(figures_subdir: str) -> Path:
     """Output directory for pulse analysis figures."""
-    return PROCESSED_DIR / figures_subdir
+    return PROCESSED_DATASET_DIR / figures_subdir
 
 
 def position_hist_dir(hist_subdir: str = "") -> Path:

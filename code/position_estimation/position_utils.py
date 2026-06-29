@@ -34,6 +34,16 @@ ELECTRODE_SPACING_M = 0.25
 LINE_LENGTH_M = (N_ELECTRODES - 1) * ELECTRODE_SPACING_M
 DEFAULT_BRIGHT_DARK_BOUNDARY_M = 2.5
 
+# Berlin tank: two ~3 m diameter pools fused with ~2 m opening between them.
+POOL_DIAMETER_M = 3.0
+POOL_RADIUS_M = POOL_DIAMETER_M / 2.0
+POOL_OPENING_M = 2.0
+POOL_CENTER_DISTANCE_M = 2.0 * np.sqrt(
+    POOL_RADIUS_M**2 - (POOL_OPENING_M / 2.0) ** 2
+)
+BRIGHT_POOL_CENTER = (POOL_RADIUS_M, 0.0)
+DARK_POOL_CENTER = (POOL_RADIUS_M + POOL_CENTER_DISTANCE_M, 0.0)
+
 WAV_TIME_RE = re.compile(r"(\d{8}T\d{6})")
 
 
@@ -45,6 +55,7 @@ class PulsePosition:
     head_m: float
     head_channel: int
     method: str
+    amplitude: float = 0.0
 
 
 def default_electrode_positions_m(layout_path: Path | None = None) -> np.ndarray:
@@ -66,19 +77,10 @@ def channel_amplitudes(pulse_waveform: np.ndarray) -> np.ndarray:
 def head_position_from_pulse(
     pulse_waveform: np.ndarray,
     electrode_positions_m: np.ndarray | None = None,
-    method: str = "peak_positive",
 ) -> tuple[float, int]:
     """Estimate head position along the electrode line from one pulse snippet.
 
-    Parameters
-    ----------
-    pulse_waveform
-        Shape (num_samples, num_channels).
-    electrode_positions_m
-        Position of each electrode in metres. Defaults to evenly spaced line.
-    method
-        ``peak_positive``: electrode with largest positive peak (head location).
-        ``weighted_mean``: amplitude-weighted mean position using positive peaks.
+    Uses the electrode with the largest positive peak (head location).
 
     Returns
     -------
@@ -99,20 +101,7 @@ def head_position_from_pulse(
     positions = positions[:n]
 
     head_channel = int(np.argmax(amplitudes))
-
-    if method == "peak_positive":
-        return float(positions[head_channel]), head_channel
-
-    if method == "weighted_mean":
-        weights = np.clip(amplitudes, 0.0, None)
-        if weights.sum() == 0:
-            return float(positions[head_channel]), head_channel
-        head_m = float(np.dot(positions, weights) / weights.sum())
-        return head_m, head_channel
-
-    raise ValueError(
-        f"Unknown position method '{method}'. Use 'peak_positive' or 'weighted_mean'."
-    )
+    return float(positions[head_channel]), head_channel
 
 
 def smooth_positions(positions_m: np.ndarray, window: int = 5) -> np.ndarray:
@@ -219,7 +208,6 @@ def load_h5_metadata(h5_path: Path) -> tuple[float, datetime, float]:
 def load_pulses_for_wav(
     wav_path: Path,
     h5_path: Path | None = None,
-    method: str = "peak_positive",
     electrode_positions_m: np.ndarray | None = None,
 ) -> tuple[list[PulsePosition], dict]:
     """Load pulse positions for the time window covered by one wav chunk."""
@@ -255,14 +243,16 @@ def load_pulses_for_wav(
         if pulse_time < wav_start or pulse_time >= wav_end:
             continue
         head_m, head_channel = head_position_from_pulse(
-            pulse, electrode_positions_m, method=method
+            pulse, electrode_positions_m
         )
+        amp = float(np.max(channel_amplitudes(pulse)))
         pulse_positions.append(
             PulsePosition(
                 time_sec=(pulse_time - wav_start).total_seconds(),
                 head_m=head_m,
                 head_channel=head_channel,
-                method=method,
+                method="peak_positive",
+                amplitude=amp,
             )
         )
 
@@ -274,14 +264,13 @@ def load_pulses_for_wav(
         "wav_end": wav_end,
         "fs": fs,
         "n_pulses": len(pulse_positions),
-        "method": method,
+        "method": "peak_positive",
     }
     return pulse_positions, meta
 
 
 def find_entry_recordings(
     h5_dir: Path | None = None,
-    method: str = "peak_positive",
     min_pulses: int = 20,
     edge_m: float = 0.5,
     late_fraction: float = 0.3,
@@ -312,7 +301,7 @@ def find_entry_recordings(
         times_sec = []
         for center_idx, pulse in zip(centers[mask], raw_pulses[mask]):
             head_m, _ = head_position_from_pulse(
-                pulse, electrode_positions_m, method=method
+                pulse, electrode_positions_m
             )
             positions.append(head_m)
             times_sec.append(float(center_idx) / fs)

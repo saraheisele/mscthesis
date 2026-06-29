@@ -22,7 +22,12 @@ import tqdm
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 
-from data_paths import H5_DIR, activity_hist_dir
+from data_paths import (
+    DUAL_LINE_START_DATE,
+    H5_DIR,
+    PARTIAL_RECORDING_YEARS,
+    activity_hist_dir,
+)
 from h5_io import get_path_list, get_pulse_block, load_marker_array, open_h5
 from pulse_config import PULSE_TYPES, select_pulse_type
 
@@ -123,6 +128,43 @@ def load_eods(file_paths, pulse_type="all"):
     return pulse_center_list, fs_list, dt_start_list, dt_end_list, duration_list
 
 
+def pulse_count_weight(dt_start: datetime) -> float:
+    """Correction factor for dual electrode-line recordings (halve pulse counts)."""
+    dual_line_start = datetime.strptime(DUAL_LINE_START_DATE, "%Y-%m-%d")
+    if dt_start.date() >= dual_line_start.date():
+        return 0.5
+    return 1.0
+
+
+def apply_year_coverage_correction(
+    pulse_rate_hist: dict,
+    rec_time_hist: dict,
+    first_year: int,
+) -> dict:
+    """Scale yearly pulse rates for partial recording years (2023, 2026)."""
+    if "year" not in pulse_rate_hist:
+        return pulse_rate_hist
+
+    corrected = {k: np.asarray(v, dtype=float).copy() for k, v in pulse_rate_hist.items()}
+    year_rates = corrected["year"]
+    year_rec = np.asarray(rec_time_hist["year"], dtype=float)
+
+    for year_offset, year in enumerate(
+        range(first_year, first_year + len(year_rates))
+    ):
+        if year not in PARTIAL_RECORDING_YEARS:
+            continue
+        recorded_sec = year_rec[year_offset]
+        if recorded_sec <= 0 or np.isnan(year_rates[year_offset]):
+            continue
+        year_fraction = recorded_sec / (365.25 * 24 * 3600)
+        if year_fraction > 0:
+            year_rates[year_offset] /= year_fraction
+
+    corrected["year"] = year_rates
+    return corrected
+
+
 ###########################################
 ############# DATA PROCESSING #############
 ###########################################
@@ -208,7 +250,7 @@ def make_histogram(pulse_centers, sampling_rates, start_times, end_times):
     }
 
     # histogram dict to hold pulse counts over all rec sessions for each time scale
-    hist = {k: np.zeros(v, dtype=int) for k, v in hist_sizes.items()}
+    hist = {k: np.zeros(v, dtype=float) for k, v in hist_sizes.items()}
 
     # list to hold all dicts per rec session
     session_counts = []
@@ -223,7 +265,9 @@ def make_histogram(pulse_centers, sampling_rates, start_times, end_times):
     for i, rec in enumerate(tqdm.tqdm(pulse_centers, desc="Processing pulse centers")):
         # initiate new preliminary dict for each h5 file/pulse list/i
         # to store pulse counts so they can also be used to increment the recording counter
-        hist_i = {k: np.zeros_like(v) for k, v in hist.items()}
+        hist_i = {k: np.zeros_like(v, dtype=float) for k, v in hist.items()}
+
+        pulse_weight = pulse_count_weight(start_times[i])
 
         # for each pulse list, iterate through the pulse indices
         for idx in rec:
@@ -242,12 +286,12 @@ def make_histogram(pulse_centers, sampling_rates, start_times, end_times):
             year = pulse_time_abs.year - time_bounds["first_year"]
 
             # increment histogram bins for each timescale
-            hist_i["minute"][minute] += 1
-            hist_i["hour"][hour] += 1
-            hist_i["day"][day] += 1
-            hist_i["month"][month] += 1
-            hist_i["month_since_start"][month_since_start] += 1
-            hist_i["year"][year] += 1
+            hist_i["minute"][minute] += pulse_weight
+            hist_i["hour"][hour] += pulse_weight
+            hist_i["day"][day] += pulse_weight
+            hist_i["month"][month] += pulse_weight
+            hist_i["month_since_start"][month_since_start] += pulse_weight
+            hist_i["year"][year] += pulse_weight
 
             # store Unix timestamp for this pulse
             pulse_time_abs_unix = pulse_time_abs.timestamp()
@@ -519,6 +563,12 @@ def main():
 
     # calculate pulse rates as pulse count / recording time in each bin
     pulse_rate_hist_dict = pulse_rate_hz(count_histogram_dict, rec_time_hist_dict)
+    time_bounds = histogram_time_bounds(start_times, end_times)
+    pulse_rate_hist_dict = apply_year_coverage_correction(
+        pulse_rate_hist_dict,
+        rec_time_hist_dict,
+        time_bounds["first_year"],
+    )
     session_pulse_rate_hz_list = session_pulse_rate_hz(
         pulse_count_per_session, rec_time_per_session
     )

@@ -15,24 +15,33 @@ from path_setup import setup_script_paths
 
 setup_script_paths(__file__)
 
+import json
+
 import matplotlib.pyplot as plt
 import nixio
 import numpy as np
 from rich.console import Console
+from scipy import stats
 from scipy.signal import find_peaks
 
-from data_paths import H5_DIR, PROCESSED_DIR
+from data_paths import H5_DIR, PULSE_SHAPE_PROTOTYPES_DIR
 from double_peaks_detection import (
+    MIN_AMPLITUDE_THRESHOLD,
     compute_half_max_width,
     detect_double_pulse,
     detect_fat_pulse,
     detect_wide_pulse,
 )
 from h5_io import get_path_list, get_pulse_block, open_h5
+from pulse_shape_metrics import (
+    double_pulse_metrics,
+    paired_symmetry_test,
+    symmetry_at_fraction,
+)
 
 console = Console()
 
-OUTPUT_DIR = PROCESSED_DIR / "pulse_shape_prototypes"
+OUTPUT_DIR = PULSE_SHAPE_PROTOTYPES_DIR
 SAMPLE_SIZE = 100
 RANDOM_SEED = 42
 
@@ -59,7 +68,7 @@ PULSE_SHAPES = {
         "align": "valley",
         "detect": detect_double_pulse,
         "criteria": [
-            "Amplitude ≥ 0.7 (baseline-corrected)",
+            "Amplitude ≥ {:.1f} (baseline-corrected)".format(MIN_AMPLITUDE_THRESHOLD),
             "Exactly 2 peaks, prominence ≥ 10% of max",
             "Peak separation: 0.5–2.0 ms",
             "Valley between peaks: 40–95% of higher peak",
@@ -74,7 +83,7 @@ PULSE_SHAPES = {
         "align": "maximum",
         "detect": lambda wf, fs: detect_wide_pulse(wf, fs, check_shape=True),
         "criteria": [
-            "Amplitude ≥ 0.7 (baseline-corrected)",
+            "Amplitude ≥ {:.1f} (baseline-corrected)".format(MIN_AMPLITUDE_THRESHOLD),
             "Half-max width: 2.3–4.0 ms",
             "Single prominent peak (3 ms isolation window)",
             "Prominence ≥ 10% of peak amplitude",
@@ -89,7 +98,7 @@ PULSE_SHAPES = {
         "align": "maximum",
         "detect": detect_fat_pulse,
         "criteria": [
-            "Amplitude ≥ 0.7 (baseline-corrected)",
+            "Amplitude ≥ {:.1f} (baseline-corrected)".format(MIN_AMPLITUDE_THRESHOLD),
             "Half-max width ≥ 4.0 ms (no upper limit)",
             "Single prominent peak (3 ms isolation window)",
             "Prominence ≥ 10% of peak amplitude",
@@ -403,6 +412,7 @@ def add_detection_markers(ax, mean_trace, fs, pulse_shape):
                 fontsize=9,
                 color=color,
             )
+        add_half_max_markers(ax, mean_trace, fs, color)
         return
 
     if pulse_shape["align"] == "maximum":
@@ -423,23 +433,65 @@ def add_detection_markers(ax, mean_trace, fs, pulse_shape):
     add_half_max_markers(ax, mean_trace, fs, color)
 
 
+def load_all_waveforms(entries, align_mode=None, max_waveforms=None):
+    """Load waveforms for mean computation (optionally capped for memory)."""
+    corrected_waveforms = []
+    normalized_waveforms = []
+    fs = None
+
+    for file_path, pulse_idx in entries:
+        if max_waveforms is not None and len(normalized_waveforms) >= max_waveforms:
+            break
+        file = open_h5(file_path, nixio.FileMode.ReadOnly)
+        if file is None:
+            continue
+        try:
+            block = get_pulse_block(file)
+            pulse_data = block.data_arrays["raw_pulses"][pulse_idx][:]
+            if fs is None:
+                fs = float(file.sections["pulses_metadata"]["metadata"]["samplerate"])
+            trace, _ = get_biggest_unclipped_waveform(pulse_data)
+            corrected = baseline_correct(trace)
+            if align_mode == "valley" and double_peak_indices(corrected, fs) is None:
+                continue
+            corrected_waveforms.append(corrected)
+            normalized_waveforms.append(normalize_trace(corrected))
+        finally:
+            file.close()
+
+    return corrected_waveforms, normalized_waveforms, fs
+
+
 def plot_prototype_pulse_shape(
-    pulse_key, pulse_shape, corrected_waveforms, normalized_waveforms, fs, output_dir
+    pulse_key,
+    pulse_shape,
+    corrected_waveforms,
+    normalized_waveforms,
+    fs,
+    output_dir,
+    mean_trace_all=None,
+    total_count=None,
 ):
-    """Plot sampled pulses aligned at a shape-specific reference with mean overlay."""
+    """Plot sampled pulses with mean computed from all waveforms when provided."""
     if not normalized_waveforms:
         console.log(f"[yellow]No pulses found for {pulse_shape['label']}. Skipping.")
         return None
 
-    aligned_waveforms = align_waveforms(
+    aligned_sample = align_waveforms(
         normalized_waveforms, corrected_waveforms, pulse_shape["align"], fs
     )
-    mean_trace = np.mean(aligned_waveforms, axis=0)
-    time_ms = np.arange(aligned_waveforms.shape[1]) / fs * 1000
+    if mean_trace_all is not None:
+        mean_trace = mean_trace_all
+        mean_label = f"Mean (n={total_count:,})"
+    else:
+        mean_trace = np.mean(aligned_sample, axis=0)
+        mean_label = f"Mean (n={len(aligned_sample)})"
+
+    time_ms = np.arange(aligned_sample.shape[1]) / fs * 1000
 
     fig, ax = plt.subplots(figsize=(11, 6))
 
-    for trace in aligned_waveforms:
+    for trace in aligned_sample:
         ax.plot(time_ms, trace, color="gray", alpha=0.25, linewidth=0.8)
 
     ax.plot(
@@ -447,7 +499,7 @@ def plot_prototype_pulse_shape(
         mean_trace,
         color=pulse_shape["color"],
         linewidth=2.8,
-        label=f"Mean (n={len(aligned_waveforms)})",
+        label=mean_label,
         zorder=5,
     )
 
@@ -467,11 +519,11 @@ def plot_prototype_pulse_shape(
 
     ax.set_xlabel("Time (ms)")
     ax.set_ylabel("Normalized amplitude")
-    if np.min(aligned_waveforms) < -1:
+    if np.min(aligned_sample) < -1:
         ax.set_ylim(-1, None)
     ax.set_title(
         f"Prototype {pulse_shape['label'].lower()}s "
-        f"(random sample of {len(aligned_waveforms)})",
+        f"(showing {len(aligned_sample)} of {total_count or len(aligned_sample):,})",
         fontsize=13,
         fontweight="bold",
     )
@@ -487,8 +539,159 @@ def plot_prototype_pulse_shape(
     return output_path
 
 
+def plot_symmetry_analysis(
+    pulse_key, pulse_shape, corrected_waveforms, fs, output_dir, fraction=0.1
+):
+    """Whisker plot and paired t-test for left/right width at fraction of peak."""
+    if pulse_key not in {"normal", "wide", "fat"}:
+        return
+
+    left_widths = []
+    right_widths = []
+    for trace in corrected_waveforms:
+        sym = symmetry_at_fraction(trace, fs, fraction=fraction)
+        if np.isnan(sym["left_width_sec"]) or np.isnan(sym["right_width_sec"]):
+            continue
+        left_widths.append(sym["left_width_sec"] * 1000)
+        right_widths.append(sym["right_width_sec"] * 1000)
+
+    if len(left_widths) < 3:
+        return
+
+    left = np.asarray(left_widths)
+    right = np.asarray(right_widths)
+    test = paired_symmetry_test(left / 1000, right / 1000)
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.boxplot(
+        [left, right],
+        tick_labels=[f"Left @ {int(fraction * 100)}%", f"Right @ {int(fraction * 100)}%"],
+        patch_artist=True,
+    )
+    ax.set_ylabel("Width (ms)")
+    ax.set_title(
+        f"{pulse_shape['label']} symmetry at {int(fraction * 100)}% amplitude\n"
+        f"Paired t-test: t={test['t_stat']:.3f}, p={test['p_value']:.2e} (n={test['n']})"
+    )
+    ax.grid(True, axis="y", alpha=0.3)
+    plt.tight_layout()
+    out = output_dir / f"symmetry_{pulse_key}_10pct.png"
+    fig.savefig(out, dpi=300)
+    plt.close(fig)
+    console.log(f"Saved {out}")
+
+    stats_path = output_dir / f"symmetry_{pulse_key}_10pct_stats.json"
+    with open(stats_path, "w") as handle:
+        json.dump(
+            {
+                "pulse_shape": pulse_key,
+                "fraction": fraction,
+                "n": test["n"],
+                "mean_left_ms": float(np.mean(left)),
+                "mean_right_ms": float(np.mean(right)),
+                "paired_ttest": test,
+            },
+            handle,
+            indent=2,
+        )
+
+
+def plot_normal_double_overlay(
+    normal_mean,
+    double_mean,
+    fs,
+    output_dir,
+):
+    """Overlay mean double pulse with two mean normal pulses (peak-aligned to each peak)."""
+    dp_peaks = double_peak_indices(double_mean, fs)
+    if dp_peaks is None:
+        return
+
+    normal_peak = int(np.argmax(normal_mean))
+    p1, p2 = dp_peaks
+
+    norm1 = shift_waveform(normal_mean, p1 - normal_peak)
+    norm2 = shift_waveform(normal_mean, p2 - normal_peak)
+
+    time_ms = np.arange(len(double_mean)) / fs * 1000
+    fig, ax = plt.subplots(figsize=(12, 6))
+    ax.plot(
+        time_ms,
+        double_mean,
+        color=PULSE_SHAPES["double"]["color"],
+        linewidth=2.5,
+        label="Mean double pulse",
+        zorder=4,
+    )
+    ax.plot(
+        time_ms,
+        norm1,
+        color=PULSE_SHAPES["normal"]["color"],
+        linewidth=2,
+        linestyle="--",
+        label="Mean normal pulse (aligned to 1st peak)",
+        zorder=3,
+    )
+    ax.plot(
+        time_ms,
+        norm2,
+        color=PULSE_SHAPES["normal"]["color"],
+        linewidth=2,
+        linestyle=":",
+        label="Mean normal pulse (aligned to 2nd peak)",
+        zorder=3,
+    )
+    ax.scatter(
+        dp_peaks / fs * 1000,
+        double_mean[dp_peaks],
+        color=PULSE_SHAPES["double"]["color"],
+        s=80,
+        marker="*",
+        zorder=5,
+        label="Double peaks",
+    )
+    ax.set_xlabel("Time (ms)")
+    ax.set_ylabel("Normalized amplitude")
+    ax.set_title("Mean double pulse vs two mean normal pulses (peak-aligned)")
+    ax.legend(loc="upper right", fontsize=9)
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    out = output_dir / "normal_pulses_aligned_to_double.png"
+    fig.savefig(out, dpi=300)
+    plt.close(fig)
+    console.log(f"Saved {out}")
+
+
+def save_double_peak_separation_stats(corrected_waveforms, fs, output_dir):
+    separations_ms = []
+    for trace in corrected_waveforms:
+        metrics = double_pulse_metrics(trace, fs)
+        if not np.isnan(metrics["peak_separation_ms"]):
+            separations_ms.append(metrics["peak_separation_ms"])
+    if not separations_ms:
+        return
+    arr = np.asarray(separations_ms)
+    stats_dict = {
+        "n": int(arr.size),
+        "mean_ms": float(np.mean(arr)),
+        "median_ms": float(np.median(arr)),
+        "std_ms": float(np.std(arr)),
+        "mean_sec": float(np.mean(arr) / 1000),
+    }
+    with open(output_dir / "double_peak_separation_stats.json", "w") as handle:
+        json.dump(stats_dict, handle, indent=2)
+    console.log(
+        f"  Double peak separation: mean={stats_dict['mean_ms']:.3f} ms "
+        f"(n={stats_dict['n']:,})"
+    )
+
+
 def main(data_path=H5_DIR, sample_size=SAMPLE_SIZE, random_seed=RANDOM_SEED):
     console.log("Collecting and plotting prototype pulses for each pulse shape...")
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    pulse_counts = {}
+    mean_traces = {}
 
     for pulse_key, pulse_shape in PULSE_SHAPES.items():
         console.log(f"\n{pulse_shape['label']}:")
@@ -496,24 +699,53 @@ def main(data_path=H5_DIR, sample_size=SAMPLE_SIZE, random_seed=RANDOM_SEED):
             entries = collect_normal_pulse_indices(data_path)
         else:
             entries = collect_pulse_indices(data_path, pulse_shape["array_name"])
-        console.log(f"  Found {len(entries)} detected pulses")
+        total_count = len(entries)
+        pulse_counts[pulse_key] = total_count
+        console.log(f"  Found {total_count} detected pulses")
 
-        corrected_waveforms, normalized_waveforms, fs = load_sampled_waveforms(
-            entries,
-            sample_size,
-            random_seed,
-            align_mode=pulse_shape["align"],
+        all_corrected, all_normalized, fs = load_all_waveforms(
+            entries, align_mode=pulse_shape["align"]
         )
-        console.log(f"  Loaded {len(normalized_waveforms)} sampled waveforms")
+        if not all_normalized:
+            continue
+
+        all_aligned = align_waveforms(
+            all_normalized, all_corrected, pulse_shape["align"], fs
+        )
+        mean_all = np.mean(all_aligned, axis=0)
+        mean_traces[pulse_key] = (mean_all, fs, all_corrected)
+
+        rng = np.random.default_rng(random_seed)
+        sample_idx = rng.choice(len(all_normalized), size=min(sample_size, len(all_normalized)), replace=False)
+        sample_corrected = [all_corrected[i] for i in sample_idx]
+        sample_normalized = [all_normalized[i] for i in sample_idx]
 
         plot_prototype_pulse_shape(
             pulse_key,
             pulse_shape,
-            corrected_waveforms,
-            normalized_waveforms,
+            sample_corrected,
+            sample_normalized,
             fs,
             OUTPUT_DIR,
+            mean_trace_all=mean_all,
+            total_count=total_count,
         )
+
+        if pulse_key == "double":
+            save_double_peak_separation_stats(all_corrected, fs, OUTPUT_DIR)
+        if pulse_key in {"normal", "wide", "fat"}:
+            plot_symmetry_analysis(
+                pulse_key, pulse_shape, all_corrected, fs, OUTPUT_DIR
+            )
+
+    with open(OUTPUT_DIR / "pulse_shape_counts.json", "w") as handle:
+        json.dump(pulse_counts, handle, indent=2)
+
+    if "normal" in mean_traces and "double" in mean_traces:
+        normal_mean, fs_n, _ = mean_traces["normal"]
+        double_mean, fs_d, _ = mean_traces["double"]
+        if fs_n == fs_d:
+            plot_normal_double_overlay(normal_mean, double_mean, fs_n, OUTPUT_DIR)
 
 
 if __name__ == "__main__":
