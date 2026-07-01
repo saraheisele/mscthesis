@@ -34,15 +34,93 @@ ELECTRODE_SPACING_M = 0.25
 LINE_LENGTH_M = (N_ELECTRODES - 1) * ELECTRODE_SPACING_M
 DEFAULT_BRIGHT_DARK_BOUNDARY_M = 2.5
 
-# Berlin tank: two ~3 m diameter pools fused with ~2 m opening between them.
+# Berlin tank: two 3 m diameter pools fused with ~2 m opening between them.
+# Pool geometry is not in electrode_layout.json (that file only lists electrode
+# coordinates along the line); these values match the lab notes for the setup.
 POOL_DIAMETER_M = 3.0
 POOL_RADIUS_M = POOL_DIAMETER_M / 2.0
 POOL_OPENING_M = 2.0
 POOL_CENTER_DISTANCE_M = 2.0 * np.sqrt(
     POOL_RADIUS_M**2 - (POOL_OPENING_M / 2.0) ** 2
 )
-BRIGHT_POOL_CENTER = (POOL_RADIUS_M, 0.0)
-DARK_POOL_CENTER = (POOL_RADIUS_M + POOL_CENTER_DISTANCE_M, 0.0)
+BRIGHT_POOL_CENTER = np.array([POOL_RADIUS_M, 0.0])
+DARK_POOL_CENTER = np.array([POOL_RADIUS_M + POOL_CENTER_DISTANCE_M, 0.0])
+
+
+def _circle_intersection_points(
+    center1: np.ndarray, center2: np.ndarray, radius: float
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Intersection points of two equal circles, or None if they do not overlap."""
+    c1 = np.asarray(center1, dtype=float)
+    c2 = np.asarray(center2, dtype=float)
+    delta = c2 - c1
+    distance = float(np.linalg.norm(delta))
+    if distance <= 0 or distance >= 2 * radius:
+        return None
+    midpoint = c1 + 0.5 * delta
+    offset = np.array([-delta[1], delta[0]]) / distance
+    chord_half = float(np.sqrt(radius**2 - (distance / 2.0) ** 2))
+    return midpoint + chord_half * offset, midpoint - chord_half * offset
+
+
+def _exterior_arc_points(
+    center: np.ndarray,
+    radius: float,
+    start: np.ndarray,
+    end: np.ndarray,
+    other_center: np.ndarray,
+    n_points: int = 80,
+) -> np.ndarray:
+    """Sample the circle arc from start to end that lies on the outside of the union."""
+    c = np.asarray(center, dtype=float)
+    o = np.asarray(other_center, dtype=float)
+    a0 = float(np.arctan2(start[1] - c[1], start[0] - c[0]))
+    a1 = float(np.arctan2(end[1] - c[1], end[0] - c[0]))
+
+    def arc_coords(ccw: bool) -> np.ndarray:
+        if ccw:
+            stop = a1 + 2 * np.pi if a1 <= a0 else a1
+            angles = np.linspace(a0, stop, n_points)
+        else:
+            stop = a1 - 2 * np.pi if a1 >= a0 else a1
+            angles = np.linspace(a0, stop, n_points)
+        return c + radius * np.column_stack([np.cos(angles), np.sin(angles)])
+
+    arcs = [arc_coords(ccw) for ccw in (True, False)]
+    mid_dist = [float(np.linalg.norm(arc[len(arc) // 2] - o)) for arc in arcs]
+    return arcs[int(np.argmax(mid_dist))]
+
+
+def fused_pool_outline_vertices(
+    center1: np.ndarray | tuple[float, float],
+    center2: np.ndarray | tuple[float, float],
+    radius: float,
+    n_arc: int = 80,
+) -> np.ndarray:
+    """Vertices tracing the outer boundary of two fused circular pools."""
+    c1 = np.asarray(center1, dtype=float)
+    c2 = np.asarray(center2, dtype=float)
+    hits = _circle_intersection_points(c1, c2, radius)
+    if hits is None:
+        angles = np.linspace(0, 2 * np.pi, 2 * n_arc, endpoint=False)
+        ring1 = c1 + radius * np.column_stack([np.cos(angles), np.sin(angles)])
+        return ring1
+
+    p1, p2 = hits
+    arc1 = _exterior_arc_points(c1, radius, p1, p2, c2, n_arc)
+    arc2 = _exterior_arc_points(c2, radius, p2, p1, c1, n_arc)
+    return np.vstack([arc1, arc2[1:]])
+
+
+def tank_plot_limits() -> tuple[float, float, float, float]:
+    """Axis limits (xmin, xmax, ymin, ymax) that frame the fused pools."""
+    outline = fused_pool_outline_vertices(
+        BRIGHT_POOL_CENTER, DARK_POOL_CENTER, POOL_RADIUS_M
+    )
+    xmin = min(0.0, float(outline[:, 0].min())) - 0.3
+    xmax = max(LINE_LENGTH_M, float(outline[:, 0].max())) + 0.3
+    ymax = float(np.max(np.abs(outline[:, 1]))) + 0.4
+    return xmin, xmax, -ymax, ymax
 
 WAV_TIME_RE = re.compile(r"(\d{8}T\d{6})")
 

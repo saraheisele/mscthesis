@@ -21,7 +21,8 @@ setup_script_paths(__file__)
 import matplotlib.animation as animation
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.patches import Circle
+from matplotlib.patches import Circle, PathPatch
+from matplotlib.path import Path as MplPath
 from scipy.io import wavfile
 
 from data_paths import EEL_SVG, POSITION_FIGURES_DIR
@@ -34,23 +35,30 @@ from position_utils import (
     POOL_RADIUS_M,
     eel_body_endpoints,
     find_entry_recordings,
+    fused_pool_outline_vertices,
     load_pulses_for_wav,
     movement_direction,
     smooth_positions,
+    tank_plot_limits,
 )
 
 EEL_LINE_Y = 0.0
+RAW_WINDOW_SEC = 0.10
+POS_PANEL_IN = 12.0
+RAW_PANEL_WIDTH_RATIO = 1.6
+FIG_HEIGHT_IN = POS_PANEL_IN
+FIG_WIDTH_WITH_RAW_IN = POS_PANEL_IN * (1.0 + RAW_PANEL_WIDTH_RATIO)
+FIG_WIDTH_POSITION_ONLY_IN = POS_PANEL_IN
 
 
 def draw_tank_background(ax, boundary_m: float = DEFAULT_BRIGHT_DARK_BOUNDARY_M):
-    """Shade bright/dark tank regions and draw fused pool outlines."""
+    """Shade bright/dark tank regions and draw the fused pool outer outline only."""
     bright = Circle(
         BRIGHT_POOL_CENTER,
         POOL_RADIUS_M,
         fill=True,
         facecolor="#fff8dc",
-        edgecolor="black",
-        linewidth=2,
+        edgecolor="none",
         alpha=0.85,
         zorder=1,
     )
@@ -59,13 +67,26 @@ def draw_tank_background(ax, boundary_m: float = DEFAULT_BRIGHT_DARK_BOUNDARY_M)
         POOL_RADIUS_M,
         fill=True,
         facecolor="#2f2f4f",
-        edgecolor="black",
-        linewidth=2,
+        edgecolor="none",
         alpha=0.35,
         zorder=1,
     )
     ax.add_patch(bright)
     ax.add_patch(dark)
+
+    outline = fused_pool_outline_vertices(
+        BRIGHT_POOL_CENTER, DARK_POOL_CENTER, POOL_RADIUS_M
+    )
+    outline_closed = np.vstack([outline, outline[:1]])
+    ax.add_patch(
+        PathPatch(
+            MplPath(outline_closed),
+            fill=False,
+            edgecolor="black",
+            linewidth=2,
+            zorder=2,
+        )
+    )
 
     ax.plot(
         [0, LINE_LENGTH_M],
@@ -73,16 +94,16 @@ def draw_tank_background(ax, boundary_m: float = DEFAULT_BRIGHT_DARK_BOUNDARY_M)
         color="#444444",
         linewidth=1.5,
         linestyle="-",
-        zorder=2,
-        label="brightarea electrode line",
+        zorder=3,
+        label="brightarea electrode line (3.75 m)",
     )
-    ax.axvline(boundary_m, color="gray", linestyle="--", linewidth=1, zorder=2)
+    ax.axvline(boundary_m, color="gray", linestyle="--", linewidth=1, zorder=3)
     ax.scatter(
         [0, LINE_LENGTH_M],
         [EEL_LINE_Y, EEL_LINE_Y],
         s=30,
         color="#333333",
-        zorder=3,
+        zorder=4,
         label="electrode 1 / 16",
     )
 
@@ -163,18 +184,26 @@ def build_animation(
     raw_audio, audio_fs = load_wav_segment(wav_path, max_seconds=duration + 1)
     audio_time = np.arange(len(raw_audio)) / audio_fs
 
-    nrows = 2 if show_raw else 1
-    fig, axes = plt.subplots(
-        nrows, 1, figsize=(14, 8 if show_raw else 5), gridspec_kw={"height_ratios": [1, 1]}
-    )
-    if not show_raw:
-        axes = [axes]
-    ax_pos, ax_raw = axes[0], axes[1] if show_raw else None
+    if show_raw:
+        fig, axes = plt.subplots(
+            1,
+            2,
+            figsize=(FIG_WIDTH_WITH_RAW_IN, FIG_HEIGHT_IN),
+            gridspec_kw={"width_ratios": [1.0, RAW_PANEL_WIDTH_RATIO], "wspace": 0.06},
+        )
+        ax_pos, ax_raw = axes
+        fig.subplots_adjust(left=0.04, right=0.99, top=0.90, bottom=0.12, wspace=0.06)
+    else:
+        fig, ax_pos = plt.subplots(figsize=(FIG_WIDTH_POSITION_ONLY_IN, FIG_HEIGHT_IN))
+        ax_raw = None
+        fig.subplots_adjust(left=0.06, right=0.98, top=0.90, bottom=0.12)
 
-    y_margin = POOL_RADIUS_M + 0.4
+    xmin, xmax, ymin, ymax = tank_plot_limits()
     draw_tank_background(ax_pos)
-    ax_pos.set_xlim(-0.3, LINE_LENGTH_M + 0.5)
-    ax_pos.set_ylim(-y_margin, y_margin)
+    ax_pos.set_xlim(xmin, xmax)
+    ax_pos.set_ylim(ymin, ymax)
+    ax_pos.set_aspect("equal", adjustable="box")
+    ax_pos.set_box_aspect(1)
     ax_pos.set_xlabel("position along electrode line (m)")
     ax_pos.set_yticks([])
     ax_pos.set_title(
@@ -184,23 +213,12 @@ def build_animation(
     )
     ax_pos.legend(loc="upper right", fontsize=8)
 
+    raw_line = None
     if show_raw and ax_raw is not None:
-        ax_raw.plot(audio_time, raw_audio, color="#555555", linewidth=0.4, alpha=0.8)
-        ax_raw.scatter(
-            times,
-            np.interp(times, audio_time, raw_audio),
-            s=20 + 200 * amp_norm,
-            c=amp_norm,
-            cmap="Reds",
-            alpha=0.85,
-            zorder=5,
-            label="pulses (size ∝ amplitude)",
-        )
-        ax_raw.set_xlim(0, duration)
+        raw_line, = ax_raw.plot([], [], color="#555555", linewidth=1.0, alpha=0.95)
         ax_raw.set_ylabel("normalized audio")
         ax_raw.set_xlabel("time (s)")
-        ax_raw.set_title("Raw recording with pulse markers")
-        ax_raw.legend(loc="upper right", fontsize=8)
+        ax_raw.set_title(f"Raw recording (±{RAW_WINDOW_SEC / 2:.2f} s window, synced)")
         ax_raw.grid(True, alpha=0.2)
 
     trail_line, = ax_pos.plot([], [], color="#4ecdc4", linewidth=2, alpha=0.6, zorder=4)
@@ -217,16 +235,33 @@ def build_animation(
         edgecolors="none",
     )
     eel_artists = []
-    cursor_line = None
-    if show_raw and ax_raw is not None:
-        cursor_line = ax_raw.axvline(0, color="blue", linewidth=1, alpha=0.7)
 
     def init():
         trail_line.set_data([], [])
         pulse_scatter.set_offsets(np.empty((0, 2)))
         pulse_scatter.set_sizes([])
         pulse_scatter.set_array(np.array([]))
+        if raw_line is not None:
+            raw_line.set_data([], [])
         return [trail_line, pulse_scatter]
+
+    def update_raw_window(t: float):
+        if raw_line is None:
+            return
+        half = RAW_WINDOW_SEC / 2.0
+        t0 = max(0.0, t - half)
+        t1 = min(duration, t + half)
+        if t1 - t0 < RAW_WINDOW_SEC:
+            if t0 == 0.0:
+                t1 = min(duration, RAW_WINDOW_SEC)
+            else:
+                t0 = max(0.0, duration - RAW_WINDOW_SEC)
+        mask = (audio_time >= t0) & (audio_time <= t1)
+        raw_line.set_data(audio_time[mask], raw_audio[mask])
+        ax_raw.set_xlim(t0, t1)
+        visible = raw_audio[mask]
+        ymax = float(np.max(np.abs(visible)) * 1.25) if visible.size else 0.1
+        ax_raw.set_ylim(-max(ymax, 0.05), max(ymax, 0.05))
 
     def update(frame_idx):
         nonlocal eel_artists
@@ -260,8 +295,7 @@ def build_animation(
         ax_pos.set_xlabel(
             f"position along electrode line (m) — t = {t:.1f} s / {duration:.1f} s"
         )
-        if cursor_line is not None:
-            cursor_line.set_xdata([t, t])
+        update_raw_window(t)
         return [trail_line, pulse_scatter, *eel_artists]
 
     anim = animation.FuncAnimation(

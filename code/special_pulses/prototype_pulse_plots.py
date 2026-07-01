@@ -5,6 +5,7 @@ Dependencies: double_peaks_detection, data_paths, h5_io.
 
 Randomly samples pulses, aligns waveforms at shape-specific reference points,
 and overlays individual traces with their mean for normal/double/wide/fat types.
+Uses the trained Random Forest classifier (special_pulse_class) for categorization.
 """
 
 import sys
@@ -26,11 +27,11 @@ from scipy.signal import find_peaks
 
 from data_paths import H5_DIR, PULSE_SHAPE_PROTOTYPES_DIR
 from double_peaks_detection import (
-    MIN_AMPLITUDE_THRESHOLD,
+    MULTICLASS_ARRAY_NAME,
+    SPECIAL_PULSE_CLASSES,
+    apply_special_pulse_classifier,
     compute_half_max_width,
     detect_double_pulse,
-    detect_fat_pulse,
-    detect_wide_pulse,
 )
 from h5_io import get_path_list, get_pulse_block, open_h5
 from pulse_shape_metrics import (
@@ -48,62 +49,51 @@ RANDOM_SEED = 42
 CLIP_RATIO = 0.995
 CLIP_MIN_CONSECUTIVE = 8
 
+CLASS_IDS = {name: label_id for label_id, name in SPECIAL_PULSE_CLASSES.items()}
+
 PULSE_SHAPES = {
     "normal": {
         "label": "Normal pulse",
-        "array_name": None,
+        "class_id": CLASS_IDS["normal"],
         "color": "#2980b9",
         "align": "maximum",
-        "detect": None,
         "criteria": [
             "Predicted-positive pulse",
-            "Not classified as double, wide, or fat",
-            "Single narrow EOD waveform",
+            "Random Forest class: normal",
+            "Robust PCA + RF on strongest channel waveform",
         ],
     },
     "double": {
         "label": "Double pulse",
-        "array_name": "is_double_peak",
+        "class_id": CLASS_IDS["double"],
         "color": "#c0392b",
         "align": "valley",
-        "detect": detect_double_pulse,
         "criteria": [
-            "Amplitude ≥ {:.1f} (baseline-corrected)".format(MIN_AMPLITUDE_THRESHOLD),
-            "Exactly 2 peaks, prominence ≥ 10% of max",
-            "Peak separation: 0.5–2.0 ms",
-            "Valley between peaks: 40–95% of higher peak",
-            "Peak amplitudes within 60% of each other",
-            "One peak is the global maximum",
+            "Random Forest class: double",
+            "Robust PCA + RF multiclass classifier",
+            "Aligned at inter-peak trough",
         ],
     },
     "wide": {
         "label": "Wide pulse",
-        "array_name": "is_wide_pulse",
+        "class_id": CLASS_IDS["wide"],
         "color": "#e67e22",
         "align": "maximum",
-        "detect": lambda wf, fs: detect_wide_pulse(wf, fs, check_shape=True),
         "criteria": [
-            "Amplitude ≥ {:.1f} (baseline-corrected)".format(MIN_AMPLITUDE_THRESHOLD),
-            "Half-max width: 2.3–4.0 ms",
-            "Single prominent peak (3 ms isolation window)",
-            "Prominence ≥ 10% of peak amplitude",
-            "Gaussian rise + exponential decay shape",
-            "Excludes double pulses",
+            "Random Forest class: wide",
+            "Robust PCA + RF multiclass classifier",
+            "Aligned at peak maximum",
         ],
     },
     "fat": {
         "label": "Fat pulse",
-        "array_name": "is_fat_pulse",
+        "class_id": CLASS_IDS["fat"],
         "color": "#8e44ad",
         "align": "maximum",
-        "detect": detect_fat_pulse,
         "criteria": [
-            "Amplitude ≥ {:.1f} (baseline-corrected)".format(MIN_AMPLITUDE_THRESHOLD),
-            "Half-max width ≥ 4.0 ms (no upper limit)",
-            "Single prominent peak (3 ms isolation window)",
-            "Prominence ≥ 10% of peak amplitude",
-            "Excludes double and wide pulses",
-            "No Gaussian/exponential shape constraint",
+            "Random Forest class: fat",
+            "Robust PCA + RF multiclass classifier",
+            "Aligned at peak maximum",
         ],
     },
 }
@@ -238,38 +228,8 @@ def align_waveforms(
     )
 
 
-def expand_marker(marker, candidate_indices, num_pulses):
-    marker = np.asarray(marker, dtype=np.int64)
-    if len(marker) == num_pulses:
-        return marker
-
-    full_marker = np.zeros(num_pulses, dtype=np.int64)
-    full_marker[candidate_indices] = marker
-    return full_marker
-
-
-def collect_pulse_indices(data_path, array_name):
-    entries = []
-    for file_path in get_path_list(Path(data_path)):
-        file = open_h5(file_path, nixio.FileMode.ReadOnly)
-        if file is None:
-            continue
-        try:
-            block = get_pulse_block(file)
-            data_array_names = [da.name for da in block.data_arrays]
-            if array_name not in data_array_names:
-                continue
-
-            marker = block.data_arrays[array_name][:]
-            detected_indices = np.where(marker == 1)[0]
-            for pulse_idx in detected_indices:
-                entries.append((file_path, int(pulse_idx)))
-        finally:
-            file.close()
-    return entries
-
-
-def collect_normal_pulse_indices(data_path):
+def collect_classifier_pulse_indices(data_path, class_id):
+    """Collect pulse indices for one RF classifier class (special_pulse_class)."""
     entries = []
     for file_path in get_path_list(Path(data_path)):
         file = open_h5(file_path, nixio.FileMode.ReadOnly)
@@ -279,37 +239,22 @@ def collect_normal_pulse_indices(data_path):
             block = get_pulse_block(file)
             data_array_names = [da.name for da in block.data_arrays]
 
-            if "predicted_labels" not in data_array_names:
+            if MULTICLASS_ARRAY_NAME not in data_array_names:
+                continue
+            if "raw_pulses" not in data_array_names:
                 continue
 
-            raw_pulses = block.data_arrays["raw_pulses"]
-            num_pulses = len(raw_pulses)
-            predicted_labels = block.data_arrays["predicted_labels"][:]
-            candidate_indices = np.where(predicted_labels == 1)[0]
+            num_pulses = len(block.data_arrays["raw_pulses"])
+            if "predicted_labels" in data_array_names:
+                candidate_indices = np.where(
+                    block.data_arrays["predicted_labels"][:] == 1
+                )[0]
+            else:
+                candidate_indices = np.arange(num_pulses)
 
-            if len(candidate_indices) == 0:
-                continue
-
-            marker_names = ("is_double_peak", "is_wide_pulse", "is_fat_pulse")
-            if not all(name in data_array_names for name in marker_names):
-                continue
-
-            double_marker = expand_marker(
-                block.data_arrays["is_double_peak"][:], candidate_indices, num_pulses
-            )
-            wide_marker = expand_marker(
-                block.data_arrays["is_wide_pulse"][:], candidate_indices, num_pulses
-            )
-            fat_marker = expand_marker(
-                block.data_arrays["is_fat_pulse"][:], candidate_indices, num_pulses
-            )
-
+            classes = block.data_arrays[MULTICLASS_ARRAY_NAME][:]
             for pulse_idx in candidate_indices:
-                if (
-                    double_marker[pulse_idx] == 0
-                    and wide_marker[pulse_idx] == 0
-                    and fat_marker[pulse_idx] == 0
-                ):
+                if classes[pulse_idx] == class_id:
                     entries.append((file_path, int(pulse_idx)))
         finally:
             file.close()
@@ -327,16 +272,22 @@ def load_sampled_waveforms(entries, sample_size, random_seed, align_mode=None):
     corrected_waveforms = []
     normalized_waveforms = []
     fs = None
+    open_files = {}
 
-    for file_path, pulse_idx in shuffled_entries:
-        if len(normalized_waveforms) >= sample_size:
-            break
+    try:
+        for file_path, pulse_idx in shuffled_entries:
+            if len(normalized_waveforms) >= sample_size:
+                break
 
-        file = open_h5(file_path, nixio.FileMode.ReadOnly)
-        if file is None:
-            continue
-        try:
-            block = get_pulse_block(file)
+            file_key = str(file_path)
+            if file_key not in open_files:
+                file = open_h5(file_path, nixio.FileMode.ReadOnly)
+                if file is None:
+                    continue
+                block = get_pulse_block(file)
+                open_files[file_key] = (file, block)
+
+            file, block = open_files[file_key]
             pulse_data = block.data_arrays["raw_pulses"][pulse_idx][:]
             if fs is None:
                 fs = float(file.sections["pulses_metadata"]["metadata"]["samplerate"])
@@ -349,7 +300,8 @@ def load_sampled_waveforms(entries, sample_size, random_seed, align_mode=None):
 
             corrected_waveforms.append(corrected)
             normalized_waveforms.append(normalize_trace(corrected))
-        finally:
+    finally:
+        for file, _ in open_files.values():
             file.close()
 
     return corrected_waveforms, normalized_waveforms, fs
@@ -376,7 +328,7 @@ def add_half_max_markers(ax, mean_trace, fs, color):
     )
 
 
-def add_detection_markers(ax, mean_trace, fs, pulse_shape):
+def add_detection_markers(ax, mean_trace, fs, pulse_shape, pulse_key=None):
     color = pulse_shape["color"]
     center_idx = len(mean_trace) // 2
     center_t = center_idx / fs * 1000
@@ -426,7 +378,7 @@ def add_detection_markers(ax, mean_trace, fs, pulse_shape):
             label="Aligned maximum",
         )
 
-    if pulse_shape["array_name"] in {"is_wide_pulse", "is_fat_pulse"}:
+    if pulse_key in {"wide", "fat"}:
         add_half_max_markers(ax, mean_trace, fs, color)
         return
 
@@ -438,15 +390,22 @@ def load_all_waveforms(entries, align_mode=None, max_waveforms=None):
     corrected_waveforms = []
     normalized_waveforms = []
     fs = None
+    open_files = {}
 
-    for file_path, pulse_idx in entries:
-        if max_waveforms is not None and len(normalized_waveforms) >= max_waveforms:
-            break
-        file = open_h5(file_path, nixio.FileMode.ReadOnly)
-        if file is None:
-            continue
-        try:
-            block = get_pulse_block(file)
+    try:
+        for file_path, pulse_idx in entries:
+            if max_waveforms is not None and len(normalized_waveforms) >= max_waveforms:
+                break
+
+            file_key = str(file_path)
+            if file_key not in open_files:
+                file = open_h5(file_path, nixio.FileMode.ReadOnly)
+                if file is None:
+                    continue
+                block = get_pulse_block(file)
+                open_files[file_key] = (file, block)
+
+            file, block = open_files[file_key]
             pulse_data = block.data_arrays["raw_pulses"][pulse_idx][:]
             if fs is None:
                 fs = float(file.sections["pulses_metadata"]["metadata"]["samplerate"])
@@ -456,7 +415,8 @@ def load_all_waveforms(entries, align_mode=None, max_waveforms=None):
                 continue
             corrected_waveforms.append(corrected)
             normalized_waveforms.append(normalize_trace(corrected))
-        finally:
+    finally:
+        for file, _ in open_files.values():
             file.close()
 
     return corrected_waveforms, normalized_waveforms, fs
@@ -503,7 +463,7 @@ def plot_prototype_pulse_shape(
         zorder=5,
     )
 
-    add_detection_markers(ax, mean_trace, fs, pulse_shape)
+    add_detection_markers(ax, mean_trace, fs, pulse_shape, pulse_key=pulse_key)
 
     criteria_text = "\n".join(f"• {line}" for line in pulse_shape["criteria"])
     ax.text(
@@ -686,19 +646,25 @@ def save_double_peak_separation_stats(corrected_waveforms, fs, output_dir):
     )
 
 
-def main(data_path=H5_DIR, sample_size=SAMPLE_SIZE, random_seed=RANDOM_SEED):
+def main(
+    data_path=H5_DIR,
+    sample_size=SAMPLE_SIZE,
+    random_seed=RANDOM_SEED,
+    apply_classifier=True,
+):
     console.log("Collecting and plotting prototype pulses for each pulse shape...")
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    if apply_classifier:
+        console.log("Applying Random Forest classifier to h5 files...")
+        apply_special_pulse_classifier(data_path)
 
     pulse_counts = {}
     mean_traces = {}
 
     for pulse_key, pulse_shape in PULSE_SHAPES.items():
         console.log(f"\n{pulse_shape['label']}:")
-        if pulse_key == "normal":
-            entries = collect_normal_pulse_indices(data_path)
-        else:
-            entries = collect_pulse_indices(data_path, pulse_shape["array_name"])
+        entries = collect_classifier_pulse_indices(data_path, pulse_shape["class_id"])
         total_count = len(entries)
         pulse_counts[pulse_key] = total_count
         console.log(f"  Found {total_count} detected pulses")
