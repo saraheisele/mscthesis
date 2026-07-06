@@ -21,6 +21,7 @@ import nixio
 from rich.console import Console
 
 from data_paths import HALF_WIDTH_DISTRIBUTIONS_DIR, H5_DIR
+from presentation_style import apply_presentation_style, pulse_shape_color
 from h5_io import get_path_list, get_pulse_block, load_marker_array, open_h5
 from special_pulses.double_peaks_detection import compute_half_max_width
 from special_pulses.prototype_pulse_plots import (
@@ -146,6 +147,7 @@ def plot_distributions(widths_by_shape: dict, output_dir: Path):
 
 
 def main(data_path=H5_DIR):
+    apply_presentation_style()
     console.log("Collecting half-widths for all pulse shapes...")
     widths = collect_half_widths(data_path)
     for key, values in widths.items():

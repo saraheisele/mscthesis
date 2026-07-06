@@ -24,6 +24,7 @@ from dateutil.relativedelta import relativedelta
 from scipy import stats
 
 from data_paths import ENVIRONMENT_CORRELATION_DIR, EXCEL_DIR, activity_hist_dir
+from presentation_style import apply_presentation_style, pulse_shape_color
 from pulse_config import PULSE_TYPES
 
 OUTPUT_DIR = ENVIRONMENT_CORRELATION_DIR
@@ -323,7 +324,12 @@ def calculate_lagged_shape_correlations(
             on="date",
             how="inner",
         )
-        for shape_col in [c for c in merged.columns if c.endswith("_fraction")]:
+        for shape_col in [c for c in merged.columns if c.endswith("_fraction") or c == "all_pulse_rate_hz"]:
+            shape_name = (
+                "all"
+                if shape_col == "all_pulse_rate_hz"
+                else shape_col.replace("_fraction", "")
+            )
             for env_col in ("temperature", "conductivity"):
                 if env_col not in merged.columns:
                     continue
@@ -337,7 +343,7 @@ def calculate_lagged_shape_correlations(
                 rows.append(
                     {
                         "lag_days": lag,
-                        "pulse_shape": shape_col.replace("_fraction", ""),
+                        "pulse_shape": shape_name,
                         "env_param": env_col,
                         "n": len(x),
                         "pearson_r": pr,
@@ -355,6 +361,7 @@ def load_daily_shape_fractions() -> pd.DataFrame:
 
     all_path = activity_hist_dir(PULSE_TYPES["all"]["hist_subdir"])
     all_counts = np.load(all_path / "berlin_dummypulses_count_hist_dict.npz")["day"].astype(float)
+    all_rates = np.load(all_path / "berlin_dummypulses_pulse_rate_hz_hist_dict.npz")["day"]
     rows = []
     first_year = int(np.load(all_path / "berlin_dummypulses_hist_metadata.npz")["first_year"])
 
@@ -365,7 +372,11 @@ def load_daily_shape_fractions() -> pd.DataFrame:
             if total <= 0 or np.isnan(total):
                 continue
             date = datetime(year, 1, 1) + timedelta(days=day_idx)
-            row = {"date": pd.Timestamp(date), "all_count": total}
+            row = {
+                "date": pd.Timestamp(date),
+                "all_count": total,
+                "all_pulse_rate_hz": all_rates[day_idx],
+            }
             for ptype in ("double", "wide", "fat"):
                 sub = np.load(
                     activity_hist_dir(PULSE_TYPES[ptype]["hist_subdir"])
@@ -379,16 +390,27 @@ def load_daily_shape_fractions() -> pd.DataFrame:
 def plot_lagged_correlations(lag_df: pd.DataFrame, output_dir: Path):
     if lag_df.empty:
         return
+    shape_order = ["all", "double", "wide", "fat"]
     for env_param in lag_df["env_param"].unique():
         sub = lag_df[lag_df["env_param"] == env_param]
         fig, ax = plt.subplots(figsize=(10, 5))
-        for shape in sub["pulse_shape"].unique():
+        for shape in shape_order:
             s = sub[sub["pulse_shape"] == shape].sort_values("lag_days")
-            ax.plot(s["lag_days"], s["spearman_r"], marker="o", label=shape)
-        ax.axhline(0, color="gray", linestyle="--", linewidth=0.8)
-        ax.set_xlabel("Lag (days): env change → pulse shape response")
+            if s.empty:
+                continue
+            label = "all pulses" if shape == "all" else shape
+            ax.plot(
+                s["lag_days"],
+                s["spearman_r"],
+                marker="o",
+                linewidth=2.5,
+                label=label,
+                color=pulse_shape_color(shape),
+            )
+        ax.axhline(0, color="gray", linestyle="--", linewidth=1.2)
+        ax.set_xlabel("Lag (days): env change → pulse response")
         ax.set_ylabel("Spearman ρ")
-        ax.set_title(f"Delayed correlation: {env_param} vs pulse shape fraction")
+        ax.set_title(f"Delayed correlation: {env_param}")
         ax.legend()
         ax.grid(True, alpha=0.3)
         plt.tight_layout()
@@ -829,9 +851,51 @@ def plot_correlations(data_daily, data_monthly, pulse_label):
     plt.close()
 
 
+def plot_combined_correlations(aligned_by_pulse: dict):
+    """Overlay all pulse-shape correlations on shared temperature/conductivity panels."""
+    if "all" not in aligned_by_pulse:
+        return
+
+    fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+    env_specs = [
+        ("temperature_monthly", "Temperature (°C)"),
+        ("conductivity_monthly", "Conductivity (µS/cm)"),
+    ]
+
+    for ax, (env_col, env_label) in zip(axes, env_specs):
+        for pulse_type, payload in aligned_by_pulse.items():
+            monthly = payload["monthly"]
+            if len(monthly) < 2 or env_col not in monthly.columns:
+                continue
+            color = pulse_shape_color(pulse_type)
+            label = PULSE_TYPES[pulse_type]["label"]
+            ax.scatter(
+                monthly[env_col],
+                monthly["pulse_rate_hz"],
+                alpha=0.65,
+                s=70,
+                color=color,
+                label=label,
+            )
+            coeffs = np.polyfit(monthly[env_col], monthly["pulse_rate_hz"], 1)
+            x_range = np.linspace(monthly[env_col].min(), monthly[env_col].max(), 100)
+            ax.plot(x_range, np.poly1d(coeffs)(x_range), "--", color=color, linewidth=2.2)
+        ax.set_xlabel(env_label)
+        ax.set_ylabel("Pulse rate (Hz)")
+        ax.grid(True, alpha=0.3)
+        ax.legend()
+
+    fig.suptitle("Environmental correlations — all pulse categories")
+    plt.tight_layout()
+    out = OUTPUT_DIR / "correlations_all_pulse_shapes.png"
+    plt.savefig(out, dpi=300, bbox_inches="tight")
+    print(f"Saved: {out.name}")
+    plt.close()
+
 
 def main():
     """Run temperature/conductivity correlation analysis for all pulse types."""
+    apply_presentation_style()
     print("\n" + "=" * 70)
     print("CORRELATING EEL ACTIVITY WITH ENVIRONMENTAL PARAMETERS")
     print("=" * 70 + "\n")
@@ -842,6 +906,7 @@ def main():
 
     all_correlations = {}
     all_pulses_data = {}
+    aligned_by_pulse = {}
 
     for pulse_type, pulse_config in PULSE_TYPES.items():
         print(f"\n{'─' * 70}")
@@ -855,6 +920,10 @@ def main():
             correlations = calculate_correlations(data_daily, data_monthly)
             print_correlation_summary(correlations, pulse_config["label"])
             all_correlations[pulse_type] = correlations
+            aligned_by_pulse[pulse_type] = {
+                "daily": data_daily,
+                "monthly": data_monthly,
+            }
 
             if pulse_type == "all":
                 all_pulses_data = {
@@ -863,7 +932,6 @@ def main():
                     "correlations": correlations,
                 }
 
-            plot_timeseries(data_monthly, pulse_config["label"])
             plot_correlations(data_daily, data_monthly, pulse_config["label"])
         else:
             print(f"Skipping {pulse_type}: insufficient aligned data points")
@@ -876,6 +944,7 @@ def main():
             all_correlations,
         )
         compare_pulse_types_contribution(all_correlations)
+        plot_combined_correlations(aligned_by_pulse)
 
     run_lagged_environment_analysis(daily_env)
 

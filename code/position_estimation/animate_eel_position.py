@@ -33,6 +33,7 @@ from position_utils import (
     DEFAULT_BRIGHT_DARK_BOUNDARY_M,
     LINE_LENGTH_M,
     POOL_RADIUS_M,
+    default_electrode_positions_m,
     eel_body_endpoints,
     find_entry_recordings,
     fused_pool_outline_vertices,
@@ -41,14 +42,15 @@ from position_utils import (
     smooth_positions,
     tank_plot_limits,
 )
+from presentation_style import apply_presentation_style
 
 EEL_LINE_Y = 0.0
 RAW_WINDOW_SEC = 0.10
-POS_PANEL_IN = 12.0
-RAW_PANEL_WIDTH_RATIO = 1.6
-FIG_HEIGHT_IN = POS_PANEL_IN
-FIG_WIDTH_WITH_RAW_IN = POS_PANEL_IN * (1.0 + RAW_PANEL_WIDTH_RATIO)
-FIG_WIDTH_POSITION_ONLY_IN = POS_PANEL_IN
+POS_PANEL_IN = 10.0
+RAW_PANEL_HEIGHT_RATIO = 1.2
+FIG_WIDTH_IN = POS_PANEL_IN
+FIG_HEIGHT_WITH_RAW_IN = POS_PANEL_IN * (1.0 + RAW_PANEL_HEIGHT_RATIO)
+FIG_HEIGHT_POSITION_ONLY_IN = POS_PANEL_IN
 
 
 def draw_tank_background(ax, boundary_m: float = DEFAULT_BRIGHT_DARK_BOUNDARY_M):
@@ -105,6 +107,15 @@ def draw_tank_background(ax, boundary_m: float = DEFAULT_BRIGHT_DARK_BOUNDARY_M)
         color="#333333",
         zorder=4,
         label="electrode 1 / 16",
+    )
+    electrode_positions = default_electrode_positions_m()
+    ax.scatter(
+        electrode_positions,
+        np.full_like(electrode_positions, EEL_LINE_Y, dtype=float),
+        s=18,
+        color="#666666",
+        zorder=4,
+        alpha=0.8,
     )
 
 
@@ -184,19 +195,26 @@ def build_animation(
     raw_audio, audio_fs = load_wav_segment(wav_path, max_seconds=duration + 1)
     audio_time = np.arange(len(raw_audio)) / audio_fs
 
+    dominant_channel = (
+        int(np.bincount([pulse.head_channel for pulse in pulse_positions]).argmax())
+        if pulse_positions
+        else 0
+    )
+    global_raw_ymax = 0.1
+
     if show_raw:
         fig, axes = plt.subplots(
-            1,
             2,
-            figsize=(FIG_WIDTH_WITH_RAW_IN, FIG_HEIGHT_IN),
-            gridspec_kw={"width_ratios": [1.0, RAW_PANEL_WIDTH_RATIO], "wspace": 0.06},
+            1,
+            figsize=(FIG_WIDTH_IN, FIG_HEIGHT_WITH_RAW_IN),
+            gridspec_kw={"height_ratios": [1.0, RAW_PANEL_HEIGHT_RATIO], "hspace": 0.08},
         )
         ax_pos, ax_raw = axes
-        fig.subplots_adjust(left=0.04, right=0.99, top=0.90, bottom=0.12, wspace=0.06)
+        fig.subplots_adjust(left=0.08, right=0.98, top=0.92, bottom=0.08, hspace=0.08)
     else:
-        fig, ax_pos = plt.subplots(figsize=(FIG_WIDTH_POSITION_ONLY_IN, FIG_HEIGHT_IN))
+        fig, ax_pos = plt.subplots(figsize=(FIG_WIDTH_IN, FIG_HEIGHT_POSITION_ONLY_IN))
         ax_raw = None
-        fig.subplots_adjust(left=0.06, right=0.98, top=0.90, bottom=0.12)
+        fig.subplots_adjust(left=0.08, right=0.98, top=0.92, bottom=0.08)
 
     xmin, xmax, ymin, ymax = tank_plot_limits()
     draw_tank_background(ax_pos)
@@ -215,11 +233,19 @@ def build_animation(
 
     raw_line = None
     if show_raw and ax_raw is not None:
-        raw_line, = ax_raw.plot([], [], color="#555555", linewidth=1.0, alpha=0.95)
+        raw_line, = ax_raw.plot([], [], color="#555555", linewidth=1.8, alpha=0.95)
         ax_raw.set_ylabel("normalized audio")
         ax_raw.set_xlabel("time (s)")
-        ax_raw.set_title(f"Raw recording (±{RAW_WINDOW_SEC / 2:.2f} s window, synced)")
+        ax_raw.set_title(
+            f"Strongest electrode channel {dominant_channel + 1} "
+            f"(±{RAW_WINDOW_SEC / 2:.2f} s window, synced)"
+        )
         ax_raw.grid(True, alpha=0.2)
+        preview_half = RAW_WINDOW_SEC / 2.0
+        preview_mask = (audio_time >= 0) & (audio_time <= min(duration, preview_half * 2))
+        if preview_mask.any():
+            global_raw_ymax = float(np.max(np.abs(raw_audio[preview_mask])) * 1.25)
+        ax_raw.set_ylim(-max(global_raw_ymax, 0.05), max(global_raw_ymax, 0.05))
 
     trail_line, = ax_pos.plot([], [], color="#4ecdc4", linewidth=2, alpha=0.6, zorder=4)
     pulse_scatter = ax_pos.scatter(
@@ -259,9 +285,7 @@ def build_animation(
         mask = (audio_time >= t0) & (audio_time <= t1)
         raw_line.set_data(audio_time[mask], raw_audio[mask])
         ax_raw.set_xlim(t0, t1)
-        visible = raw_audio[mask]
-        ymax = float(np.max(np.abs(visible)) * 1.25) if visible.size else 0.1
-        ax_raw.set_ylim(-max(ymax, 0.05), max(ymax, 0.05))
+        ax_raw.set_ylim(-max(global_raw_ymax, 0.05), max(global_raw_ymax, 0.05))
 
     def update(frame_idx):
         nonlocal eel_artists
@@ -435,6 +459,7 @@ def parse_args():
 
 
 def main():
+    apply_presentation_style()
     args = parse_args()
 
     if args.list_entry_recordings:

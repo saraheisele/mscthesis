@@ -24,7 +24,13 @@ from rich.console import Console
 from scipy import stats
 
 from correlations.mating_notes_utils import extract_mating_events
-from data_paths import H5_DIR, PULSE_PROPERTIES_DIR
+from data_paths import (
+    HALF_WIDTH_DISTRIBUTIONS_DIR,
+    H5_DIR,
+    MATING_CORRELATION_DIR,
+    PULSE_SHAPE_PROTOTYPES_DIR,
+)
+from presentation_style import apply_presentation_style, pulse_shape_color
 from h5_io import get_path_list, get_pulse_block, load_marker_array, open_h5
 from special_pulses.double_peaks_detection import compute_half_max_width
 from special_pulses.prototype_pulse_plots import (
@@ -36,7 +42,8 @@ from special_pulses.prototype_pulse_plots import (
 from special_pulses.pulse_shape_metrics import double_pulse_metrics
 
 console = Console()
-OUTPUT_DIR = PULSE_PROPERTIES_DIR
+HALF_WIDTH_OUTPUT_DIR = HALF_WIDTH_DISTRIBUTIONS_DIR
+MATING_OUTPUT_DIR = MATING_CORRELATION_DIR
 
 def _full_marker(file_path, block, array_name, candidates, num_pulses):
     raw = load_marker_array(file_path, array_name, block)
@@ -318,26 +325,31 @@ def plot_double_pulse_zoom(df: pd.DataFrame, mating_notes: pd.DataFrame, output_
 
 
 def main(data_path=H5_DIR):
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    apply_presentation_style()
+    HALF_WIDTH_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    MATING_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     console.log("Collecting per-pulse properties with timestamps...")
     df = collect_pulse_property_records(data_path)
-    df.to_csv(OUTPUT_DIR / "pulse_properties_timeseries.csv", index=False)
+    df.to_csv(MATING_OUTPUT_DIR / "pulse_properties_timeseries.csv", index=False)
     console.log(f"  {len(df):,} pulses with properties")
 
     if df["half_width_ms"].notna().any():
-        plot_half_width_trend(df, OUTPUT_DIR)
-        plot_half_width_monthly(df, OUTPUT_DIR)
-        plot_half_width_distribution(df, OUTPUT_DIR)
+        plot_half_width_trend(df, HALF_WIDTH_OUTPUT_DIR)
+        plot_half_width_monthly(df, HALF_WIDTH_OUTPUT_DIR)
+        plot_half_width_distribution(df, HALF_WIDTH_OUTPUT_DIR)
 
     for prop in ("peak_separation_ms", "trough_depth_ratio"):
         if prop in df.columns and df[prop].notna().any():
-            plot_property_kde(df, prop, OUTPUT_DIR)
+            plot_property_kde(df, prop, PULSE_SHAPE_PROTOTYPES_DIR)
 
     mating_notes = pd.DataFrame(extract_mating_events())
-    mating_notes.to_csv(OUTPUT_DIR / "mating_notes_from_docx.csv", index=False)
-    plot_double_pulse_zoom(df, mating_notes, OUTPUT_DIR)
+    mating_notes.to_csv(MATING_OUTPUT_DIR / "mating_notes_from_docx.csv", index=False)
+    plot_double_pulse_zoom(df, mating_notes, MATING_OUTPUT_DIR)
 
-    console.log(f"Saved pulse property plots to {OUTPUT_DIR}")
+    console.log(
+        f"Saved half-width plots to {HALF_WIDTH_OUTPUT_DIR}; "
+        f"mating-related outputs to {MATING_OUTPUT_DIR}"
+    )
 
 
 if __name__ == "__main__":

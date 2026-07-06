@@ -21,6 +21,7 @@ from tqdm import tqdm
 
 from data_paths import activity_hist_dir, processed_figures_dir
 from plotting_utils import format_x_axis
+from presentation_style import apply_presentation_style, pulse_shape_color
 from pulse_config import PULSE_TYPES, select_pulse_type
 
 USE_BOOTSTRAP = True
@@ -37,6 +38,13 @@ GLOBAL_PLOTS = [
         "months_since_start_month{suffix}.png",
     ),
     ("year", "yearly pulse rate histogram (yearly bins)", "years_year{suffix}.png"),
+]
+
+CIRCADIAN_PANEL_TIMESCALES = [
+    ("hour", "24 h — hour"),
+    ("month", "12 month — month"),
+    ("month_since_start", "months since start"),
+    ("year", "years since start — year"),
 ]
 
 
@@ -126,19 +134,19 @@ def plot_pulse_rate(
     plt.close()
 
 
-def plot_session_pulse_rate_summary(
-    save_path,
-    axis_meta,
-    suffix,
-    timescale,
+def plot_session_median_on_axis(
+    ax,
     arr,
+    timescale,
+    axis_meta,
+    *,
+    color,
+    title,
 ):
     x = np.arange(arr.shape[1])
-    fig, ax = plt.subplots(figsize=(12, 5))
-
     for i in range(arr.shape[0]):
         valid = ~np.isnan(arr[i])
-        ax.scatter(x[valid], arr[i][valid], alpha=0.2, s=10, color="tab:blue")
+        ax.scatter(x[valid], arr[i][valid], alpha=0.15, s=8, color=color)
 
     active_arr = np.where(arr > 0, arr, np.nan)
     if USE_BOOTSTRAP:
@@ -155,15 +163,15 @@ def plot_session_pulse_rate_summary(
     ax.plot(
         x,
         np.ma.masked_invalid(median),
-        color="tab:red",
-        linewidth=1.5,
+        color=color,
+        linewidth=2.8,
         label="active-session median",
     )
     ax.fill_between(
         x,
         np.ma.masked_invalid(ci_lo),
         np.ma.masked_invalid(ci_hi),
-        color="tab:red",
+        color=color,
         alpha=0.25,
         label=band_label,
     )
@@ -174,16 +182,74 @@ def plot_session_pulse_rate_summary(
         data=median if timescale == "year" else None,
         **axis_meta,
     )
-    ax.set_ylabel("Pulse Rate (Hz)")
+    ax.set_ylabel("Pulse rate (Hz)")
     ax.set_ylim(bottom=0)
-    ax.legend(loc="upper right", fontsize="small")
-    plt.title(timescale)
+    ax.set_title(title)
+    ax.legend(loc="upper right", fontsize=10)
+    ax.grid(True, alpha=0.25)
+
+
+def plot_circadian_panel_figure(
+    session_data,
+    save_path,
+    suffix,
+    axis_meta,
+    pulse_label,
+    pulse_type_key,
+):
+    """Four-panel overview: 24h, 12 month, months since start, years."""
+    fig, axes = plt.subplots(2, 2, figsize=(18, 12))
+    color = pulse_shape_color(pulse_type_key)
+    for ax, (timescale, title) in zip(axes.ravel(), CIRCADIAN_PANEL_TIMESCALES):
+        if timescale not in session_data.files:
+            ax.set_axis_off()
+            continue
+        plot_session_median_on_axis(
+            ax,
+            session_data[timescale],
+            timescale,
+            axis_meta,
+            color=color,
+            title=title,
+        )
+    fig.suptitle(f"Pulse rate over time — {pulse_label}")
+    plt.tight_layout()
+    fig.savefig(save_path / f"circadian_panels{suffix}.png", dpi=300)
+    plt.close(fig)
+
+
+def plot_session_pulse_rate_summary(
+    save_path,
+    axis_meta,
+    suffix,
+    timescale,
+    arr,
+):
+    if suffix == "_dp":
+        color = pulse_shape_color("double")
+    elif suffix == "_wide":
+        color = pulse_shape_color("wide")
+    elif suffix == "_fat":
+        color = pulse_shape_color("fat")
+    else:
+        color = pulse_shape_color("all")
+
+    fig, ax = plt.subplots(figsize=(12, 5))
+    plot_session_median_on_axis(
+        ax,
+        arr,
+        timescale,
+        axis_meta,
+        color=color,
+        title=timescale,
+    )
     plt.tight_layout()
     plt.savefig(save_path / f"{timescale}{suffix}.png", dpi=300)
     plt.close()
 
 
 def main():
+    apply_presentation_style()
     pulse_type = select_pulse_type(default="all")
     pulse_config = PULSE_TYPES[pulse_type]
     suffix = pulse_config["suffix"]
@@ -216,6 +282,15 @@ def main():
             timescale,
             session_data[timescale],
         )
+
+    plot_circadian_panel_figure(
+        session_data,
+        save_path,
+        suffix,
+        axis_meta,
+        pulse_config["label"],
+        pulse_type,
+    )
 
     print(f"Saved figures to {save_path}")
 

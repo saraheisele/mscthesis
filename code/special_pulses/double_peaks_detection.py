@@ -3,10 +3,11 @@
 Analysis part: special-pulse detection and ML classifier (Part 2 of Berlin activity analysis).
 Dependencies: data_paths, h5_io; writes marker arrays back into input .h5 files.
 
-Rule-based detectors annotate each pulse; optional supervised workflow trains a
-Random Forest classifier on manually labeled examples.
+Default workflow: train/apply a PCA + random forest classifier on manually labeled
+examples. Rule-based per-shape detectors remain available via --mode rule-based.
 """
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -40,7 +41,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-from data_paths import H5_DIR, SPECIAL_PULSE_CLASSIFIER_DIR
+from data_paths import H5_DIR, PCA_SPACE_DIR, SPECIAL_PULSE_CLASSIFIER_DIR
+from presentation_style import apply_presentation_style, classifier_label_colors
 from h5_io import (
     get_path_list,
     get_pulse_block,
@@ -909,11 +911,13 @@ def process_all_h5_files(data_path):
 
 def get_default_ml_paths():
     base_path = SPECIAL_PULSE_CLASSIFIER_DIR
+    pca_dir = PCA_SPACE_DIR
+    pca_dir.mkdir(parents=True, exist_ok=True)
     return {
         "base": base_path,
         "labels": base_path / "labeled_special_pulses.npz",
         "model": base_path / "special_pulse_rf_pca.pkl",
-        "pca_plot": base_path / "labeled_pulses_pca_space.png",
+        "pca_plot": pca_dir / "labeled_pulses_pca_space.png",
     }
 
 
@@ -1219,10 +1223,10 @@ def _scatter_labeled_pca_pairs(
         ax.scatter(
             projected[mask, pc_x],
             projected[mask, pc_y],
-            s=style["s"],
+            s=style["s"] * 1.4,
             alpha=style["alpha"],
             edgecolors="black",
-            linewidths=style["linewidths"],
+            linewidths=style["linewidths"] + 0.4,
             color=color,
             zorder=style["zorder"],
             label=legend_label,
@@ -1441,17 +1445,25 @@ def load_labeled_dataset(labels_path):
     return data["waveforms"], data["labels"], data["records"]
 
 
-def plot_labeled_pulses_pca_space(waveforms, labels, output_path=None, show=True):
+def plot_labeled_pulses_pca_space(
+    waveforms,
+    labels,
+    output_path=None,
+    show=True,
+    class_names=None,
+):
     """
     Plot robust-PCA projections of manually labeled pulse waveforms.
 
     Computes up to PCA_MAX_PLOT_COMPONENTS components and renders the most
     informative PC pairs (PC1/PC2 plus additional high-variance axes).
     """
+    apply_presentation_style()
     if len(labels) < 2:
         con.log("Need at least two labeled pulses to plot PCA space.")
         return None, None
 
+    class_names = class_names or SPECIAL_PULSE_CLASSES
     labels_sorted = sorted(np.unique(labels))
     n_components = _get_pca_n_components_for_plot(waveforms)
     if n_components < 1:
@@ -1472,10 +1484,10 @@ def plot_labeled_pulses_pca_space(waveforms, labels, output_path=None, show=True
     fig, axes = plt.subplots(
         n_rows,
         n_cols,
-        figsize=(6.5 * n_cols, 5.5 * n_rows),
+        figsize=(7.0 * n_cols, 6.0 * n_rows),
         squeeze=False,
     )
-    colors = plt.cm.tab10(np.linspace(0, 1, max(len(labels_sorted), 1)))
+    colors = classifier_label_colors(labels_sorted, class_names)
 
     for panel_idx, (pc_x, pc_y) in enumerate(pc_pairs):
         row_idx, col_idx = divmod(panel_idx, n_cols)
@@ -1491,7 +1503,7 @@ def plot_labeled_pulses_pca_space(waveforms, labels, output_path=None, show=True
             colors,
         )
         if panel_idx == 0:
-            ax.legend(title="Manual label", frameon=True, fontsize=8)
+            ax.legend(title="Manual label", frameon=True)
 
     for panel_idx in range(n_panels, n_rows * n_cols):
         row_idx, col_idx = divmod(panel_idx, n_cols)
@@ -1499,7 +1511,6 @@ def plot_labeled_pulses_pca_space(waveforms, labels, output_path=None, show=True
 
     fig.suptitle(
         "Robust PCA Space of Manually Labeled Pulses",
-        fontweight="bold",
         y=1.02,
     )
     fig.tight_layout()
@@ -1507,7 +1518,7 @@ def plot_labeled_pulses_pca_space(waveforms, labels, output_path=None, show=True
     if output_path is not None:
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(output_path, dpi=200, bbox_inches="tight")
+        fig.savefig(output_path, dpi=300, bbox_inches="tight")
         con.log(f"Saved labeled-pulse PCA plot to {output_path}")
 
     if show:
@@ -1921,7 +1932,7 @@ def benchmark_pulse_classifiers(labels_path=None):
     ml_paths = get_default_ml_paths()
     labels_path = Path(labels_path) if labels_path else ml_paths["labels"]
     benchmark_dir = ml_paths["base"] / "benchmark"
-    pca_plot_dir = benchmark_dir / "pca"
+    pca_plot_dir = PCA_SPACE_DIR / "benchmark"
     waveform_plot_dir = benchmark_dir / "waveforms"
     benchmark_dir.mkdir(parents=True, exist_ok=True)
 
@@ -2291,9 +2302,71 @@ def apply_special_pulse_classifier(data_path, model_path=None):
     return results
 
 
+def run_supervised_detection(
+    data_path,
+    *,
+    labels_path=None,
+    model_path=None,
+    label=False,
+    pulses_per_type=300,
+    train=False,
+    retrain=False,
+    apply=True,
+    auto_train=False,
+):
+    """
+    Run the supervised special-pulse workflow without interactive prompts.
+
+    By default applies an existing trained classifier. When auto_train=True, trains
+    automatically if no model exists but labeled examples are available.
+    """
+    ml_paths = get_default_ml_paths()
+    labels_path = Path(labels_path) if labels_path else ml_paths["labels"]
+    model_path = Path(model_path) if model_path else ml_paths["model"]
+
+    if label:
+        interactive_label_pulses(
+            data_path,
+            labels_path=labels_path,
+            pulses_per_type=pulses_per_type,
+        )
+
+    should_train = train or retrain
+    if (
+        auto_train
+        and not should_train
+        and apply
+        and not model_path.exists()
+        and labels_path.exists()
+    ):
+        should_train = True
+        con.log(f"No model at {model_path}; training from {labels_path}")
+
+    if should_train:
+        if not labels_path.exists():
+            raise FileNotFoundError(
+                f"Labeled pulses not found at {labels_path}. "
+                "Run with --label first to create training data."
+            )
+        train_special_pulse_classifier(
+            labels_path=labels_path,
+            model_path=model_path,
+        )
+
+    if apply:
+        if not model_path.exists():
+            raise FileNotFoundError(
+                f"Trained classifier not found at {model_path}. "
+                "Run with --label and --train, or provide an existing model."
+            )
+        return apply_special_pulse_classifier(data_path, model_path=model_path)
+
+    return None
+
+
 def supervised_learning_workflow(data_path):
     """
-    End-to-end workflow:
+    Interactive end-to-end workflow:
     1. optionally label pulses,
     2. train/evaluate PCA + random forest classifier,
     3. apply predictions to h5 files.
@@ -2308,50 +2381,112 @@ def supervised_learning_workflow(data_path):
     con.log("=" * 60)
 
     should_label = input("Label pulses now? [y/N]: ").strip().lower() == "y"
+    pulses_per_type = 300
     if should_label:
         pulses_per_type_raw = input(
             "Pulses to sample per type for labeling [300]: "
         ).strip()
         pulses_per_type = int(pulses_per_type_raw) if pulses_per_type_raw else 300
-        interactive_label_pulses(
-            data_path,
-            labels_path=ml_paths["labels"],
-            pulses_per_type=pulses_per_type,
-        )
 
     should_train = (
         input("Train classifier from labeled pulses? [Y/n]: ").strip().lower()
     )
-    if should_train != "n":
-        train_special_pulse_classifier(
-            labels_path=ml_paths["labels"],
-            model_path=ml_paths["model"],
-        )
-
     should_apply = input("Apply classifier to h5 files now? [Y/n]: ").strip().lower()
-    if should_apply != "n":
-        apply_special_pulse_classifier(data_path, model_path=ml_paths["model"])
+
+    run_supervised_detection(
+        data_path,
+        labels_path=ml_paths["labels"],
+        model_path=ml_paths["model"],
+        label=should_label,
+        pulses_per_type=pulses_per_type,
+        train=should_train != "n",
+        apply=should_apply != "n",
+    )
+
+
+def main():
+    global DETECTION_MODE, ARRAY_NAME, DISPLAY_NAME
+
+    parser = argparse.ArgumentParser(
+        description="Detect special pulse shapes (double, wide, fat) in .h5 files.",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=("supervised", "rule-based", "benchmark"),
+        default="supervised",
+        help="Detection mode (default: supervised ML classifier)",
+    )
+    parser.add_argument(
+        "--data-path",
+        type=Path,
+        default=H5_DIR,
+        help=f"Directory with .h5 files (default: {H5_DIR})",
+    )
+    parser.add_argument(
+        "--interactive",
+        "-i",
+        action="store_true",
+        help="Prompt for each step of the supervised workflow",
+    )
+    parser.add_argument(
+        "--label",
+        action="store_true",
+        help="Interactively label pulse examples for training",
+    )
+    parser.add_argument(
+        "--pulses-per-type",
+        type=int,
+        default=300,
+        help="Pulses to sample per class during labeling (default: 300)",
+    )
+    parser.add_argument(
+        "--train",
+        action="store_true",
+        help="Train classifier from labeled examples",
+    )
+    parser.add_argument(
+        "--retrain",
+        action="store_true",
+        help="Retrain classifier even if a model file already exists",
+    )
+    parser.add_argument(
+        "--no-apply",
+        action="store_true",
+        help="Skip applying the classifier to .h5 files",
+    )
+    parser.add_argument(
+        "--detection-mode",
+        choices=tuple(MODE_CONFIG),
+        default=DETECTION_MODE,
+        help="Pulse type for rule-based detection (default: %(default)s)",
+    )
+    args = parser.parse_args()
+
+    if args.mode == "supervised":
+        if args.interactive:
+            supervised_learning_workflow(args.data_path)
+            return
+
+        run_supervised_detection(
+            args.data_path,
+            label=args.label,
+            pulses_per_type=args.pulses_per_type,
+            train=args.train,
+            retrain=args.retrain,
+            apply=not args.no_apply,
+            auto_train=True,
+        )
+        return
+
+    if args.mode == "rule-based":
+        DETECTION_MODE = args.detection_mode
+        ARRAY_NAME = MODE_CONFIG[DETECTION_MODE]["array_name"]
+        DISPLAY_NAME = MODE_CONFIG[DETECTION_MODE]["display_name"]
+        process_all_h5_files(args.data_path)
+        return
+
+    benchmark_pulse_classifiers()
 
 
 if __name__ == "__main__":
-    data_path = H5_DIR
-
-    con.log("\n" + "=" * 60)
-    con.log("SPECIAL PULSE DETECTION OPTIONS")
-    con.log("=" * 60)
-    con.log("1. Run old rule-based detector")
-    con.log("2. Run supervised PCA + random forest workflow")
-    con.log("3. Benchmark pulse classifiers (PCA vs raw)")
-    con.log("=" * 60)
-
-    mode = input("Select mode (1, 2, or 3): ").strip()
-
-    if mode == "1":
-        # Process all h5 files to detect double peaks or wide pulses
-        results = process_all_h5_files(data_path)
-    elif mode == "2":
-        supervised_learning_workflow(data_path)
-    elif mode == "3":
-        benchmark_pulse_classifiers()
-    else:
-        con.log("Invalid selection. Please enter 1, 2, or 3.")
+    main()

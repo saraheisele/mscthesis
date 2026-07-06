@@ -22,7 +22,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 from dateutil.relativedelta import relativedelta
 
-from data_paths import POSITION_FIGURES_DIR, position_hist_dir
+from data_paths import POSITION_FIGURES_DIR, activity_hist_dir, position_hist_dir
+from presentation_style import (
+    add_bright_dark_boundary,
+    apply_presentation_style,
+    shade_dark_region,
+)
+from pulse_config import PULSE_TYPES
 from position_utils import (
     DEFAULT_BRIGHT_DARK_BOUNDARY_M,
     LINE_LENGTH_M,
@@ -30,6 +36,26 @@ from position_utils import (
 )
 
 POSITION_METHOD = "peak_positive"
+
+POSITION_PANEL_TIMESCALES = [
+    ("hour", "24 h — hour"),
+    ("month", "12 month — month"),
+    ("month_since_start", "months since start"),
+    ("year", "years since start — year"),
+]
+
+
+def estimate_total_recording_seconds() -> float:
+    """Approximate active recording duration from activity histograms."""
+    data_path = activity_hist_dir(PULSE_TYPES["all"]["hist_subdir"])
+    counts = np.load(data_path / "berlin_dummypulses_count_hist_dict.npz")["day"]
+    rates = np.load(data_path / "berlin_dummypulses_pulse_rate_hz_hist_dict.npz")["day"]
+    total_pulses = float(np.nansum(counts))
+    positive_rates = rates[(~np.isnan(rates)) & (rates > 0)]
+    mean_hz = float(np.mean(positive_rates)) if positive_rates.size else np.nan
+    if not mean_hz or np.isnan(mean_hz):
+        return max(total_pulses, 1.0)
+    return max(total_pulses / mean_hz, 1.0)
 
 
 def load_metadata(data_path):
@@ -107,13 +133,8 @@ def plot_mean_position(timescale, mean_position, save_path, suffix, meta):
     )
     ax.set_ylabel("mean head position (m)")
     ax.set_ylim(0, LINE_LENGTH_M)
-    ax.axhline(
-        DEFAULT_BRIGHT_DARK_BOUNDARY_M,
-        color="gray",
-        linestyle="--",
-        linewidth=1,
-        label="bright/dark boundary",
-    )
+    shade_dark_region(ax, DEFAULT_BRIGHT_DARK_BOUNDARY_M, y_min=0, y_max=LINE_LENGTH_M)
+    add_bright_dark_boundary(ax, DEFAULT_BRIGHT_DARK_BOUNDARY_M)
     ax.legend(loc="upper right")
     titles = {
         "minute": "24-hour mean position (1-min bins)",
@@ -224,7 +245,8 @@ def plot_session_mean_position_summary(timescale, arr, save_path, suffix, meta):
     format_x_axis(ax, timescale, arr.shape[1], meta[2], meta[0], meta[1])
     ax.set_ylabel("mean head position (m)")
     ax.set_ylim(0, LINE_LENGTH_M)
-    ax.axhline(DEFAULT_BRIGHT_DARK_BOUNDARY_M, color="gray", linestyle="--", linewidth=1)
+    shade_dark_region(ax, DEFAULT_BRIGHT_DARK_BOUNDARY_M, y_min=0, y_max=LINE_LENGTH_M)
+    add_bright_dark_boundary(ax, DEFAULT_BRIGHT_DARK_BOUNDARY_M)
     ax.legend(loc="upper right", fontsize="small")
     plt.title(f"session-wise mean position ({timescale})")
     plt.tight_layout()
@@ -233,22 +255,22 @@ def plot_session_mean_position_summary(timescale, arr, save_path, suffix, meta):
 
 
 def plot_overall_position_distribution(occurrence_hour, save_path, suffix):
-    """Bar chart of pulse counts per electrode collapsed over all hours."""
+    """Bar chart of pulse rate (Hz) per electrode collapsed over all hours."""
     counts = occurrence_hour.sum(axis=0)
     if counts.sum() == 0:
         return
     positions = default_electrode_positions_m()
+    total_seconds = estimate_total_recording_seconds()
+    rates_hz = counts.astype(float) / total_seconds
+
     fig, ax = plt.subplots(figsize=(12, 5))
-    ax.bar(positions, counts, width=0.2, color="steelblue", edgecolor="white")
-    ax.axvline(
-        DEFAULT_BRIGHT_DARK_BOUNDARY_M,
-        color="gray",
-        linestyle="--",
-        linewidth=1,
-        label="bright/dark boundary",
-    )
+    ax.bar(positions, rates_hz, width=0.2, color="#1a535c", edgecolor="white")
+    ymax = max(float(np.max(rates_hz)) * 1.1, 0.01)
+    ax.set_ylim(0, ymax)
+    shade_dark_region(ax, DEFAULT_BRIGHT_DARK_BOUNDARY_M, y_min=0, y_max=ymax)
+    add_bright_dark_boundary(ax, DEFAULT_BRIGHT_DARK_BOUNDARY_M)
     ax.set_xlabel("position along line (m)")
-    ax.set_ylabel("pulse count")
+    ax.set_ylabel("pulse rate (Hz)")
     ax.set_title("overall position distribution (hourly bins collapsed)")
     ax.legend()
     plt.tight_layout()
@@ -256,7 +278,65 @@ def plot_overall_position_distribution(occurrence_hour, save_path, suffix):
     plt.close()
 
 
+def plot_position_panel_figure(session_data, save_path, suffix, meta):
+    """Four-panel session-wise median position overview."""
+    fig, axes = plt.subplots(2, 2, figsize=(18, 12))
+    first_month_year, first_month_month, first_year = meta
+    for ax, (timescale, title) in zip(axes.ravel(), POSITION_PANEL_TIMESCALES):
+        if timescale not in session_data.files:
+            ax.set_axis_off()
+            continue
+        arr = session_data[timescale]
+        x = np.arange(arr.shape[1])
+        for i in range(arr.shape[0]):
+            valid = ~np.isnan(arr[i])
+            ax.scatter(x[valid], arr[i][valid], alpha=0.15, s=8, color="#1a535c")
+
+        median = np.full(arr.shape[1], np.nan)
+        p_lo = np.full(arr.shape[1], np.nan)
+        p_hi = np.full(arr.shape[1], np.nan)
+        for j in range(arr.shape[1]):
+            values = arr[:, j]
+            values = values[~np.isnan(values)]
+            if values.size == 0:
+                continue
+            median[j] = np.median(values)
+            p_lo[j] = np.percentile(values, 16)
+            p_hi[j] = np.percentile(values, 84)
+
+        ax.plot(x, np.ma.masked_invalid(median), color="#c0392b", linewidth=2.5, label="median")
+        ax.fill_between(
+            x,
+            np.ma.masked_invalid(p_lo),
+            np.ma.masked_invalid(p_hi),
+            color="#c0392b",
+            alpha=0.25,
+            label="16-84th pct",
+        )
+        format_x_axis(
+            ax,
+            timescale,
+            arr.shape[1],
+            first_year,
+            first_month_year,
+            first_month_month,
+        )
+        ax.set_ylim(0, LINE_LENGTH_M)
+        shade_dark_region(ax, DEFAULT_BRIGHT_DARK_BOUNDARY_M, y_min=0, y_max=LINE_LENGTH_M)
+        add_bright_dark_boundary(ax, DEFAULT_BRIGHT_DARK_BOUNDARY_M)
+        ax.set_ylabel("mean head position (m)")
+        ax.set_title(title)
+        ax.legend(loc="upper right", fontsize=10)
+        ax.grid(True, alpha=0.25)
+
+    fig.suptitle("Spatial usage over time (session-wise median + percentiles)")
+    plt.tight_layout()
+    plt.savefig(save_path / f"position_panels{suffix}.png", dpi=300)
+    plt.close()
+
+
 def main():
+    apply_presentation_style()
     suffix = f"_{POSITION_METHOD[:4]}"
     data_path = position_hist_dir(POSITION_METHOD)
     save_path = POSITION_FIGURES_DIR / POSITION_METHOD
@@ -300,6 +380,7 @@ def main():
             plot_session_mean_position_summary(
                 timescale, session_data[timescale], save_path, suffix, meta
             )
+        plot_position_panel_figure(session_data, save_path, suffix, meta)
 
 
 if __name__ == "__main__":

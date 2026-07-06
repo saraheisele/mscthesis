@@ -12,24 +12,10 @@ cd "$CODE"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOGDIR/pipeline.log"; }
 
-run_detection() {
-  local mode="$1"
-  log "=== Part 1a: special pulse detection ($mode) ==="
-  python3 - <<PY
-import sys
-from pathlib import Path
-sys.path.insert(0, ".")
-from path_setup import setup_script_paths
-setup_script_paths("special_pulses/double_peaks_detection.py")
-import special_pulses.double_peaks_detection as det
-from data_paths import H5_DIR
-
-det.DETECTION_MODE = "$mode"
-det.ARRAY_NAME = det.MODE_CONFIG["$mode"]["array_name"]
-det.DISPLAY_NAME = det.MODE_CONFIG["$mode"]["display_name"]
-det.process_all_h5_files(H5_DIR)
-PY
-  log "=== Done: special pulse detection ($mode) ==="
+run_ml_detection() {
+  log "=== Part 1a: supervised special pulse classification ==="
+  python3 special_pulses/double_peaks_detection.py
+  log "=== Done: supervised special pulse classification ==="
 }
 
 run_preprocessing() {
@@ -48,9 +34,7 @@ run_plots() {
 
 log "Pipeline started (H5_DIR=/home/efish/eelsmfn2021_eods/berlin_tank_site)"
 
-for mode in double wide fat; do
-  run_detection "$mode"
-done
+run_ml_detection
 
 for pt in all double wide fat; do
   run_preprocessing "$pt"

@@ -17,6 +17,7 @@ import numpy as np
 from scipy import stats
 
 from data_paths import ACTIVITY_HISTOGRAMS_DIR, PULSE_SHAPE_CORRELATION_DIR
+from presentation_style import SPEZI_CMAP, apply_presentation_style, pulse_shape_color
 from pulse_config import SPECIAL_PULSE_TYPES, TIMESCALES
 
 BASE = ACTIVITY_HISTOGRAMS_DIR
@@ -153,13 +154,13 @@ def plot_correlation_heatmap(results):
         pearson[i, j] = row["pearson_r"]
         spearman[i, j] = row["spearman_r"]
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 4))
+    fig, axes = plt.subplots(2, 1, figsize=(8, 10))
     for ax, matrix, title in zip(
         axes,
         [pearson, spearman],
         ["Pearson r", "Spearman ρ"],
     ):
-        im = ax.imshow(matrix, aspect="auto", cmap="RdBu_r", vmin=-1, vmax=1)
+        im = ax.imshow(matrix, aspect="auto", cmap=SPEZI_CMAP, vmin=-1, vmax=1)
         ax.set_xticks(range(len(timescales)))
         ax.set_xticklabels(timescales, rotation=45, ha="right")
         ax.set_yticks(range(len(labels)))
@@ -182,6 +183,7 @@ def plot_correlation_heatmap(results):
 
 
 def main():
+    apply_presentation_style()
     results = run_analysis()
     print_summary(results)
     plot_correlation_heatmap(results)

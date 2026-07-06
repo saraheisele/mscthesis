@@ -31,8 +31,11 @@ Legacy scripts are kept in `old_analysis_version/` for reference only.
 ### Part 1 — Pulse activity (all pulse types)
 
 1. **`special_pulses/double_peaks_detection.py`** *(optional but needed for double/wide/fat)*  
-   Annotates `.h5` files with `is_double_peak`, `is_wide_pulse`, `is_fat_pulse` markers.  
-   Run once per detection mode (edit `DETECTION_MODE` at top of script).
+   Applies the supervised PCA + random forest classifier to annotate `.h5` files with
+   `is_double_peak`, `is_wide_pulse`, `is_fat_pulse`, and `special_pulse_class`.  
+   First run: `python special_pulses/double_peaks_detection.py --label --train`  
+   Later runs: `python special_pulses/double_peaks_detection.py` (reuses the saved model).  
+   Rule-based detection: `--mode rule-based --detection-mode double|wide|fat`.
 
 2. **`activity_timescales/eel_data_preprocessing.py`**  
    Builds multi-timescale pulse-rate `.npz` histograms.  
@@ -100,7 +103,7 @@ Edit `data_paths.py` to switch between the development subset and full dataset:
 | `activity_timescales/eel_data_preprocessing.py` | Build pulse-rate histogram `.npz` files |
 | `activity_timescales/pulse_analysis_plots.py` | Plot pulse-rate time series |
 | `correlations/correlate_pulse_shapes.py` | Cross-correlate pulse shapes with all-pulses |
-| `special_pulses/double_peaks_detection.py` | Rule-based special-pulse detection + ML classifier |
+| `special_pulses/double_peaks_detection.py` | Supervised ML special-pulse classifier (rule-based fallback) |
 | `special_pulses/double_peaks_visualization.py` | Visual QA of detections |
 | `special_pulses/prototype_pulse_plots.py` | Prototype waveform overlays |
 | `correlations/environment_correlation.py` | Temperature/conductivity correlation |

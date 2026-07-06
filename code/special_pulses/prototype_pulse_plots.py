@@ -26,6 +26,7 @@ from scipy import stats
 from scipy.signal import find_peaks
 
 from data_paths import H5_DIR, PULSE_SHAPE_PROTOTYPES_DIR
+from presentation_style import apply_presentation_style, pulse_shape_color
 from double_peaks_detection import (
     MULTICLASS_ARRAY_NAME,
     SPECIAL_PULSE_CLASSES,
@@ -55,7 +56,7 @@ PULSE_SHAPES = {
     "normal": {
         "label": "Normal pulse",
         "class_id": CLASS_IDS["normal"],
-        "color": "#2980b9",
+        "color": pulse_shape_color("normal"),
         "align": "maximum",
         "criteria": [
             "Predicted-positive pulse",
@@ -66,7 +67,7 @@ PULSE_SHAPES = {
     "double": {
         "label": "Double pulse",
         "class_id": CLASS_IDS["double"],
-        "color": "#c0392b",
+        "color": pulse_shape_color("double"),
         "align": "valley",
         "criteria": [
             "Random Forest class: double",
@@ -77,7 +78,7 @@ PULSE_SHAPES = {
     "wide": {
         "label": "Wide pulse",
         "class_id": CLASS_IDS["wide"],
-        "color": "#e67e22",
+        "color": pulse_shape_color("wide"),
         "align": "maximum",
         "criteria": [
             "Random Forest class: wide",
@@ -88,7 +89,7 @@ PULSE_SHAPES = {
     "fat": {
         "label": "Fat pulse",
         "class_id": CLASS_IDS["fat"],
-        "color": "#8e44ad",
+        "color": pulse_shape_color("fat"),
         "align": "maximum",
         "criteria": [
             "Random Forest class: fat",
@@ -328,6 +329,48 @@ def add_half_max_markers(ax, mean_trace, fs, color):
     )
 
 
+def add_symmetry_fraction_markers(ax, mean_trace, fs, color, fraction=0.1):
+    """Mark 10% amplitude crossings and left/right widths on a prototype plot."""
+    sym = symmetry_at_fraction(mean_trace, fs, fraction=fraction)
+    threshold = sym["threshold"]
+    if np.isnan(threshold):
+        return
+
+    left_t = sym["left_idx"] / fs * 1000
+    right_t = sym["right_idx"] / fs * 1000
+    left_w = sym["left_width_sec"] * 1000
+    right_w = sym["right_width_sec"] * 1000
+    pct = int(fraction * 100)
+
+    ax.axhline(
+        threshold,
+        color=color,
+        linestyle=":",
+        linewidth=2.0,
+        alpha=0.9,
+        label=f"{pct}% amplitude",
+    )
+    ax.axvline(left_t, color=color, linestyle=":", alpha=0.75, linewidth=1.5)
+    ax.axvline(right_t, color=color, linestyle=":", alpha=0.75, linewidth=1.5)
+    ax.scatter([left_t, right_t], [threshold, threshold], color=color, s=70, zorder=7)
+    ax.annotate(
+        f"L = {left_w:.2f} ms",
+        xy=(left_t, threshold),
+        xytext=(-36, -22),
+        textcoords="offset points",
+        fontsize=10,
+        color=color,
+    )
+    ax.annotate(
+        f"R = {right_w:.2f} ms",
+        xy=(right_t, threshold),
+        xytext=(10, -22),
+        textcoords="offset points",
+        fontsize=10,
+        color=color,
+    )
+
+
 def add_detection_markers(ax, mean_trace, fs, pulse_shape, pulse_key=None):
     color = pulse_shape["color"]
     center_idx = len(mean_trace) // 2
@@ -464,6 +507,24 @@ def plot_prototype_pulse_shape(
     )
 
     add_detection_markers(ax, mean_trace, fs, pulse_shape, pulse_key=pulse_key)
+
+    if pulse_key in {"normal", "wide", "fat"} and corrected_waveforms:
+        center = len(mean_trace) // 2
+        aligned_corrected = np.asarray(
+            [
+                shift_waveform(
+                    corrected_trace,
+                    center
+                    - alignment_reference_index(
+                        corrected_trace, pulse_shape["align"], fs
+                    ),
+                )
+                for corrected_trace in corrected_waveforms
+            ]
+        )
+        add_symmetry_fraction_markers(
+            ax, np.mean(aligned_corrected, axis=0), fs, pulse_shape["color"]
+        )
 
     criteria_text = "\n".join(f"• {line}" for line in pulse_shape["criteria"])
     ax.text(
@@ -652,6 +713,7 @@ def main(
     random_seed=RANDOM_SEED,
     apply_classifier=True,
 ):
+    apply_presentation_style()
     console.log("Collecting and plotting prototype pulses for each pulse shape...")
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 

@@ -29,9 +29,15 @@ from correlations.correlate_activity_with_feeding import (
     session_name_from_h5,
 )
 from correlations.mating_notes_utils import extract_mating_events
-from data_paths import H5_DIR, PULSE_PROPERTIES_DIR
+from data_paths import (
+    HALF_WIDTH_DISTRIBUTIONS_DIR,
+    H5_DIR,
+    MATING_CORRELATION_DIR,
+)
+from presentation_style import apply_presentation_style, pulse_shape_color
 
-OUTPUT_DIR = PULSE_PROPERTIES_DIR
+OUTPUT_DIR = MATING_CORRELATION_DIR
+HALF_WIDTH_OUTPUT_DIR = HALF_WIDTH_DISTRIBUTIONS_DIR
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 MATING_WINDOW_DAYS = 2
@@ -172,7 +178,7 @@ def plot_pulse_rate_correlation(
     fig, axes = plt.subplots(2, 1, figsize=(14, 8), gridspec_kw={"height_ratios": [2, 1]})
 
     ax = axes[0]
-    ax.plot(daily["date"], daily["pulse_rate_hz"], color="tab:blue", linewidth=1.2)
+    ax.plot(daily["date"], daily["pulse_rate_hz"], color=pulse_shape_color("all"), linewidth=2.2)
     for event in mating_events:
         ax.axvline(
             event["event_time"],
@@ -191,7 +197,7 @@ def plot_pulse_rate_correlation(
         f"±{MATING_WINDOW_DAYS} days around mating note",
     ]
     values = [corr["mean_rate_nonmating_hz"], corr["mean_rate_mating_hz"]]
-    bars = ax.bar(labels, values, color=["tab:gray", "tab:red"], alpha=0.85)
+    bars = ax.bar(labels, values, color=[pulse_shape_color("all"), pulse_shape_color("double")], alpha=0.9)
     ax.set_ylabel("Mean pulse rate (Hz)")
     ax.set_title(
         f"Minute-level comparison  "
@@ -228,7 +234,10 @@ def half_width_comparison(
     if df.empty:
         return {}
 
-    overall_mean = df["half_width_ms"].mean()
+    overall_values = df["half_width_ms"].values
+    overall_mean = float(np.mean(overall_values))
+    overall_sem = float(stats.sem(overall_values)) if overall_values.size > 1 else 0.0
+
     window = timedelta(days=MATING_WINDOW_DAYS)
     peri_values = []
     for event in mating_events:
@@ -236,31 +245,33 @@ def half_width_comparison(
         end = event["event_time"] + window
         mask = (df["timestamp"] >= start) & (df["timestamp"] <= end)
         if mask.any():
-            peri_values.append(df.loc[mask, "half_width_ms"].mean())
+            peri_values.extend(df.loc[mask, "half_width_ms"].values.tolist())
 
-    peri_mean = float(np.mean(peri_values)) if peri_values else np.nan
+    peri_arr = np.asarray(peri_values, dtype=float)
+    peri_mean = float(np.mean(peri_arr)) if peri_arr.size else np.nan
+    peri_sem = float(stats.sem(peri_arr)) if peri_arr.size > 1 else 0.0
     ratio = peri_mean / overall_mean if overall_mean and not np.isnan(peri_mean) else np.nan
 
     fig, ax = plt.subplots(figsize=(8, 5))
     labels = ["Overall dataset", f"±{MATING_WINDOW_DAYS} days around mating note"]
     values = [overall_mean, peri_mean]
-    colors = ["tab:blue", "tab:red"]
-    bars = ax.bar(labels, values, color=colors, alpha=0.85)
+    errors = [overall_sem, peri_sem]
+    colors = [pulse_shape_color("all"), pulse_shape_color("double")]
+    bars = ax.bar(labels, values, yerr=errors, capsize=8, color=colors, alpha=0.9, linewidth=0)
     ax.set_ylabel("Mean pulse half width (ms)")
     ax.set_title(
         "Average half width around mating mentions vs overall\n"
-        f"(ratio mating-window/overall = {ratio:.2f}, n_events={len(peri_values)})"
+        f"(ratio mating-window/overall = {ratio:.2f}, n_events={len(mating_events)})"
     )
     ax.grid(True, axis="y", alpha=0.3)
-    for bar, value in zip(bars, values):
+    for bar, value, err in zip(bars, values, errors):
         if not np.isnan(value):
             ax.text(
                 bar.get_x() + bar.get_width() / 2,
-                value,
+                value + err + 0.02 * value,
                 f"{value:.3f}",
                 ha="center",
                 va="bottom",
-                fontsize=9,
             )
     plt.tight_layout()
     fig.savefig(output_path, dpi=300)
@@ -268,13 +279,19 @@ def half_width_comparison(
 
     return {
         "overall_half_width_ms": overall_mean,
+        "overall_half_width_sem_ms": overall_sem,
         "mating_window_half_width_ms": peri_mean,
+        "mating_window_half_width_sem_ms": peri_sem,
         "half_width_ratio_mating_over_overall": ratio,
-        "n_mating_events_with_data": len(peri_values),
+        "n_mating_events_with_data": len(mating_events),
+        "n_pulses_in_mating_windows": int(peri_arr.size),
     }
 
 
 def main():
+    apply_presentation_style()
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    HALF_WIDTH_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     mating_events = extract_mating_events()
     mating_df = pd.DataFrame(mating_events)
     mating_df.to_csv(OUTPUT_DIR / "mating_notes_from_docx.csv", index=False)
@@ -300,14 +317,17 @@ def main():
     hw_summary = half_width_comparison(
         OUTPUT_DIR / "pulse_properties_timeseries.csv",
         mating_events,
-        OUTPUT_DIR / "mating_half_width_comparison.png",
+        HALF_WIDTH_OUTPUT_DIR / "mating_half_width_comparison.png",
     )
     if hw_summary:
         pd.DataFrame([hw_summary]).to_csv(
             OUTPUT_DIR / "mating_half_width_comparison_summary.csv", index=False
         )
 
-    print(f"Saved mating correlation plots to {OUTPUT_DIR}")
+    print(
+        f"Saved mating correlation plots to {OUTPUT_DIR}; "
+        f"half-width comparison to {HALF_WIDTH_OUTPUT_DIR}"
+    )
 
 
 if __name__ == "__main__":
