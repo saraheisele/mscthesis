@@ -19,9 +19,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
 
-from data_paths import activity_hist_dir, processed_figures_dir
+from data_paths import THESIS_FIGURES_DIR, activity_hist_dir, processed_figures_dir
 from plotting_utils import format_x_axis
-from presentation_style import apply_presentation_style, pulse_shape_color
+from presentation_style import LEGEND_LOC, apply_presentation_style, pulse_shape_color, save_thesis_figure
 from pulse_config import PULSE_TYPES, select_pulse_type
 
 USE_BOOTSTRAP = True
@@ -142,11 +142,16 @@ def plot_session_median_on_axis(
     *,
     color,
     title,
+    show_scatter=True,
+    median_label="active-session median",
+    decorate_axis=True,
+    include_band_in_legend=True,
 ):
     x = np.arange(arr.shape[1])
-    for i in range(arr.shape[0]):
-        valid = ~np.isnan(arr[i])
-        ax.scatter(x[valid], arr[i][valid], alpha=0.15, s=8, color=color)
+    if show_scatter:
+        for i in range(arr.shape[0]):
+            valid = ~np.isnan(arr[i])
+            ax.scatter(x[valid], arr[i][valid], alpha=0.15, s=8, color=color)
 
     active_arr = np.where(arr > 0, arr, np.nan)
     if USE_BOOTSTRAP:
@@ -155,17 +160,17 @@ def plot_session_median_on_axis(
             n_bootstrap=BOOTSTRAP_ITERATIONS,
             ci_level=BOOTSTRAP_CI_LEVEL,
         )
-        band_label = f"bootstrap {BOOTSTRAP_CI_LEVEL}% CI"
+        band_label = f"bootstrap {BOOTSTRAP_CI_LEVEL}% CI" if include_band_in_legend else None
     else:
         median, ci_lo, ci_hi = nan_summary(active_arr)
-        band_label = "active-session 16-84th pct"
+        band_label = "active-session 16-84th pct" if include_band_in_legend else None
 
     ax.plot(
         x,
         np.ma.masked_invalid(median),
         color=color,
         linewidth=2.8,
-        label="active-session median",
+        label=median_label,
     )
     ax.fill_between(
         x,
@@ -175,18 +180,21 @@ def plot_session_median_on_axis(
         alpha=0.25,
         label=band_label,
     )
-    format_x_axis(
-        ax,
-        timescale,
-        arr.shape[1],
-        data=median if timescale == "year" else None,
-        **axis_meta,
-    )
-    ax.set_ylabel("Pulse rate (Hz)")
-    ax.set_ylim(bottom=0)
-    ax.set_title(title)
-    ax.legend(loc="upper right", fontsize=10)
-    ax.grid(True, alpha=0.25)
+    if decorate_axis:
+        format_x_axis(
+            ax,
+            timescale,
+            arr.shape[1],
+            data=median if timescale == "year" else None,
+            **axis_meta,
+        )
+        ax.set_ylabel("Pulse rate (Hz)")
+        ax.set_ylim(bottom=0)
+        ax.set_title(title)
+        ax.legend(loc=LEGEND_LOC, fontsize=10)
+        ax.grid(True, alpha=0.25)
+    else:
+        ax.set_ylim(bottom=0)
 
 
 def plot_circadian_panel_figure(
@@ -214,8 +222,75 @@ def plot_circadian_panel_figure(
         )
     fig.suptitle(f"Pulse rate over time — {pulse_label}")
     plt.tight_layout()
-    fig.savefig(save_path / f"circadian_panels{suffix}.png", dpi=300)
+    filename = f"circadian_panels{suffix}.png"
+    fig.savefig(save_path / filename, dpi=300)
+    save_thesis_figure(f"activity_timescales/{filename}", fig)
     plt.close(fig)
+
+
+def plot_circadian_panels_all_shapes(save_path=None):
+    """Four-panel overview with all pulse categories overlaid."""
+    if save_path is None:
+        save_path = THESIS_FIGURES_DIR / "activity_timescales"
+    save_path.mkdir(parents=True, exist_ok=True)
+
+    axis_meta = load_histogram_metadata(
+        activity_hist_dir(PULSE_TYPES["all"]["hist_subdir"])
+    )
+    session_by_pulse = {}
+    for pulse_type, pulse_config in PULSE_TYPES.items():
+        data_path = activity_hist_dir(pulse_config["hist_subdir"])
+        session_npz = data_path / "berlin_dummypulses_session_pulse_rate_hz.npz"
+        if session_npz.exists():
+            session_by_pulse[pulse_type] = np.load(session_npz)
+
+    fig, axes = plt.subplots(2, 2, figsize=(18, 12))
+    for ax, (timescale, panel_title) in zip(axes.ravel(), CIRCADIAN_PANEL_TIMESCALES):
+        plotted = False
+        for pulse_type, session_data in session_by_pulse.items():
+            if timescale not in session_data.files:
+                continue
+            plot_session_median_on_axis(
+                ax,
+                session_data[timescale],
+                timescale,
+                axis_meta,
+                color=pulse_shape_color(pulse_type),
+                title=panel_title,
+                show_scatter=False,
+                median_label=PULSE_TYPES[pulse_type]["label"],
+                decorate_axis=False,
+                include_band_in_legend=False,
+            )
+            plotted = True
+        if not plotted:
+            ax.set_axis_off()
+            continue
+        year_data = None
+        if timescale == "year":
+            all_arr = session_by_pulse["all"][timescale]
+            active_arr = np.where(all_arr > 0, all_arr, np.nan)
+            year_data = np.nanmedian(active_arr, axis=0)
+        format_x_axis(
+            ax,
+            timescale,
+            session_by_pulse["all"][timescale].shape[1],
+            data=year_data,
+            **axis_meta,
+        )
+        ax.set_ylabel("Pulse rate (Hz)")
+        ax.set_ylim(bottom=0)
+        ax.set_title(panel_title)
+        ax.legend(loc=LEGEND_LOC, fontsize=10)
+        ax.grid(True, alpha=0.25)
+
+    fig.suptitle("Pulse rate over time — all pulse categories")
+    plt.tight_layout()
+    filename = "circadian_panels_all_shapes.png"
+    out_path = save_path / filename
+    fig.savefig(out_path, dpi=300)
+    plt.close(fig)
+    print(f"Saved combined circadian panels to {out_path}")
 
 
 def plot_session_pulse_rate_summary(
@@ -292,8 +367,14 @@ def main():
         pulse_type,
     )
 
+    plot_circadian_panels_all_shapes()
+
     print(f"Saved figures to {save_path}")
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1 and sys.argv[1] == "--all-shapes-panels":
+        apply_presentation_style()
+        plot_circadian_panels_all_shapes()
+    else:
+        main()

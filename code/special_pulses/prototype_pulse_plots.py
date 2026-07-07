@@ -26,15 +26,17 @@ from scipy import stats
 from scipy.signal import find_peaks
 
 from data_paths import H5_DIR, PULSE_SHAPE_PROTOTYPES_DIR
-from presentation_style import apply_presentation_style, pulse_shape_color
+from presentation_style import LEGEND_LOC, apply_presentation_style, pulse_shape_color, save_thesis_figure
 from double_peaks_detection import (
     MULTICLASS_ARRAY_NAME,
     SPECIAL_PULSE_CLASSES,
     apply_special_pulse_classifier,
     compute_half_max_width,
     detect_double_pulse,
+    expand_marker_to_all_pulses,
+    get_default_ml_paths,
 )
-from h5_io import get_path_list, get_pulse_block, open_h5
+from h5_io import get_path_list, get_pulse_block, load_marker_array, open_h5
 from pulse_shape_metrics import (
     double_pulse_metrics,
     paired_symmetry_test,
@@ -82,17 +84,6 @@ PULSE_SHAPES = {
         "align": "maximum",
         "criteria": [
             "Random Forest class: wide",
-            "Robust PCA + RF multiclass classifier",
-            "Aligned at peak maximum",
-        ],
-    },
-    "fat": {
-        "label": "Fat pulse",
-        "class_id": CLASS_IDS["fat"],
-        "color": pulse_shape_color("fat"),
-        "align": "maximum",
-        "criteria": [
-            "Random Forest class: fat",
             "Robust PCA + RF multiclass classifier",
             "Aligned at peak maximum",
         ],
@@ -229,6 +220,57 @@ def align_waveforms(
     )
 
 
+def _full_marker(file_path, block, array_name, candidates, num_pulses):
+    raw = load_marker_array(file_path, array_name, block)
+    if raw is None:
+        return np.zeros(num_pulses, dtype=np.int64)
+    return expand_marker_to_all_pulses(raw, candidates, num_pulses, array_name)
+
+
+def collect_pulse_shape_indices(data_path, pulse_key):
+    """Collect pulse indices using h5 marker arrays (is_double_peak, is_wide_pulse)."""
+    entries = []
+    for file_path in get_path_list(Path(data_path)):
+        file = open_h5(file_path, nixio.FileMode.ReadOnly)
+        if file is None:
+            continue
+        try:
+            block = get_pulse_block(file)
+            data_array_names = [da.name for da in block.data_arrays]
+            if "raw_pulses" not in data_array_names:
+                continue
+
+            num_pulses = len(block.data_arrays["raw_pulses"])
+            if "predicted_labels" in data_array_names:
+                candidate_indices = np.where(
+                    block.data_arrays["predicted_labels"][:] == 1
+                )[0]
+            else:
+                candidate_indices = np.arange(num_pulses)
+            if len(candidate_indices) == 0:
+                continue
+
+            double_m = _full_marker(
+                file_path, block, "is_double_peak", candidate_indices, num_pulses
+            )
+            wide_m = _full_marker(
+                file_path, block, "is_wide_pulse", candidate_indices, num_pulses
+            )
+
+            for pulse_idx in candidate_indices:
+                is_double = double_m[pulse_idx] == 1
+                is_wide = wide_m[pulse_idx] == 1
+                if pulse_key == "double" and is_double:
+                    entries.append((file_path, int(pulse_idx)))
+                elif pulse_key == "wide" and is_wide and not is_double:
+                    entries.append((file_path, int(pulse_idx)))
+                elif pulse_key == "normal" and not is_double and not is_wide:
+                    entries.append((file_path, int(pulse_idx)))
+        finally:
+            file.close()
+    return entries
+
+
 def collect_classifier_pulse_indices(data_path, class_id):
     """Collect pulse indices for one RF classifier class (special_pulse_class)."""
     entries = []
@@ -240,9 +282,11 @@ def collect_classifier_pulse_indices(data_path, class_id):
             block = get_pulse_block(file)
             data_array_names = [da.name for da in block.data_arrays]
 
-            if MULTICLASS_ARRAY_NAME not in data_array_names:
-                continue
             if "raw_pulses" not in data_array_names:
+                continue
+
+            classes = load_marker_array(file_path, MULTICLASS_ARRAY_NAME, block)
+            if classes is None:
                 continue
 
             num_pulses = len(block.data_arrays["raw_pulses"])
@@ -253,7 +297,6 @@ def collect_classifier_pulse_indices(data_path, class_id):
             else:
                 candidate_indices = np.arange(num_pulses)
 
-            classes = block.data_arrays[MULTICLASS_ARRAY_NAME][:]
             for pulse_idx in candidate_indices:
                 if classes[pulse_idx] == class_id:
                     entries.append((file_path, int(pulse_idx)))
@@ -421,7 +464,7 @@ def add_detection_markers(ax, mean_trace, fs, pulse_shape, pulse_key=None):
             label="Aligned maximum",
         )
 
-    if pulse_key in {"wide", "fat"}:
+    if pulse_key == "wide":
         add_half_max_markers(ax, mean_trace, fs, color)
         return
 
@@ -508,7 +551,7 @@ def plot_prototype_pulse_shape(
 
     add_detection_markers(ax, mean_trace, fs, pulse_shape, pulse_key=pulse_key)
 
-    if pulse_key in {"normal", "wide", "fat"} and corrected_waveforms:
+    if pulse_key in {"normal", "wide"} and corrected_waveforms:
         center = len(mean_trace) // 2
         aligned_corrected = np.asarray(
             [
@@ -564,7 +607,7 @@ def plot_symmetry_analysis(
     pulse_key, pulse_shape, corrected_waveforms, fs, output_dir, fraction=0.1
 ):
     """Whisker plot and paired t-test for left/right width at fraction of peak."""
-    if pulse_key not in {"normal", "wide", "fat"}:
+    if pulse_key not in {"normal", "wide"}:
         return
 
     left_widths = []
@@ -674,11 +717,12 @@ def plot_normal_double_overlay(
     ax.set_xlabel("Time (ms)")
     ax.set_ylabel("Normalized amplitude")
     ax.set_title("Mean double pulse vs two mean normal pulses (peak-aligned)")
-    ax.legend(loc="upper right", fontsize=9)
+    ax.legend(loc=LEGEND_LOC, fontsize=9)
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
     out = output_dir / "normal_pulses_aligned_to_double.png"
     fig.savefig(out, dpi=300)
+    save_thesis_figure("pulse_shapes/normal_pulses_aligned_to_double.png", fig)
     plt.close(fig)
     console.log(f"Saved {out}")
 
@@ -718,15 +762,21 @@ def main(
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     if apply_classifier:
-        console.log("Applying Random Forest classifier to h5 files...")
-        apply_special_pulse_classifier(data_path)
+        model_path = get_default_ml_paths()["model"]
+        if model_path.exists():
+            console.log("Applying Random Forest classifier to h5 files...")
+            apply_special_pulse_classifier(data_path)
+        else:
+            console.log(
+                "Classifier model not found; using existing h5 pulse-shape markers."
+            )
 
     pulse_counts = {}
     mean_traces = {}
 
     for pulse_key, pulse_shape in PULSE_SHAPES.items():
         console.log(f"\n{pulse_shape['label']}:")
-        entries = collect_classifier_pulse_indices(data_path, pulse_shape["class_id"])
+        entries = collect_pulse_shape_indices(data_path, pulse_key)
         total_count = len(entries)
         pulse_counts[pulse_key] = total_count
         console.log(f"  Found {total_count} detected pulses")
@@ -761,7 +811,7 @@ def main(
 
         if pulse_key == "double":
             save_double_peak_separation_stats(all_corrected, fs, OUTPUT_DIR)
-        if pulse_key in {"normal", "wide", "fat"}:
+        if pulse_key in {"normal", "wide"}:
             plot_symmetry_analysis(
                 pulse_key, pulse_shape, all_corrected, fs, OUTPUT_DIR
             )

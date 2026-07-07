@@ -40,17 +40,44 @@ from position_utils import (
     load_pulses_for_wav,
     movement_direction,
     smooth_positions,
-    tank_plot_limits,
+    tank_outline_bounds_framed,
 )
-from presentation_style import apply_presentation_style
+from presentation_style import apply_presentation_style, copy_thesis_asset, pulse_shape_color
 
 EEL_LINE_Y = 0.0
+ELECTRODE_TICK_HALF_M = 0.08
+ELECTRODE_LABEL_OFFSET_M = 0.14
 RAW_WINDOW_SEC = 0.10
-POS_PANEL_IN = 10.0
-RAW_PANEL_HEIGHT_RATIO = 1.2
-FIG_WIDTH_IN = POS_PANEL_IN
-FIG_HEIGHT_WITH_RAW_IN = POS_PANEL_IN * (1.0 + RAW_PANEL_HEIGHT_RATIO)
-FIG_HEIGHT_POSITION_ONLY_IN = POS_PANEL_IN
+RAW_WINDOW_MS = RAW_WINDOW_SEC * 1000.0
+FIG_WIDTH_IN = 14.0
+POS_PANEL_WIDTH_RATIO = 2
+RAW_PANEL_WIDTH_RATIO = 1
+TITLE_PAD = 8
+FIXED_BODY_LENGTH_M = 2.0
+RAW_Y_MARGIN = 1.08
+POOL_FRAME_PAD_M = 0.04
+
+
+def draw_electrode_ticks(ax, electrode_positions: np.ndarray):
+    """Mark each electrode along the line with a tick and index label."""
+    for index, pos in enumerate(electrode_positions):
+        ax.plot(
+            [pos, pos],
+            [EEL_LINE_Y - ELECTRODE_TICK_HALF_M, EEL_LINE_Y + ELECTRODE_TICK_HALF_M],
+            color="#333333",
+            linewidth=1.2,
+            zorder=4,
+        )
+        ax.text(
+            pos,
+            EEL_LINE_Y - ELECTRODE_LABEL_OFFSET_M,
+            str(index),
+            ha="center",
+            va="top",
+            fontsize=8,
+            color="#333333",
+            zorder=5,
+        )
 
 
 def draw_tank_background(ax, boundary_m: float = DEFAULT_BRIGHT_DARK_BOUNDARY_M):
@@ -97,26 +124,10 @@ def draw_tank_background(ax, boundary_m: float = DEFAULT_BRIGHT_DARK_BOUNDARY_M)
         linewidth=1.5,
         linestyle="-",
         zorder=3,
-        label="brightarea electrode line (3.75 m)",
     )
     ax.axvline(boundary_m, color="gray", linestyle="--", linewidth=1, zorder=3)
-    ax.scatter(
-        [0, LINE_LENGTH_M],
-        [EEL_LINE_Y, EEL_LINE_Y],
-        s=30,
-        color="#333333",
-        zorder=4,
-        label="electrode 1 / 16",
-    )
     electrode_positions = default_electrode_positions_m()
-    ax.scatter(
-        electrode_positions,
-        np.full_like(electrode_positions, EEL_LINE_Y, dtype=float),
-        s=18,
-        color="#666666",
-        zorder=4,
-        alpha=0.8,
-    )
+    draw_electrode_ticks(ax, electrode_positions)
 
 
 def load_wav_segment(wav_path: Path, max_seconds: float | None = None) -> tuple[np.ndarray, int]:
@@ -141,7 +152,7 @@ def draw_realistic_eel(
     svg_path: Path = EEL_SVG,
 ):
     """Draw the SVG-based eel body along the electrode line. Returns created artists."""
-    length_m = max(abs(head_m - tail_m), body_length_m * 0.5, 0.4)
+    length_m = body_length_m
     x_center = np.linspace(-length_m, 0, 300)
     y_center = np.zeros_like(x_center)
     rotate = 180 if (not np.isnan(direction) and direction < 0) else 0
@@ -154,19 +165,20 @@ def draw_realistic_eel(
         rotate=rotate,
         headpos=(head_m, EEL_LINE_Y),
     )
-    return plot_eel(ax, eel_verts[0], eel_verts[1], color="#1a535c", alpha=0.95)
+    return plot_eel(ax, eel_verts[0], eel_verts[1], color=pulse_shape_color("normal"), alpha=0.95)
 
 
 def build_animation(
     pulse_positions,
     meta,
-    body_length_m: float = 2.0,
+    body_length_m: float = FIXED_BODY_LENGTH_M,
     smooth_window: int = 5,
     fps: int = 10,
     max_frames: int = 500,
     show_raw: bool = True,
 ):
     """Create a matplotlib FuncAnimation with optional raw-audio panel."""
+    body_length_m = FIXED_BODY_LENGTH_M
     if not pulse_positions:
         raise ValueError(
             f"No pulses found for wav window {meta['wav_start']} – {meta['wav_end']}"
@@ -174,17 +186,13 @@ def build_animation(
 
     times = np.array([pulse.time_sec for pulse in pulse_positions])
     positions = np.array([pulse.head_m for pulse in pulse_positions])
-    amplitudes = np.array([pulse.amplitude for pulse in pulse_positions])
     smoothed = smooth_positions(positions, window=smooth_window)
     directions = movement_direction(positions, window=smooth_window)
-    amp_norm = amplitudes / (np.max(amplitudes) + 1e-12)
 
     if len(times) > max_frames:
         step = int(np.ceil(len(times) / max_frames))
         times = times[::step]
         positions = positions[::step]
-        amplitudes = amplitudes[::step]
-        amp_norm = amp_norm[::step]
         smoothed = smoothed[::step]
         directions = directions[::step]
 
@@ -193,99 +201,106 @@ def build_animation(
 
     wav_path = Path(meta["wav_path"])
     raw_audio, audio_fs = load_wav_segment(wav_path, max_seconds=duration + 1)
-    audio_time = np.arange(len(raw_audio)) / audio_fs
+    audio_time_ms = np.arange(len(raw_audio)) / audio_fs * 1000.0
+    duration_ms = duration * 1000.0
 
     dominant_channel = (
         int(np.bincount([pulse.head_channel for pulse in pulse_positions]).argmax())
         if pulse_positions
         else 0
     )
-    global_raw_ymax = 0.1
+    abs_audio = np.abs(raw_audio)
+    peak_audio = float(np.max(abs_audio)) if abs_audio.size else 0.01
+    global_raw_ymax = max(peak_audio * RAW_Y_MARGIN, 0.01)
+
+    xmin, xmax, ymin, ymax = tank_outline_bounds_framed(POOL_FRAME_PAD_M)
+    data_aspect = (xmax - xmin) / (ymax - ymin)
+    pos_panel_width_in = FIG_WIDTH_IN * POS_PANEL_WIDTH_RATIO / (
+        POS_PANEL_WIDTH_RATIO + RAW_PANEL_WIDTH_RATIO
+    )
+    fig_height_in = pos_panel_width_in / data_aspect + 0.8
 
     if show_raw:
-        fig, axes = plt.subplots(
-            2,
+        fig, (ax_pos, ax_raw) = plt.subplots(
             1,
-            figsize=(FIG_WIDTH_IN, FIG_HEIGHT_WITH_RAW_IN),
-            gridspec_kw={"height_ratios": [1.0, RAW_PANEL_HEIGHT_RATIO], "hspace": 0.08},
+            2,
+            figsize=(FIG_WIDTH_IN, fig_height_in),
+            gridspec_kw={
+                "width_ratios": [POS_PANEL_WIDTH_RATIO, RAW_PANEL_WIDTH_RATIO],
+                "wspace": 0.10,
+            },
         )
-        ax_pos, ax_raw = axes
-        fig.subplots_adjust(left=0.08, right=0.98, top=0.92, bottom=0.08, hspace=0.08)
     else:
-        fig, ax_pos = plt.subplots(figsize=(FIG_WIDTH_IN, FIG_HEIGHT_POSITION_ONLY_IN))
+        fig, ax_pos = plt.subplots(figsize=(pos_panel_width_in, fig_height_in))
         ax_raw = None
-        fig.subplots_adjust(left=0.08, right=0.98, top=0.92, bottom=0.08)
 
-    xmin, xmax, ymin, ymax = tank_plot_limits()
+    fig.set_layout_engine(None)
+    fig.suptitle(
+        f"Eel movement — {wav_path.name}",
+        fontsize=13,
+        fontweight="bold",
+        y=0.97,
+    )
+
     draw_tank_background(ax_pos)
     ax_pos.set_xlim(xmin, xmax)
     ax_pos.set_ylim(ymin, ymax)
-    ax_pos.set_aspect("equal", adjustable="box")
-    ax_pos.set_box_aspect(1)
-    ax_pos.set_xlabel("position along electrode line (m)")
-    ax_pos.set_yticks([])
+    ax_pos.set_aspect("equal")
+    ax_pos.margins(0)
+    for spine in ax_pos.spines.values():
+        spine.set_visible(False)
+    ax_pos.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
+    ax_pos.set_xlabel("position along electrode line (m)", labelpad=2)
     ax_pos.set_title(
-        f"Eel movement — {wav_path.name}\n"
-        f"{meta['wav_start'].strftime('%Y-%m-%d %H:%M:%S')} "
-        f"(peak positive, body length {body_length_m:.1f} m)"
+        f"{meta['wav_start'].strftime('%Y-%m-%d %H:%M:%S')} · "
+        f"peak positive · {body_length_m:.1f} m eel",
+        fontsize=11,
+        pad=TITLE_PAD,
     )
-    ax_pos.legend(loc="upper right", fontsize=8)
 
     raw_line = None
     if show_raw and ax_raw is not None:
         raw_line, = ax_raw.plot([], [], color="#555555", linewidth=1.8, alpha=0.95)
         ax_raw.set_ylabel("normalized audio")
-        ax_raw.set_xlabel("time (s)")
+        ax_raw.set_xlabel("time (ms)")
         ax_raw.set_title(
-            f"Strongest electrode channel {dominant_channel + 1} "
-            f"(±{RAW_WINDOW_SEC / 2:.2f} s window, synced)"
+            f"Channel {dominant_channel + 1} · "
+            f"±{RAW_WINDOW_MS / 2:.0f} ms window",
+            fontsize=11,
+            pad=TITLE_PAD,
         )
         ax_raw.grid(True, alpha=0.2)
-        preview_half = RAW_WINDOW_SEC / 2.0
-        preview_mask = (audio_time >= 0) & (audio_time <= min(duration, preview_half * 2))
-        if preview_mask.any():
-            global_raw_ymax = float(np.max(np.abs(raw_audio[preview_mask])) * 1.25)
-        ax_raw.set_ylim(-max(global_raw_ymax, 0.05), max(global_raw_ymax, 0.05))
+        ax_raw.set_ylim(-global_raw_ymax, global_raw_ymax)
 
-    trail_line, = ax_pos.plot([], [], color="#4ecdc4", linewidth=2, alpha=0.6, zorder=4)
-    pulse_scatter = ax_pos.scatter(
-        [],
-        [],
-        s=[],
-        c=[],
-        cmap="Reds",
-        vmin=0,
-        vmax=1,
-        alpha=0.7,
-        zorder=4,
-        edgecolors="none",
-    )
+    if show_raw:
+        fig.subplots_adjust(left=0.05, right=0.99, top=0.86, bottom=0.13, wspace=0.10)
+    else:
+        fig.subplots_adjust(left=0.05, right=0.99, top=0.86, bottom=0.13)
+
+    trail_line, = ax_pos.plot([], [], color=pulse_shape_color("all"), linewidth=2, alpha=0.6, zorder=4)
     eel_artists = []
 
     def init():
         trail_line.set_data([], [])
-        pulse_scatter.set_offsets(np.empty((0, 2)))
-        pulse_scatter.set_sizes([])
-        pulse_scatter.set_array(np.array([]))
         if raw_line is not None:
             raw_line.set_data([], [])
-        return [trail_line, pulse_scatter]
+        return [trail_line]
 
     def update_raw_window(t: float):
         if raw_line is None:
             return
-        half = RAW_WINDOW_SEC / 2.0
-        t0 = max(0.0, t - half)
-        t1 = min(duration, t + half)
-        if t1 - t0 < RAW_WINDOW_SEC:
+        half_ms = RAW_WINDOW_MS / 2.0
+        t_ms = t * 1000.0
+        t0 = max(0.0, t_ms - half_ms)
+        t1 = min(duration_ms, t_ms + half_ms)
+        if t1 - t0 < RAW_WINDOW_MS:
             if t0 == 0.0:
-                t1 = min(duration, RAW_WINDOW_SEC)
+                t1 = min(duration_ms, RAW_WINDOW_MS)
             else:
-                t0 = max(0.0, duration - RAW_WINDOW_SEC)
-        mask = (audio_time >= t0) & (audio_time <= t1)
-        raw_line.set_data(audio_time[mask], raw_audio[mask])
+                t0 = max(0.0, duration_ms - RAW_WINDOW_MS)
+        mask = (audio_time_ms >= t0) & (audio_time_ms <= t1)
+        raw_line.set_data(audio_time_ms[mask], raw_audio[mask])
         ax_raw.set_xlim(t0, t1)
-        ax_raw.set_ylim(-max(global_raw_ymax, 0.05), max(global_raw_ymax, 0.05))
 
     def update(frame_idx):
         nonlocal eel_artists
@@ -299,28 +314,17 @@ def build_animation(
         head_m, tail_m = eel_body_endpoints(head_m, direction, body_length_m=body_length_m)
 
         trail_line.set_data(smoothed[: frame_idx + 1], np.full(frame_idx + 1, EEL_LINE_Y))
-        past = times <= t
-        if past.any():
-            past_amp = amp_norm[past]
-            pulse_scatter.set_offsets(
-                np.column_stack([positions[past], np.full(past.sum(), EEL_LINE_Y)])
-            )
-            pulse_scatter.set_sizes(20 + 200 * past_amp)
-            pulse_scatter.set_array(past_amp)
-        else:
-            pulse_scatter.set_offsets(np.empty((0, 2)))
-            pulse_scatter.set_sizes([])
-            pulse_scatter.set_array(np.array([]))
 
         eel_artists.extend(
             draw_realistic_eel(ax_pos, head_m, tail_m, direction, body_length_m)
         )
 
         ax_pos.set_xlabel(
-            f"position along electrode line (m) — t = {t:.1f} s / {duration:.1f} s"
+            f"position along electrode line (m) · "
+            f"t = {t * 1000:.0f} ms / {duration_ms:.0f} ms"
         )
         update_raw_window(t)
-        return [trail_line, pulse_scatter, *eel_artists]
+        return [trail_line, *eel_artists]
 
     anim = animation.FuncAnimation(
         fig,
@@ -345,6 +349,7 @@ def save_animation(
     duration_sec: float | None = None,
 ):
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.set_layout_engine("none")
     video_path = output_path
     if wav_path is not None and output_path.suffix.lower() == ".mp4":
         video_path = output_path.with_suffix(".video-only.mp4")
@@ -414,8 +419,8 @@ def parse_args():
     parser.add_argument(
         "--body-length",
         type=float,
-        default=2.0,
-        help="Assumed eel body length in metres for drawing (default: 2.0 = male).",
+        default=FIXED_BODY_LENGTH_M,
+        help="Assumed eel body length in metres for drawing (fixed at 2.0 m).",
     )
     parser.add_argument(
         "--smooth-window",
@@ -514,6 +519,8 @@ def main():
         wav_path=wav_path if use_audio and output_path.suffix.lower() == ".mp4" else None,
         duration_sec=meta.get("duration_sec"),
     )
+    thesis_name = f"eel_position_animation{output_path.suffix}"
+    copy_thesis_asset(output_path, f"position_estimation/{thesis_name}")
     print(f"Saved animation to {output_path}")
 
     if args.show:

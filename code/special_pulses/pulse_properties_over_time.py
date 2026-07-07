@@ -30,13 +30,15 @@ from data_paths import (
     MATING_CORRELATION_DIR,
     PULSE_SHAPE_PROTOTYPES_DIR,
 )
-from presentation_style import apply_presentation_style, pulse_shape_color
+from presentation_style import LEGEND_LOC, apply_presentation_style, pulse_shape_color, save_thesis_figure
 from h5_io import get_path_list, get_pulse_block, load_marker_array, open_h5
-from special_pulses.double_peaks_detection import compute_half_max_width
+from special_pulses.double_peaks_detection import (
+    compute_half_max_width,
+    expand_marker_to_all_pulses,
+)
 from special_pulses.prototype_pulse_plots import (
     PULSE_SHAPES,
     baseline_correct,
-    expand_marker,
     get_biggest_unclipped_waveform,
 )
 from special_pulses.pulse_shape_metrics import double_pulse_metrics
@@ -49,7 +51,7 @@ def _full_marker(file_path, block, array_name, candidates, num_pulses):
     raw = load_marker_array(file_path, array_name, block)
     if raw is None:
         return np.zeros(num_pulses, dtype=np.int64)
-    return expand_marker(raw, candidates, num_pulses)
+    return expand_marker_to_all_pulses(raw, candidates, num_pulses, array_name)
 
 
 def collect_pulse_property_records(data_path) -> pd.DataFrame:
@@ -176,42 +178,30 @@ def plot_half_width_monthly(df: pd.DataFrame, output_dir: Path):
 
 
 def plot_half_width_distribution(df: pd.DataFrame, output_dir: Path):
-    """Overall half-width distribution, all pulse shapes pooled."""
+    """Overall half-width distribution (histogram + KDE), all pulse shapes pooled."""
     values = df["half_width_ms"].dropna().values
     if values.size == 0:
         return
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    fig, ax = plt.subplots(figsize=(8, 5))
 
-    axes[0].hist(values, bins=80, density=True, color="steelblue", alpha=0.75, edgecolor="white", linewidth=0.3)
+    hist_color = pulse_shape_color("all")
+    kde_color = pulse_shape_color("normal")
+    ax.hist(values, bins=80, density=True, color=hist_color, alpha=0.75, edgecolor="white", linewidth=0.3)
     if values.size >= 50:
         sample = values if values.size <= 50_000 else np.random.default_rng(0).choice(values, size=50_000, replace=False)
         kde_x = np.linspace(sample.min(), sample.max(), 300)
         kde_y = stats.gaussian_kde(sample)(kde_x)
-        axes[0].plot(kde_x, kde_y, color="midnightblue", linewidth=2, label="KDE")
-        axes[0].legend()
-    axes[0].set_xlabel("Half width (ms)")
-    axes[0].set_ylabel("Density")
-    axes[0].set_title("Overall distribution")
-    axes[0].grid(True, alpha=0.3)
+        ax.plot(kde_x, kde_y, color=kde_color, linewidth=2, label="KDE")
+        ax.legend(loc=LEGEND_LOC)
+    ax.set_xlabel("Half width (ms)")
+    ax.set_ylabel("Density")
+    ax.set_title("Half-width across all pulse shapes")
+    ax.grid(True, alpha=0.3)
 
-    violin_data = values if values.size <= 20_000 else np.random.default_rng(0).choice(values, size=20_000, replace=False)
-    parts = axes[1].violinplot([violin_data], positions=[1], showmeans=True, showmedians=True)
-    for body in parts["bodies"]:
-        body.set_facecolor("steelblue")
-        body.set_alpha(0.65)
-    axes[1].set_xticks([1])
-    axes[1].set_xticklabels(["All pulses"])
-    axes[1].set_ylabel("Half width (ms)")
-    title = "Overall distribution (violin)"
-    if values.size > 20_000:
-        title += f"\n(subsampled to {len(violin_data):,} pulses)"
-    axes[1].set_title(title)
-    axes[1].grid(True, axis="y", alpha=0.3)
-
-    plt.suptitle("Half-width across all pulse shapes", fontsize=13, fontweight="bold")
     plt.tight_layout()
-    fig.savefig(output_dir / "half_width_violin_by_shape.png", dpi=300)
+    fig.savefig(output_dir / "half_width_kde_all_shapes.png", dpi=300)
+    save_thesis_figure("pulse_shapes/half_width_kde_all_shapes.png", fig)
     plt.close(fig)
 
 

@@ -12,6 +12,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CODE_DIR = PROJECT_ROOT / "code"
+THESIS_FIGURES_DIR = PROJECT_ROOT / "figures"
 
 #################################
 ######## DATASET SELECTION ######

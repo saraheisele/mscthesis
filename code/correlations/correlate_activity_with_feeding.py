@@ -37,6 +37,7 @@ from data_paths import (
     LAB_DATA_DIR,
 )
 from h5_io import get_pulse_block, load_marker_array, open_h5
+from presentation_style import LEGEND_LOC, apply_presentation_style, pulse_shape_color, save_thesis_figure
 
 OUTPUT_DIR = FEEDING_CORRELATION_DIR
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -472,6 +473,7 @@ def extract_all_feeding_events() -> pd.DataFrame:
 
 
 def run_analysis():
+    apply_presentation_style()
     print("Extracting feeding times from Word documents...")
     feeding_df = extract_all_feeding_events()
     feeding_df.to_csv(OUTPUT_DIR / "feeding_events_extracted.csv", index=False)
@@ -648,19 +650,21 @@ def plot_peri_feeding_curves(peri_curves: dict[str, list[np.ndarray]]):
         curves = peri_curves[pulse_type]
         if not curves:
             continue
+        color = pulse_shape_color(pulse_type)
         mean_curve = np.mean(np.vstack(curves), axis=0)
         sem = stats.sem(np.vstack(curves), axis=0) if len(curves) > 1 else np.zeros_like(mean_curve)
-        ax.plot(x, mean_curve, label=cfg["label"])
-        ax.fill_between(x, mean_curve - sem, mean_curve + sem, alpha=0.2)
+        ax.plot(x, mean_curve, label=cfg["label"], color=color)
+        ax.fill_between(x, mean_curve - sem, mean_curve + sem, alpha=0.2, color=color)
 
     ax.axvline(0, color="black", linestyle="--", linewidth=1, alpha=0.7)
     ax.set_xlabel("Minutes relative to feeding event")
     ax.set_ylabel("Mean pulse rate (Hz)")
     ax.set_title("Average pulse activity around feeding events")
     ax.grid(True, alpha=0.3)
-    ax.legend()
+    ax.legend(loc=LEGEND_LOC)
     plt.tight_layout()
     plt.savefig(OUTPUT_DIR / "peri_feeding_pulse_rate_trajectories.png", dpi=300)
+    save_thesis_figure("correlations/peri_feeding_pulse_rate_trajectories.png")
     plt.close()
 
 
@@ -675,16 +679,33 @@ def plot_feeding_vs_nonfeeding_rates(corr_summary: pd.DataFrame):
     x = np.arange(len(labels))
     width = 0.35
     fig, ax = plt.subplots(figsize=(9, 5))
-    ax.bar(x - width / 2, nonfeeding, width, label=f"Non-feeding (>{BASELINE_EXCLUDE_MIN} min away)")
-    ax.bar(x + width / 2, feeding, width, label=f"Feeding (±{FEEDING_FLAG_RADIUS_MIN} min)")
+    pulse_types = corr_summary["pulse_type"].tolist()
+    for i, pulse_type in enumerate(pulse_types):
+        color = pulse_shape_color(pulse_type)
+        ax.bar(
+            x[i] - width / 2,
+            nonfeeding[i],
+            width,
+            color=color,
+            alpha=0.55,
+            label=f"Non-feeding (>{BASELINE_EXCLUDE_MIN} min away)" if i == 0 else None,
+        )
+        ax.bar(
+            x[i] + width / 2,
+            feeding[i],
+            width,
+            color=color,
+            label=f"Feeding (±{FEEDING_FLAG_RADIUS_MIN} min)" if i == 0 else None,
+        )
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=15)
     ax.set_ylabel("Mean pulse rate (Hz)")
     ax.set_title("Pulse rate during feeding windows vs baseline")
-    ax.legend()
+    ax.legend(loc=LEGEND_LOC)
     ax.grid(True, axis="y", alpha=0.3)
     plt.tight_layout()
     plt.savefig(OUTPUT_DIR / "feeding_vs_nonfeeding_pulse_rates.png", dpi=300)
+    save_thesis_figure("correlations/feeding_vs_nonfeeding_pulse_rates.png")
     plt.close()
 
 

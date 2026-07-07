@@ -24,16 +24,28 @@ from dateutil.relativedelta import relativedelta
 
 from data_paths import POSITION_FIGURES_DIR, activity_hist_dir, position_hist_dir
 from presentation_style import (
-    add_bright_dark_boundary,
+    LEGEND_LOC,
+    THESIS_COLORS,
+    add_bright_dark_boundary_horizontal,
+    add_dark_electrode_boundary,
     apply_presentation_style,
-    shade_dark_region,
+    save_thesis_figure,
+    shade_dark_electrodes,
+    shade_dark_region_above,
 )
+
+POSITION_SCATTER_COLOR = THESIS_COLORS[0]
+POSITION_MEDIAN_COLOR = THESIS_COLORS[1]
 from pulse_config import PULSE_TYPES
 from position_utils import (
     DEFAULT_BRIGHT_DARK_BOUNDARY_M,
+    ELECTRODE_SPACING_M,
     LINE_LENGTH_M,
+    N_ELECTRODES,
     default_electrode_positions_m,
 )
+
+DARK_ELECTRODE_START = int(round(DEFAULT_BRIGHT_DARK_BOUNDARY_M / ELECTRODE_SPACING_M))
 
 POSITION_METHOD = "peak_positive"
 
@@ -133,9 +145,9 @@ def plot_mean_position(timescale, mean_position, save_path, suffix, meta):
     )
     ax.set_ylabel("mean head position (m)")
     ax.set_ylim(0, LINE_LENGTH_M)
-    shade_dark_region(ax, DEFAULT_BRIGHT_DARK_BOUNDARY_M, y_min=0, y_max=LINE_LENGTH_M)
-    add_bright_dark_boundary(ax, DEFAULT_BRIGHT_DARK_BOUNDARY_M)
-    ax.legend(loc="upper right")
+    shade_dark_region_above(ax, DEFAULT_BRIGHT_DARK_BOUNDARY_M, y_max=LINE_LENGTH_M)
+    add_bright_dark_boundary_horizontal(ax, DEFAULT_BRIGHT_DARK_BOUNDARY_M)
+    ax.legend(loc=LEGEND_LOC)
     titles = {
         "minute": "24-hour mean position (1-min bins)",
         "hour": "24-hour mean position (hourly bins)",
@@ -245,9 +257,9 @@ def plot_session_mean_position_summary(timescale, arr, save_path, suffix, meta):
     format_x_axis(ax, timescale, arr.shape[1], meta[2], meta[0], meta[1])
     ax.set_ylabel("mean head position (m)")
     ax.set_ylim(0, LINE_LENGTH_M)
-    shade_dark_region(ax, DEFAULT_BRIGHT_DARK_BOUNDARY_M, y_min=0, y_max=LINE_LENGTH_M)
-    add_bright_dark_boundary(ax, DEFAULT_BRIGHT_DARK_BOUNDARY_M)
-    ax.legend(loc="upper right", fontsize="small")
+    shade_dark_region_above(ax, DEFAULT_BRIGHT_DARK_BOUNDARY_M, y_max=LINE_LENGTH_M)
+    add_bright_dark_boundary_horizontal(ax, DEFAULT_BRIGHT_DARK_BOUNDARY_M)
+    ax.legend(loc=LEGEND_LOC, fontsize="small")
     plt.title(f"session-wise mean position ({timescale})")
     plt.tight_layout()
     plt.savefig(save_path / f"{timescale}_session_mean_position{suffix}.png", dpi=300)
@@ -259,22 +271,32 @@ def plot_overall_position_distribution(occurrence_hour, save_path, suffix):
     counts = occurrence_hour.sum(axis=0)
     if counts.sum() == 0:
         return
-    positions = default_electrode_positions_m()
-    total_seconds = estimate_total_recording_seconds()
-    rates_hz = counts.astype(float) / total_seconds
+    electrode_indices = np.arange(min(len(counts), N_ELECTRODES))
+    rates_hz = counts[: len(electrode_indices)].astype(float) / estimate_total_recording_seconds()
 
     fig, ax = plt.subplots(figsize=(12, 5))
-    ax.bar(positions, rates_hz, width=0.2, color="#1a535c", edgecolor="white")
     ymax = max(float(np.max(rates_hz)) * 1.1, 0.01)
     ax.set_ylim(0, ymax)
-    shade_dark_region(ax, DEFAULT_BRIGHT_DARK_BOUNDARY_M, y_min=0, y_max=ymax)
-    add_bright_dark_boundary(ax, DEFAULT_BRIGHT_DARK_BOUNDARY_M)
-    ax.set_xlabel("position along line (m)")
+    ax.set_xlim(-0.5, len(electrode_indices) - 0.5)
+    shade_dark_electrodes(
+        ax,
+        DARK_ELECTRODE_START,
+        n_electrodes=len(electrode_indices),
+        y_min=0,
+        y_max=ymax,
+    )
+    add_dark_electrode_boundary(ax, DARK_ELECTRODE_START)
+    ax.bar(electrode_indices, rates_hz, width=0.7, color=POSITION_SCATTER_COLOR, linewidth=0, zorder=3)
+    ax.set_xticks(electrode_indices)
+    ax.set_xlabel("electrode")
     ax.set_ylabel("pulse rate (Hz)")
     ax.set_title("overall position distribution (hourly bins collapsed)")
-    ax.legend()
+    ax.legend(loc=LEGEND_LOC, fontsize=10)
+    ax.set_xlim(-0.5, len(electrode_indices) - 0.5)
     plt.tight_layout()
-    plt.savefig(save_path / f"overall_position_distribution{suffix}.png", dpi=300)
+    filename = f"overall_position_distribution{suffix}.png"
+    plt.savefig(save_path / filename, dpi=300)
+    save_thesis_figure(f"position_estimation/{filename}")
     plt.close()
 
 
@@ -290,7 +312,7 @@ def plot_position_panel_figure(session_data, save_path, suffix, meta):
         x = np.arange(arr.shape[1])
         for i in range(arr.shape[0]):
             valid = ~np.isnan(arr[i])
-            ax.scatter(x[valid], arr[i][valid], alpha=0.15, s=8, color="#1a535c")
+            ax.scatter(x[valid], arr[i][valid], alpha=0.15, s=8, color=POSITION_SCATTER_COLOR)
 
         median = np.full(arr.shape[1], np.nan)
         p_lo = np.full(arr.shape[1], np.nan)
@@ -304,12 +326,12 @@ def plot_position_panel_figure(session_data, save_path, suffix, meta):
             p_lo[j] = np.percentile(values, 16)
             p_hi[j] = np.percentile(values, 84)
 
-        ax.plot(x, np.ma.masked_invalid(median), color="#c0392b", linewidth=2.5, label="median")
+        ax.plot(x, np.ma.masked_invalid(median), color=POSITION_MEDIAN_COLOR, linewidth=2.5, label="median")
         ax.fill_between(
             x,
             np.ma.masked_invalid(p_lo),
             np.ma.masked_invalid(p_hi),
-            color="#c0392b",
+            color=POSITION_MEDIAN_COLOR,
             alpha=0.25,
             label="16-84th pct",
         )
@@ -322,16 +344,18 @@ def plot_position_panel_figure(session_data, save_path, suffix, meta):
             first_month_month,
         )
         ax.set_ylim(0, LINE_LENGTH_M)
-        shade_dark_region(ax, DEFAULT_BRIGHT_DARK_BOUNDARY_M, y_min=0, y_max=LINE_LENGTH_M)
-        add_bright_dark_boundary(ax, DEFAULT_BRIGHT_DARK_BOUNDARY_M)
+        shade_dark_region_above(ax, DEFAULT_BRIGHT_DARK_BOUNDARY_M, y_max=LINE_LENGTH_M)
+        add_bright_dark_boundary_horizontal(ax, DEFAULT_BRIGHT_DARK_BOUNDARY_M)
         ax.set_ylabel("mean head position (m)")
         ax.set_title(title)
-        ax.legend(loc="upper right", fontsize=10)
+        ax.legend(loc=LEGEND_LOC, fontsize=10)
         ax.grid(True, alpha=0.25)
 
     fig.suptitle("Spatial usage over time (session-wise median + percentiles)")
     plt.tight_layout()
-    plt.savefig(save_path / f"position_panels{suffix}.png", dpi=300)
+    filename = f"position_panels{suffix}.png"
+    plt.savefig(save_path / filename, dpi=300)
+    save_thesis_figure(f"position_estimation/{filename}")
     plt.close()
 
 

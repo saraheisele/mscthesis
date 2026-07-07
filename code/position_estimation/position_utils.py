@@ -122,6 +122,25 @@ def tank_plot_limits() -> tuple[float, float, float, float]:
     ymax = float(np.max(np.abs(outline[:, 1]))) + 0.4
     return xmin, xmax, -ymax, ymax
 
+
+def tank_outline_bounds_tight() -> tuple[float, float, float, float]:
+    """Tight axis limits matching the fused pool outline (no padding)."""
+    outline = fused_pool_outline_vertices(
+        BRIGHT_POOL_CENTER, DARK_POOL_CENTER, POOL_RADIUS_M
+    )
+    return (
+        float(outline[:, 0].min()),
+        float(outline[:, 0].max()),
+        float(outline[:, 1].min()),
+        float(outline[:, 1].max()),
+    )
+
+
+def tank_outline_bounds_framed(pad_m: float = 0.04) -> tuple[float, float, float, float]:
+    """Tight pool outline bounds with a small inset so strokes are not clipped."""
+    xmin, xmax, ymin, ymax = tank_outline_bounds_tight()
+    return xmin - pad_m, xmax + pad_m, ymin - pad_m, ymax + pad_m
+
 WAV_TIME_RE = re.compile(r"(\d{8}T\d{6})")
 
 

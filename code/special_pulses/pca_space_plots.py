@@ -19,7 +19,7 @@ setup_script_paths(__file__)
 from rich.console import Console
 
 from data_paths import PCA_SPACE_DIR, SPECIAL_PULSE_CLASSIFIER_DIR
-from presentation_style import apply_presentation_style
+from presentation_style import apply_presentation_style, copy_thesis_asset
 from special_pulses.double_peaks_detection import (
     LABELING_PULSE_CLASSES,
     SPECIAL_PULSE_CLASSES,
@@ -63,6 +63,7 @@ def save_pca_space_plots(output_dir: Path | None = None) -> Path | None:
         show=False,
         class_names=SPECIAL_PULSE_CLASSES,
     )
+    copy_thesis_asset(output_path, "pulse_shapes/labeled_pulses_pca_space.png")
     console.log(f"Saved PCA space plot to {output_path}")
     return output_path
 

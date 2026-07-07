@@ -21,13 +21,15 @@ import nixio
 from rich.console import Console
 
 from data_paths import HALF_WIDTH_DISTRIBUTIONS_DIR, H5_DIR
-from presentation_style import apply_presentation_style, pulse_shape_color
+from presentation_style import LEGEND_LOC, apply_presentation_style, pulse_shape_color, save_thesis_figure
 from h5_io import get_path_list, get_pulse_block, load_marker_array, open_h5
-from special_pulses.double_peaks_detection import compute_half_max_width
+from special_pulses.double_peaks_detection import (
+    compute_half_max_width,
+    expand_marker_to_all_pulses,
+)
 from special_pulses.prototype_pulse_plots import (
     PULSE_SHAPES,
     baseline_correct,
-    expand_marker,
     get_biggest_unclipped_waveform,
 )
 from special_pulses.pulse_shape_metrics import double_pulse_metrics
@@ -40,7 +42,7 @@ def _full_marker(file_path, block, array_name, candidates, num_pulses):
     raw = load_marker_array(file_path, array_name, block)
     if raw is None:
         return np.zeros(num_pulses, dtype=np.int64)
-    return expand_marker(raw, candidates, num_pulses)
+    return expand_marker_to_all_pulses(raw, candidates, num_pulses, array_name)
 
 
 def collect_half_widths(data_path) -> dict[str, np.ndarray]:
@@ -67,7 +69,6 @@ def collect_half_widths(data_path) -> dict[str, np.ndarray]:
 
             double_m = _full_marker(file_path, block, "is_double_peak", candidates, num_pulses)
             wide_m = _full_marker(file_path, block, "is_wide_pulse", candidates, num_pulses)
-            fat_m = _full_marker(file_path, block, "is_fat_pulse", candidates, num_pulses)
 
             for pulse_idx in candidates:
                 trace, _ = get_biggest_unclipped_waveform(raw[pulse_idx][:])
@@ -80,9 +81,6 @@ def collect_half_widths(data_path) -> dict[str, np.ndarray]:
                 elif wide_m[pulse_idx] == 1:
                     w, _ = compute_half_max_width(corrected, fs)
                     results["wide"].append(w * 1000)
-                elif fat_m[pulse_idx] == 1:
-                    w, _ = compute_half_max_width(corrected, fs)
-                    results["fat"].append(w * 1000)
                 else:
                     w, _ = compute_half_max_width(corrected, fs)
                     results["normal"].append(w * 1000)
@@ -98,8 +96,9 @@ def plot_distributions(widths_by_shape: dict, output_dir: Path):
     with open(output_dir / "half_width_pulse_counts.json", "w") as handle:
         json.dump(counts, handle, indent=2)
 
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    for ax, (key, shape) in zip(axes.ravel(), PULSE_SHAPES.items()):
+    n_shapes = len(PULSE_SHAPES)
+    fig, axes = plt.subplots(1, n_shapes, figsize=(4.5 * n_shapes, 5))
+    for ax, (key, shape) in zip(np.atleast_1d(axes), PULSE_SHAPES.items()):
         values = widths_by_shape[key]
         if values.size == 0:
             ax.set_title(f"{shape['label']} (n=0)")
@@ -114,12 +113,13 @@ def plot_distributions(widths_by_shape: dict, output_dir: Path):
         ax.set_xlabel("Half width (ms)")
         ax.set_ylabel("Count")
         ax.set_title(f"{shape['label']} (n={values.size:,})")
-        ax.legend(fontsize=8)
+        ax.legend(fontsize=8, loc=LEGEND_LOC)
         ax.grid(True, alpha=0.3)
 
     fig.suptitle("Half-width distributions by pulse shape", fontsize=14, fontweight="bold")
     plt.tight_layout()
     fig.savefig(output_dir / "half_width_distributions_all_shapes.png", dpi=300)
+    save_thesis_figure("pulse_shapes/half_width_distributions_all_shapes.png", fig)
     plt.close(fig)
 
     fig, ax = plt.subplots(figsize=(12, 6))
@@ -138,10 +138,11 @@ def plot_distributions(widths_by_shape: dict, output_dir: Path):
     ax.set_xlabel("Half width (ms)")
     ax.set_ylabel("Density")
     ax.set_title("Overlaid half-width distributions (all pulse shapes)")
-    ax.legend()
+    ax.legend(loc=LEGEND_LOC)
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
     fig.savefig(output_dir / "half_width_distributions_overlay.png", dpi=300)
+    save_thesis_figure("pulse_shapes/half_width_distributions_overlay.png", fig)
     plt.close(fig)
     console.log(f"Saved half-width plots to {output_dir}")
 

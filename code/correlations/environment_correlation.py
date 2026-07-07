@@ -24,7 +24,7 @@ from dateutil.relativedelta import relativedelta
 from scipy import stats
 
 from data_paths import ENVIRONMENT_CORRELATION_DIR, EXCEL_DIR, activity_hist_dir
-from presentation_style import apply_presentation_style, pulse_shape_color
+from presentation_style import LEGEND_LOC, apply_presentation_style, pulse_shape_color, save_thesis_figure
 from pulse_config import PULSE_TYPES
 
 OUTPUT_DIR = ENVIRONMENT_CORRELATION_DIR
@@ -387,34 +387,49 @@ def load_daily_shape_fractions() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _plot_lagged_correlation_on_axis(ax, sub: pd.DataFrame, shape_order: list[str], env_param: str):
+    for shape in shape_order:
+        s = sub[sub["pulse_shape"] == shape].sort_values("lag_days")
+        if s.empty:
+            continue
+        label = "all pulses" if shape == "all" else shape
+        ax.plot(
+            s["lag_days"],
+            s["spearman_r"],
+            marker="o",
+            linewidth=2.5,
+            label=label,
+            color=pulse_shape_color(shape),
+        )
+    ax.axhline(0, color="gray", linestyle="--", linewidth=1.2)
+    ax.set_xlabel("Lag (days): env change → pulse response")
+    ax.set_ylabel("Spearman ρ")
+    ax.set_title(f"Delayed correlation: {env_param}")
+    ax.legend(loc=LEGEND_LOC)
+    ax.grid(True, alpha=0.3)
+
+
 def plot_lagged_correlations(lag_df: pd.DataFrame, output_dir: Path):
     if lag_df.empty:
         return
     shape_order = ["all", "double", "wide", "fat"]
-    for env_param in lag_df["env_param"].unique():
+    env_params = sorted(lag_df["env_param"].unique())
+    for env_param in env_params:
         sub = lag_df[lag_df["env_param"] == env_param]
         fig, ax = plt.subplots(figsize=(10, 5))
-        for shape in shape_order:
-            s = sub[sub["pulse_shape"] == shape].sort_values("lag_days")
-            if s.empty:
-                continue
-            label = "all pulses" if shape == "all" else shape
-            ax.plot(
-                s["lag_days"],
-                s["spearman_r"],
-                marker="o",
-                linewidth=2.5,
-                label=label,
-                color=pulse_shape_color(shape),
-            )
-        ax.axhline(0, color="gray", linestyle="--", linewidth=1.2)
-        ax.set_xlabel("Lag (days): env change → pulse response")
-        ax.set_ylabel("Spearman ρ")
-        ax.set_title(f"Delayed correlation: {env_param}")
-        ax.legend()
-        ax.grid(True, alpha=0.3)
+        _plot_lagged_correlation_on_axis(ax, sub, shape_order, env_param)
         plt.tight_layout()
         fig.savefig(output_dir / f"lagged_correlation_{env_param}.png", dpi=300)
+        plt.close(fig)
+
+    if len(env_params) >= 2:
+        fig, axes = plt.subplots(len(env_params), 1, figsize=(10, 4.5 * len(env_params)), sharex=True)
+        axes = np.atleast_1d(axes)
+        for ax, env_param in zip(axes, env_params):
+            sub = lag_df[lag_df["env_param"] == env_param]
+            _plot_lagged_correlation_on_axis(ax, sub, shape_order, env_param)
+        plt.tight_layout()
+        save_thesis_figure("correlations/lag_corr_all_pulse_shapes.png", fig)
         plt.close(fig)
 
 
@@ -883,12 +898,13 @@ def plot_combined_correlations(aligned_by_pulse: dict):
         ax.set_xlabel(env_label)
         ax.set_ylabel("Pulse rate (Hz)")
         ax.grid(True, alpha=0.3)
-        ax.legend()
+        ax.legend(loc=LEGEND_LOC)
 
     fig.suptitle("Environmental correlations — all pulse categories")
     plt.tight_layout()
     out = OUTPUT_DIR / "correlations_all_pulse_shapes.png"
     plt.savefig(out, dpi=300, bbox_inches="tight")
+    save_thesis_figure("correlations/correlations_all_pulse_shapes.png")
     print(f"Saved: {out.name}")
     plt.close()
 

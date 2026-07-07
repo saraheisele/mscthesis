@@ -42,7 +42,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from data_paths import H5_DIR, PCA_SPACE_DIR, SPECIAL_PULSE_CLASSIFIER_DIR
-from presentation_style import apply_presentation_style, classifier_label_colors
+from presentation_style import LEGEND_LOC, apply_presentation_style, classifier_label_colors
 from h5_io import (
     get_path_list,
     get_pulse_block,
@@ -88,28 +88,24 @@ MIN_AMPLITUDE_THRESHOLD = 5.0
 
 SPECIAL_PULSE_CLASSES = {
     0: "normal",
-    1: "double",
-    2: "wide",
-    3: "fat",
+    1: "wide",
+    2: "double",
 }
 
 LABELING_PULSE_CLASSES = {
     0: "normal",
-    1: "double",
-    2: "wide",
-    3: "fat",
+    1: "wide",
+    2: "double",
 }
 
 SPECIAL_CLASS_ARRAYS = {
-    1: "is_double_peak",
-    2: "is_wide_pulse",
-    3: "is_fat_pulse",
+    1: "is_wide_pulse",
+    2: "is_double_peak",
 }
 
 LABELING_CLASS_ARRAYS = {
-    1: ("is_double_peak",),
-    2: ("is_wide_pulse",),
-    3: ("is_fat_pulse",),
+    1: ("is_wide_pulse",),
+    2: ("is_double_peak",),
 }
 
 MULTICLASS_ARRAY_NAME = "special_pulse_class"
@@ -958,10 +954,9 @@ def load_balanced_detector_labeled_pulses(
     Load a balanced manual-labeling set using old detector output arrays.
 
     Sampling pools:
-        normal: predicted-positive pulses with double == 0, wide == 0, and fat == 0
-        double: predicted-positive pulses with double == 1
+        normal: predicted-positive pulses with wide == 0 and double == 0
         wide: predicted-positive pulses with wide == 1
-        fat: predicted-positive pulses with fat == 1
+        double: predicted-positive pulses with double == 1
     """
     path_list = get_path_list(Path(data_path))
     rng = np.random.default_rng(random_seed)
@@ -995,7 +990,7 @@ def load_balanced_detector_labeled_pulses(
 
             detector_markers = {}
             missing = []
-            for label_id in (1, 2, 3):
+            for label_id in LABELING_CLASS_ARRAYS:
                 marker, array_name = get_first_available_array(
                     block, data_array_names, LABELING_CLASS_ARRAYS[label_id]
                 )
@@ -1011,22 +1006,17 @@ def load_balanced_detector_labeled_pulses(
                 con.log(f"    Missing {', '.join(missing)}. Skipping.")
                 continue
 
-            double_marker = detector_markers[1]
-            wide_marker = detector_markers[2]
-            fat_marker = detector_markers[3]
+            wide_marker = detector_markers[1]
+            double_marker = detector_markers[2]
 
             fs = file.sections["pulses_metadata"]["metadata"]["samplerate"]
 
             candidate_mask = np.zeros(num_pulses, dtype=bool)
             candidate_mask[candidate_indices] = True
             masks = {
-                0: candidate_mask
-                & (double_marker == 0)
-                & (wide_marker == 0)
-                & (fat_marker == 0),
-                1: candidate_mask & (double_marker == 1),
-                2: candidate_mask & (wide_marker == 1),
-                3: candidate_mask & (fat_marker == 1),
+                0: candidate_mask & (wide_marker == 0) & (double_marker == 0),
+                1: candidate_mask & (wide_marker == 1),
+                2: candidate_mask & (double_marker == 1),
             }
 
             for label_id, mask in masks.items():
@@ -1257,14 +1247,64 @@ def normalize_channels_for_label_plot(pulse_data):
     return corrected / scale
 
 
-def plot_labeling_pulse(ax, waveform, record, label_counts, current_idx, total):
+def pulse_peak_index(pulse_data, best_channel=None):
+    """Return the sample index of the dominant absolute peak."""
+    pulse_data = np.asarray(pulse_data, dtype=float)
+    if pulse_data.ndim == 2:
+        if best_channel is None:
+            channel_strengths = np.max(np.abs(pulse_data), axis=0)
+            best_channel = int(np.argmax(channel_strengths))
+        trace = pulse_data[:, best_channel]
+    else:
+        trace = pulse_data
+    return int(np.argmax(np.abs(trace)))
+
+
+def peak_aligned_time_ms(n_samples, peak_idx, fs):
+    """Time axis in ms with the pulse peak at t = 0."""
+    return (np.arange(n_samples) - peak_idx) / fs * 1000
+
+
+def compute_label_plot_half_window_ms(records):
+    """Symmetric half-window (ms) for fixed peak-centered labeling axes."""
+    half_windows = []
+    for record in records:
+        fs = float(record["fs"])
+        if "all_channels" in record:
+            pulse_data = record["all_channels"]
+            peak_idx = pulse_peak_index(
+                pulse_data, best_channel=record.get("best_channel")
+            )
+            n_samples = pulse_data.shape[0]
+        else:
+            waveform = np.asarray(record["waveform"], dtype=float)
+            peak_idx = pulse_peak_index(waveform)
+            n_samples = len(waveform)
+
+        half_samples = max(peak_idx, n_samples - 1 - peak_idx)
+        half_windows.append(half_samples / fs * 1000)
+
+    return max(half_windows) if half_windows else 5.0
+
+
+def plot_labeling_pulse(
+    ax,
+    waveform,
+    record,
+    label_counts,
+    current_idx,
+    total,
+    *,
+    label_plot_half_window_ms,
+):
     ax.clear()
     fs = record["fs"]
 
     if "all_channels" in record:
         pulse_data = normalize_channels_for_label_plot(record["all_channels"])
-        time_axis = np.arange(pulse_data.shape[0]) / fs * 1000
         best_channel = record.get("best_channel")
+        peak_idx = pulse_peak_index(pulse_data, best_channel=best_channel)
+        time_axis = peak_aligned_time_ms(pulse_data.shape[0], peak_idx, fs)
 
         for channel_idx in range(pulse_data.shape[1]):
             is_best_channel = channel_idx == best_channel
@@ -1276,11 +1316,14 @@ def plot_labeling_pulse(ax, waveform, record, label_counts, current_idx, total):
                 label=f"ch {channel_idx}" if is_best_channel else None,
             )
     else:
-        time_axis = np.arange(len(waveform)) / fs * 1000
+        peak_idx = pulse_peak_index(waveform)
+        time_axis = peak_aligned_time_ms(len(waveform), peak_idx, fs)
         ax.plot(time_axis, waveform, linewidth=2.0, color="steelblue")
 
     ax.axhline(0, color="black", linewidth=0.8, alpha=0.4)
-    ax.set_xlabel("Time (ms)")
+    ax.axvline(0, color="black", linewidth=0.8, alpha=0.25, linestyle=":")
+    ax.set_xlim(-label_plot_half_window_ms, label_plot_half_window_ms)
+    ax.set_xlabel("Time from peak (ms)")
     ax.set_ylabel("Amplitude (normalized)")
     ax.grid(True, alpha=0.3, linestyle="--")
 
@@ -1293,7 +1336,7 @@ def plot_labeling_pulse(ax, waveform, record, label_counts, current_idx, total):
         f"Label pulse {current_idx + 1}/{total} | "
         f"{Path(record['file_path']).name}, pulse {record['pulse_idx']} | "
         f"sampled as: {sampled_as}\n"
-        "[0] normal  [1] double  [2] wide  [3] fat  [S] skip  [Q] finish | "
+        "[0] normal  [1] wide  [2] double  [S] skip  [Q] finish | "
         f"{counts}"
     )
     ax.set_title(title, fontsize=11, fontweight="bold")
@@ -1310,9 +1353,8 @@ def interactive_label_pulses(
 
     Labels:
         0 = normal
-        1 = double
-        2 = wide
-        3 = fat
+        1 = wide
+        2 = double
     """
     ml_paths = get_default_ml_paths()
     labels_path = Path(labels_path) if labels_path else ml_paths["labels"]
@@ -1329,14 +1371,18 @@ def interactive_label_pulses(
 
     waveforms = normalize_waveforms_for_pca(waveforms)
     labels = np.full(len(waveforms), -1, dtype=np.int64)
+    label_plot_half_window_ms = compute_label_plot_half_window_ms(records)
 
     con.log("\nLabeling instructions:")
     con.log("  0 = normal/non-special pulse")
-    con.log("  1 = double pulse")
-    con.log("  2 = wide pulse")
-    con.log("  3 = fat pulse")
+    con.log("  1 = wide pulse")
+    con.log("  2 = double pulse")
     con.log("  S = skip current pulse")
     con.log("  Q = finish and save labels collected so far")
+    con.log(
+        f"  Fixed x-axis: ±{label_plot_half_window_ms:.2f} ms from peak "
+        "(for width comparison)"
+    )
 
     state = {"idx": 0, "quit": False}
     label_counts = {}
@@ -1359,6 +1405,7 @@ def interactive_label_pulses(
             label_counts,
             state["idx"],
             len(waveforms),
+            label_plot_half_window_ms=label_plot_half_window_ms,
         )
         fig.canvas.draw_idle()
 
@@ -1367,7 +1414,7 @@ def interactive_label_pulses(
             return
 
         key = event.key.lower()
-        if key in {"0", "1", "2", "3"}:
+        if key in {"0", "1", "2"}:
             label = int(key)
             labels[state["idx"]] = label
             label_counts[label] = label_counts.get(label, 0) + 1
@@ -1503,7 +1550,7 @@ def plot_labeled_pulses_pca_space(
             colors,
         )
         if panel_idx == 0:
-            ax.legend(title="Manual label", frameon=True)
+            ax.legend(title="Manual label", frameon=True, loc=LEGEND_LOC)
 
     for panel_idx in range(n_panels, n_rows * n_cols):
         row_idx, col_idx = divmod(panel_idx, n_cols)
@@ -1945,13 +1992,13 @@ def benchmark_pulse_classifiers(labels_path=None):
     active_label_mask = np.isin(labels, list(LABELING_PULSE_CLASSES))
     if not np.all(active_label_mask):
         ignored_count = int(np.sum(~active_label_mask))
-        con.log(f"Ignoring {ignored_count} labels outside normal/double/wide/fat.")
+        con.log(f"Ignoring {ignored_count} labels outside normal/wide/double.")
         waveforms = waveforms[active_label_mask]
         labels = labels[active_label_mask]
         records = records[active_label_mask]
 
     if len(labels) == 0:
-        con.log("No normal/double/wide/fat labels available for benchmarking.")
+        con.log("No normal/wide/double labels available for benchmarking.")
         return None
 
     split = _prepare_classifier_train_test_split(waveforms, labels, records=records)
@@ -2128,12 +2175,12 @@ def train_special_pulse_classifier(labels_path=None, model_path=None, show_pca_p
     active_label_mask = np.isin(labels, list(LABELING_PULSE_CLASSES))
     if not np.all(active_label_mask):
         ignored_count = int(np.sum(~active_label_mask))
-        con.log(f"Ignoring {ignored_count} labels outside normal/double/wide/fat.")
+        con.log(f"Ignoring {ignored_count} labels outside normal/wide/double.")
         waveforms = waveforms[active_label_mask]
         labels = labels[active_label_mask]
     if len(labels) == 0:
         raise ValueError(
-            "No normal/double/wide/fat labels available to train a classifier."
+            "No normal/wide/double labels available to train a classifier."
         )
 
     unique_labels, label_counts = np.unique(labels, return_counts=True)
@@ -2233,7 +2280,7 @@ def write_or_create_data_array(block, array_name, values):
 
 
 def predict_special_pulses_in_file(file_path, classifier):
-    file = open_h5(file_path, nixio.FileMode.ReadWrite)
+    file, write_mode = open_h5_readwrite_or_readonly(file_path)
     if file is None:
         return {"status": "skipped", "reason": "locked_or_unreadable"}
 
@@ -2266,11 +2313,21 @@ def predict_special_pulses_in_file(file_path, classifier):
             waveforms = normalize_waveforms_for_pca(np.asarray(waveforms, dtype=float))
             predicted_classes[candidate_indices] = classifier.predict(waveforms)
 
-        write_or_create_data_array(block, MULTICLASS_ARRAY_NAME, predicted_classes)
+        marker_arrays = {
+            MULTICLASS_ARRAY_NAME: predicted_classes,
+            **{
+                array_name: (predicted_classes == label_id).astype(np.int64)
+                for label_id, array_name in SPECIAL_CLASS_ARRAYS.items()
+            },
+        }
 
-        for label_id, array_name in SPECIAL_CLASS_ARRAYS.items():
-            binary_values = (predicted_classes == label_id).astype(np.int64)
-            write_or_create_data_array(block, array_name, binary_values)
+        if write_mode == "h5":
+            for array_name, values in marker_arrays.items():
+                write_or_create_data_array(block, array_name, values)
+        else:
+            for array_name, values in marker_arrays.items():
+                sidecar = save_marker_sidecar(file_path, array_name, values)
+                con.log(f"  Saved '{array_name}' markers to {sidecar.name}")
 
         counts = {
             SPECIAL_PULSE_CLASSES[label_id]: int(np.sum(predicted_classes == label_id))
@@ -2278,7 +2335,7 @@ def predict_special_pulses_in_file(file_path, classifier):
         }
 
         con.log(f"  {Path(file_path).name}: {counts}")
-        return {"status": "completed", "counts": counts}
+        return {"status": "completed", "counts": counts, "write_mode": write_mode}
 
     finally:
         file.close()
@@ -2408,7 +2465,7 @@ def main():
     global DETECTION_MODE, ARRAY_NAME, DISPLAY_NAME
 
     parser = argparse.ArgumentParser(
-        description="Detect special pulse shapes (double, wide, fat) in .h5 files.",
+        description="Detect special pulse shapes (double, wide) in .h5 files.",
     )
     parser.add_argument(
         "--mode",
