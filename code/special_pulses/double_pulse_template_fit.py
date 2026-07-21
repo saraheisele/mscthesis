@@ -361,11 +361,27 @@ def fit_all_pulses(
     return fixed_width, scaled_width
 
 
-def reconstruct_fit(result: FitResult, template: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def reconstruct_components(
+    result: FitResult, template: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
     width = 1.0 if not np.isfinite(result.width_scale) else result.width_scale
     comp1 = result.a1 * scaled_shifted_template(template, result.t1_samples, width)
     comp2 = result.a2 * scaled_shifted_template(template, result.t2_samples, width)
+    return comp1, comp2
+
+
+def reconstruct_fit(result: FitResult, template: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    comp1, comp2 = reconstruct_components(result, template)
     return comp1 + comp2, comp1, comp2
+
+
+def reconstruct_fit_convolution(
+    result: FitResult, template: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Combine the two template components by discrete convolution (same length)."""
+    comp1, comp2 = reconstruct_components(result, template)
+    yhat = np.convolve(comp1, comp2, mode="same")
+    return yhat, comp1, comp2
 
 
 def aggregate_fit_params(results: list[FitResult], stat: str) -> FitResult:

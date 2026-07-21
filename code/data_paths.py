@@ -9,10 +9,25 @@ full-dataset figures in data/processed/ are never overwritten.
 """
 
 from pathlib import Path
+import os
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CODE_DIR = PROJECT_ROOT / "code"
 THESIS_FIGURES_DIR = PROJECT_ROOT / "figures"
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def active_thesis_figures_dir() -> Path:
+    """Root directory for thesis figures for the active dataset."""
+    if USE_DUMMY_DATASET:
+        return THESIS_FIGURES_DIR
+    return THESIS_FIGURES_DIR / "full"
 
 #################################
 ######## DATASET SELECTION ######
@@ -20,7 +35,7 @@ THESIS_FIGURES_DIR = PROJECT_ROOT / "figures"
 
 # True  → dummy subset, outputs under data/processed/dummy/
 # False → full dataset at /home/efish/eelsmfn2021_eods/berlin_tank_site
-USE_DUMMY_DATASET = True
+USE_DUMMY_DATASET = _env_bool("EEL_USE_DUMMY_DATASET", True)
 
 #################################
 ############# INPUT #############
@@ -58,7 +73,10 @@ else:
     POSITION_HISTOGRAMS_DIR = INTERMEDIATE_DIR / "eels-mfn2021_position_histograms"
 
 SPECIAL_PULSE_CLASSIFIER_DIR = INTERMEDIATE_DIR / "special_pulse_classifier"
-SPECIAL_PULSE_MARKERS_DIR = INTERMEDIATE_DIR / "special_pulse_markers"
+if USE_DUMMY_DATASET:
+    SPECIAL_PULSE_MARKERS_DIR = INTERMEDIATE_DIR / "special_pulse_markers"
+else:
+    SPECIAL_PULSE_MARKERS_DIR = INTERMEDIATE_DIR / "special_pulse_markers_full"
 SESSION_PATHS_JSON = INTERMEDIATE_DIR / "eellogger_session_paths.json"
 
 LEGACY_PULSE_DATA_NPZ = INTERMEDIATE_DIR / "pulse_data.npz"

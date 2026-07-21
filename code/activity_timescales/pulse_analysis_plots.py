@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
 
-from data_paths import THESIS_FIGURES_DIR, activity_hist_dir, processed_figures_dir
+from data_paths import active_thesis_figures_dir, activity_hist_dir, processed_figures_dir
 from plotting_utils import format_x_axis
 from presentation_style import LEGEND_LOC, apply_presentation_style, pulse_shape_color, save_thesis_figure
 from pulse_config import PULSE_TYPES, select_pulse_type
@@ -231,7 +231,7 @@ def plot_circadian_panel_figure(
 def plot_circadian_panels_all_shapes(save_path=None):
     """Four-panel overview with all pulse categories overlaid."""
     if save_path is None:
-        save_path = THESIS_FIGURES_DIR / "activity_timescales"
+        save_path = active_thesis_figures_dir() / "activity_timescales"
     save_path.mkdir(parents=True, exist_ok=True)
 
     axis_meta = load_histogram_metadata(

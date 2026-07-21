@@ -1108,6 +1108,31 @@ def normalize_waveforms_for_pca(waveforms):
     return corrected
 
 
+def resample_waveforms(waveforms: np.ndarray, target_length: int) -> np.ndarray:
+    """Resample 1D waveforms to the length expected by the trained classifier."""
+    waveforms = np.asarray(waveforms, dtype=float)
+    if waveforms.ndim == 1:
+        waveforms = waveforms[np.newaxis, :]
+    if waveforms.shape[1] == target_length:
+        return waveforms
+
+    source_x = np.linspace(0.0, 1.0, waveforms.shape[1])
+    target_x = np.linspace(0.0, 1.0, target_length)
+    return np.vstack([np.interp(target_x, source_x, row) for row in waveforms])
+
+
+def classifier_waveform_length(classifier) -> int:
+    """Return the waveform feature length a fitted classifier pipeline expects."""
+    return int(classifier.named_steps["scaler"].n_features_in_)
+
+
+def prepare_classifier_waveforms(waveforms: np.ndarray, classifier) -> np.ndarray:
+    """Resample and normalize waveforms for classifier prediction."""
+    target_length = classifier_waveform_length(classifier)
+    waveforms = resample_waveforms(waveforms, target_length)
+    return normalize_waveforms_for_pca(waveforms)
+
+
 def _make_pca_estimator(n_components, random_state=42):
     return RobustPCA(n_components=n_components, random_state=random_state)
 
@@ -2252,6 +2277,7 @@ def train_special_pulse_classifier(labels_path=None, model_path=None, show_pca_p
                 "classes": SPECIAL_PULSE_CLASSES,
                 "array_names": SPECIAL_CLASS_ARRAYS,
                 "multiclass_array": MULTICLASS_ARRAY_NAME,
+                "waveform_length": int(X_train.shape[1]),
             },
             f,
         )
@@ -2310,7 +2336,7 @@ def predict_special_pulses_in_file(file_path, classifier):
                 trace, _ = get_representative_waveform(pulse_data)
                 waveforms.append(trace)
 
-            waveforms = normalize_waveforms_for_pca(np.asarray(waveforms, dtype=float))
+            waveforms = prepare_classifier_waveforms(np.asarray(waveforms, dtype=float), classifier)
             predicted_classes[candidate_indices] = classifier.predict(waveforms)
 
         marker_arrays = {
@@ -2344,6 +2370,13 @@ def predict_special_pulses_in_file(file_path, classifier):
 def apply_special_pulse_classifier(data_path, model_path=None):
     ml_paths = get_default_ml_paths()
     model_path = Path(model_path) if model_path else ml_paths["model"]
+
+    # Compatibility for older pickles: during training, RobustPCA may have been
+    # pickled under "__main__" (e.g. when the training script was run directly).
+    # When loading from another script, that class may not exist in __main__,
+    # causing: "Can't get attribute 'RobustPCA' on <module '__main__' ...>".
+    import __main__
+    setattr(__main__, "RobustPCA", RobustPCA)
 
     with model_path.open("rb") as f:
         model_data = pickle.load(f)

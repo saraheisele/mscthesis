@@ -97,10 +97,11 @@ def save_thesis_figure(
     **kwargs,
 ) -> Path:
     """Save a figure to the thesis figures directory."""
-    from data_paths import THESIS_FIGURES_DIR
+    from data_paths import active_thesis_figures_dir
 
-    THESIS_FIGURES_DIR.mkdir(parents=True, exist_ok=True)
-    path = THESIS_FIGURES_DIR / filename
+    figures_dir = active_thesis_figures_dir()
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    path = figures_dir / filename
     path.parent.mkdir(parents=True, exist_ok=True)
     if fig is None:
         plt.savefig(path, dpi=dpi, **kwargs)
@@ -111,10 +112,11 @@ def save_thesis_figure(
 
 def copy_thesis_asset(source: Path, filename: str | None = None) -> Path:
     """Copy a non-PNG asset (e.g. animation) into the thesis figures directory."""
-    from data_paths import THESIS_FIGURES_DIR
+    from data_paths import active_thesis_figures_dir
 
-    THESIS_FIGURES_DIR.mkdir(parents=True, exist_ok=True)
-    dest = THESIS_FIGURES_DIR / (filename or source.name)
+    figures_dir = active_thesis_figures_dir()
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    dest = figures_dir / (filename or source.name)
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, dest)
     return dest
