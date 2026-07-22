@@ -1,4 +1,4 @@
-"""Detect and label special pulse shapes (double, wide, fat) in predetected .h5 files.
+"""Detect and label special pulse shapes (double, wide) in predetected .h5 files.
 
 Analysis part: special-pulse detection and ML classifier (Part 2 of Berlin activity analysis).
 Dependencies: data_paths, h5_io; writes marker arrays back into input .h5 files.
@@ -59,11 +59,10 @@ con = Console()
 ############# MODE ##############
 #################################
 
-DETECTION_MODE = "fat"
+DETECTION_MODE = "double"
 # options:
 # "double"
 # "wide"
-# "fat"
 
 MODE_CONFIG = {
     "double": {
@@ -73,10 +72,6 @@ MODE_CONFIG = {
     "wide": {
         "array_name": "is_wide_pulse",
         "display_name": "wide pulse",
-    },
-    "fat": {
-        "array_name": "is_fat_pulse",
-        "display_name": "fat pulse",
     },
 }
 
@@ -643,30 +638,6 @@ def detect_wide_pulse(
     }
 
 
-def detect_fat_pulse(
-    pulse_waveform,
-    sample_rate,
-    amplitude_threshold=MIN_AMPLITUDE_THRESHOLD,
-    width_threshold_ms=4,
-    max_width_ms=None,
-    isolation_window_ms=3.0,
-    prominence_ratio=0.1,
-):
-    """
-    Detect fat pulses using the wide-pulse detector without shape validation.
-    """
-    return detect_wide_pulse(
-        pulse_waveform,
-        sample_rate,
-        amplitude_threshold=amplitude_threshold,
-        width_threshold_ms=width_threshold_ms,
-        max_width_ms=max_width_ms,
-        isolation_window_ms=isolation_window_ms,
-        prominence_ratio=prominence_ratio,
-        check_shape=False,
-    )
-
-
 # unified detection wrapper
 def detect_pulse(pulse_waveform, sample_rate):
     """
@@ -678,9 +649,6 @@ def detect_pulse(pulse_waveform, sample_rate):
 
     elif DETECTION_MODE == "wide":
         return detect_wide_pulse(pulse_waveform, sample_rate)
-
-    elif DETECTION_MODE == "fat":
-        return detect_fat_pulse(pulse_waveform, sample_rate)
 
     else:
         raise ValueError(f"Unknown DETECTION_MODE: {DETECTION_MODE}")
@@ -745,11 +713,11 @@ def detect_special_pulses_in_file(file_path):
         con.log(f"  Found {num_pulses} pulses.")
 
         # Previous detector arrays are used to keep rule-based categories exclusive
-        # when running the modes in order: double, wide, fat.
+        # when running the modes in order: double, then wide.
         predicted = predicted_labels[:]
         candidate_indices = np.where(predicted == 1)[0]
 
-        if DETECTION_MODE in {"wide", "fat"}:
+        if DETECTION_MODE == "wide":
             double_marker = load_marker_array(file_path, "is_double_peak", block)
             if double_marker is not None:
                 is_double_peak = expand_marker_to_all_pulses(
@@ -762,20 +730,6 @@ def detect_special_pulses_in_file(file_path):
                 is_double_peak = np.zeros(num_pulses, dtype=np.int64)
         else:
             is_double_peak = np.zeros(num_pulses, dtype=np.int64)
-
-        if DETECTION_MODE == "fat":
-            wide_marker = load_marker_array(file_path, "is_wide_pulse", block)
-            if wide_marker is not None:
-                is_wide_pulse = expand_marker_to_all_pulses(
-                    wide_marker,
-                    candidate_indices,
-                    num_pulses,
-                    "is_wide_pulse",
-                )
-            else:
-                is_wide_pulse = np.zeros(num_pulses, dtype=np.int64)
-        else:
-            is_wide_pulse = np.zeros(num_pulses, dtype=np.int64)
 
         # Analyze each pulse for the selected pulse type
         is_detection_array = np.zeros(num_pulses, dtype=np.int64)
@@ -791,13 +745,6 @@ def detect_special_pulses_in_file(file_path):
 
             # Wide pulses cannot also be double peaks
             if DETECTION_MODE == "wide" and is_double_peak[i] == 1:
-                negative_count += 1
-                continue
-
-            # Fat pulses cannot also be double or wide pulses
-            if DETECTION_MODE == "fat" and (
-                is_double_peak[i] == 1 or is_wide_pulse[i] == 1
-            ):
                 negative_count += 1
                 continue
 

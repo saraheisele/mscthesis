@@ -1,4 +1,4 @@
-"""Visual QA for special-pulse detections (double, wide, fat).
+"""Visual QA for special-pulse detections (double, wide).
 
 Analysis part: special-pulse visualization (Part 2b of Berlin activity analysis).
 Dependencies: double_peaks_detection, data_paths, h5_io; run detection first.

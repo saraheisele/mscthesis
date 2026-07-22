@@ -1,0 +1,33 @@
+{
+  "n_pulses": 500,
+  "sample_rate_hz": 24000.0,
+  "seed": 42,
+  "mean_fit": {
+    "model": "direct_mean_free_w",
+    "a1": 0.5484294745839935,
+    "a2": 0.2001686023672154,
+    "t1_samples": 235.19247211523182,
+    "t2_samples": 281.1190150162011,
+    "delay_samples": 45.92654290096928,
+    "delay_ms": 1.9136059542070534,
+    "amplitude_ratio": 0.36498512870602295,
+    "width_scale": 0.4900817196330745,
+    "r2": 0.9773987453274107,
+    "rmse": 0.03288770607659688,
+    "success": true
+  },
+  "median_fit": {
+    "model": "free_width",
+    "a1": NaN,
+    "a2": NaN,
+    "t1_samples": NaN,
+    "t2_samples": NaN,
+    "delay_samples": NaN,
+    "delay_ms": NaN,
+    "amplitude_ratio": NaN,
+    "width_scale": NaN,
+    "r2": NaN,
+    "rmse": NaN,
+    "success": false
+  }
+}

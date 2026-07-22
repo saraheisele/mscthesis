@@ -22,7 +22,6 @@ This analysis investigates correlations between eel pulse activity (measured in 
   - All pulses (total activity)
   - Double pulses
   - Wide pulses
-  - Fat pulses
 - **Date Range**: 2023-11-01 to 2026-03-01
 - **Overlap with Env Data**: 2023-11 to 2026-03
 - **Timescales**: Daily, Monthly (month_since_start)
@@ -54,18 +53,13 @@ This analysis investigates correlations between eel pulse activity (measured in 
    - **Interpretation**: Wide pulse rate decreases with increasing conductivity (monthly level)
    - Pearson r = -0.390, p = 0.1675 (non-significant linear)
 
-3. **Fat Pulses - Conductivity (Monthly)**
-   - Spearman ρ = -0.626, p = 0.0165 ✓
-   - **Interpretation**: Fat pulse rate decreases with increasing conductivity (monthly level)
-   - Pearson r = -0.258, p = 0.3728 (non-significant linear)
-
 ### Non-Significant Correlations
 - **Temperature**: No significant correlations at any level for any pulse type
   - All p-values > 0.40
   - Likely due to narrow temperature range (only 2°C variation: 25-27°C)
 - **All Pulses & Conductivity**: No significant correlations
 - **Double Pulses & Temperature**: No significant correlations
-- **Wide/Fat Pulses & Temperature**: No significant correlations
+- **Wide Pulses & Temperature**: No significant correlations
 
 ## Statistical Notes
 
@@ -78,7 +72,7 @@ This analysis investigates correlations between eel pulse activity (measured in 
 
 1. **Conductivity Sensitivity**: Eels show differential sensitivity to conductivity depending on pulse type:
    - Double pulses increase with conductivity
-   - Wide and fat pulses decrease with conductivity
+   - Wide pulses decrease with conductivity
    - Suggests different physiological or behavioral functions of pulse types
 
 2. **Temperature**: No significant effects likely due to:
@@ -86,7 +80,7 @@ This analysis investigates correlations between eel pulse activity (measured in 
    - Possible temperature acclimation
    - Activity may be controlled by factors other than absolute temperature
 
-3. **Timescale Dependence**: Significant correlations mostly at monthly (not daily) level for wide/fat pulses:
+3. **Timescale Dependence**: Significant correlations mostly at monthly (not daily) level for wide pulses:
    - Suggests long-term adaptation rather than direct stimulus-response
    - Short-term conductivity changes may not directly affect pulse rate
 

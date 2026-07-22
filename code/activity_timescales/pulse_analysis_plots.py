@@ -304,8 +304,6 @@ def plot_session_pulse_rate_summary(
         color = pulse_shape_color("double")
     elif suffix == "_wide":
         color = pulse_shape_color("wide")
-    elif suffix == "_fat":
-        color = pulse_shape_color("fat")
     else:
         color = pulse_shape_color("all")
 

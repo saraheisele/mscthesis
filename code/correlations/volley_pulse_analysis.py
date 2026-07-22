@@ -3,7 +3,7 @@
 Analysis part: volley / pulse-shape context analysis (Part 3b).
 Dependencies: data_paths; requires predetected .h5 files with pulse markers.
 
-Identifies rapid pulse bursts (volleys), then compares double/wide/fat pulse
+Identifies rapid pulse bursts (volleys), then compares double/wide pulse
 proportions before, during, and after volleys against a clean baseline.
 """
 
@@ -45,7 +45,7 @@ def load_raw_pulse_data(h5_file_path):
     Returns:
         tuple: (pulse_centers, pulse_markers_dict, metadata)
                - pulse_centers: Array of pulse center sample indices (predicted positive only)
-               - pulse_markers_dict: Dict with marker arrays (double, wide, fat)
+               - pulse_markers_dict: Dict with marker arrays (double, wide)
                - metadata: (sampling_rate, duration, start_time)
     """
     try:
@@ -70,7 +70,6 @@ def load_raw_pulse_data(h5_file_path):
             marker_map = {
                 "is_double_peak": "double",
                 "is_wide_pulse": "wide",
-                "is_fat_pulse": "fat",
             }
             for array_name, marker_key in marker_map.items():
                 marker_values = load_marker_array(h5_file_path, array_name, block)
@@ -423,7 +422,7 @@ def analyze_pulses_around_volleys(
     proportion given the total pulses actually observed in that context.
     """
     window_samples = int(window_s * sampling_rate)
-    pulse_types = ["double", "wide", "fat"]
+    pulse_types = ["double", "wide"]
 
     if recording_duration_s is None:
         recording_duration_s = (
@@ -529,7 +528,7 @@ def compare_volley_pulse_type_rate_corrected(all_pulse_stats):
             context_total / context_time_s if context_time_s > 0 else np.nan
         )
 
-        for ptype in ["double", "wide", "fat"]:
+        for ptype in ["double", "wide"]:
             baseline_n = baseline_counts[ptype]
             context_n = context_counts[ptype]
             baseline_prop = (
@@ -616,7 +615,7 @@ def print_volley_analysis(volley_stats, strategy=None):
         f"({baseline_rate:.2f} Hz overall)"
     )
     print("-" * 70)
-    for pulse_type in ["double", "wide", "fat"]:
+    for pulse_type in ["double", "wide"]:
         count = volley_stats["baseline"][pulse_type]
         pct = 100 * count / baseline_total if baseline_total else 0
         rate = count / baseline_time_s if baseline_time_s > 0 else np.nan
@@ -671,7 +670,7 @@ def print_volley_analysis(volley_stats, strategy=None):
             print("  No pulses in this context.")
             continue
 
-        for pulse_type in ["double", "wide", "fat"]:
+        for pulse_type in ["double", "wide"]:
             result = corrected[(context_key, pulse_type)]
             sig = ""
             if not np.isnan(result["p_value"]) and result["p_value"] < 0.05:
@@ -711,16 +710,16 @@ def run_volley_analysis(h5_files=None):
     strategy = resolve_volley_detection_strategy(h5_files)
     all_pulse_stats = {
         "total_volleys": 0,
-        "within": {"double": 0, "wide": 0, "fat": 0},
+        "within": {"double": 0, "wide": 0},
         "within_total": 0,
         "within_time_s": 0.0,
-        "before": {"double": 0, "wide": 0, "fat": 0},
-        "after": {"double": 0, "wide": 0, "fat": 0},
+        "before": {"double": 0, "wide": 0},
+        "after": {"double": 0, "wide": 0},
         "before_total": 0,
         "after_total": 0,
         "before_time_s": 0.0,
         "after_time_s": 0.0,
-        "baseline": {"double": 0, "wide": 0, "fat": 0},
+        "baseline": {"double": 0, "wide": 0},
         "baseline_total": 0,
         "baseline_time_s": 0.0,
     }
@@ -760,7 +759,7 @@ def run_volley_analysis(h5_files=None):
                 all_pulse_stats["baseline_total"] += stats["baseline_total"]
                 all_pulse_stats["baseline_time_s"] += stats["baseline_time_s"]
                 for context in ["within", "before", "after", "baseline"]:
-                    for ptype in ["double", "wide", "fat"]:
+                    for ptype in ["double", "wide"]:
                         all_pulse_stats[context][ptype] += stats[context][ptype]
 
     print_volley_analysis(all_pulse_stats, strategy=strategy)

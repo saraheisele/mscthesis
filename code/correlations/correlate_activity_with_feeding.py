@@ -46,7 +46,6 @@ PULSE_TYPES = {
     "all": {"label": "All pulses", "array": None},
     "double": {"label": "Double pulses", "array": "is_double_peak"},
     "wide": {"label": "Wide pulses", "array": "is_wide_pulse"},
-    "fat": {"label": "Fat pulses", "array": "is_fat_pulse"},
 }
 
 FEEDING_LINE_RE = re.compile(

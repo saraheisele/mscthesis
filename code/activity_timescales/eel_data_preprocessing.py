@@ -4,7 +4,7 @@ Analysis part: pulse activity preprocessing (Part 1 of Berlin activity analysis)
 Dependencies: data_paths, pulse_config, h5_io; input .h5 files from deep_peak_sieve.
 
 Generates pulse-count and pulse-rate .npz files at minute/hour/day/month/year scales,
-normalized by recording effort. Run once per pulse type (all, double, wide, fat).
+normalized by recording effort. Run once per pulse type (all, double, wide).
 """
 
 import sys

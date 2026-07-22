@@ -36,11 +36,11 @@ log "Dummy pipeline started (USE_DUMMY_DATASET=true, outputs under data/processe
 
 run_ml_detection
 
-for pt in all double wide fat; do
+for pt in all double wide; do
   run_preprocessing "$pt"
 done
 
-for pt in all double wide fat; do
+for pt in all double wide; do
   run_plots "$pt"
 done
 

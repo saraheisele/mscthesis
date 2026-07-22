@@ -31,7 +31,6 @@ PULSE_SHAPE_COLORS = {
     "normal": THESIS_COLORS[0],
     "double": THESIS_COLORS[1],
     "wide": THESIS_COLORS[2],
-    "fat": THESIS_COLORS[3],
     "all": THESIS_COLORS[4],
 }
 

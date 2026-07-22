@@ -4,8 +4,11 @@ Analysis part: special-pulse visualization (Part 2c of Berlin activity analysis)
 Dependencies: double_peaks_detection, data_paths, h5_io.
 
 Randomly samples pulses, aligns waveforms at shape-specific reference points,
-and overlays individual traces with their mean for normal/double/wide/fat types.
+and overlays individual traces with their mean for normal/double/wide types.
 Uses the trained Random Forest classifier (special_pulse_class) for categorization.
+
+Aligned mean/median waveforms are saved under PULSE_SHAPE_PROTOTYPES_DIR as
+``prototype_<shape>_mean.npz`` for reuse by downstream analyses.
 """
 
 import sys
@@ -33,7 +36,6 @@ from double_peaks_detection import (
     apply_special_pulse_classifier,
     compute_half_max_width,
     detect_double_pulse,
-    expand_marker_to_all_pulses,
     get_default_ml_paths,
 )
 from h5_io import get_path_list, get_pulse_block, load_marker_array, open_h5
@@ -220,55 +222,56 @@ def align_waveforms(
     )
 
 
-def _full_marker(file_path, block, array_name, candidates, num_pulses):
-    raw = load_marker_array(file_path, array_name, block)
-    if raw is None:
-        return np.zeros(num_pulses, dtype=np.int64)
-    return expand_marker_to_all_pulses(raw, candidates, num_pulses, array_name)
+def save_prototype_mean_waveforms(
+    pulse_key: str,
+    aligned_waveforms: np.ndarray,
+    fs: float,
+    output_dir: Path,
+    *,
+    n_classified: int,
+    align_mode: str,
+) -> Path:
+    """Save aligned mean/median prototype waveforms for later reuse."""
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    mean_trace = np.mean(aligned_waveforms, axis=0)
+    median_trace = np.median(aligned_waveforms, axis=0)
+    out = output_dir / f"prototype_{pulse_key}_mean.npz"
+    np.savez(
+        out,
+        mean=np.asarray(mean_trace, dtype=float),
+        median=np.asarray(median_trace, dtype=float),
+        fs=float(fs),
+        n_in_mean=int(len(aligned_waveforms)),
+        n_classified=int(n_classified),
+        align_mode=str(align_mode),
+        pulse_key=str(pulse_key),
+    )
+    console.log(
+        f"  Saved prototype mean/median ({len(aligned_waveforms):,} waveforms) to {out.name}"
+    )
+    return out
 
 
-def collect_pulse_shape_indices(data_path, pulse_key):
-    """Collect pulse indices using h5 marker arrays (is_double_peak, is_wide_pulse)."""
-    entries = []
-    for file_path in get_path_list(Path(data_path)):
-        file = open_h5(file_path, nixio.FileMode.ReadOnly)
-        if file is None:
-            continue
-        try:
-            block = get_pulse_block(file)
-            data_array_names = [da.name for da in block.data_arrays]
-            if "raw_pulses" not in data_array_names:
-                continue
-
-            num_pulses = len(block.data_arrays["raw_pulses"])
-            if "predicted_labels" in data_array_names:
-                candidate_indices = np.where(
-                    block.data_arrays["predicted_labels"][:] == 1
-                )[0]
-            else:
-                candidate_indices = np.arange(num_pulses)
-            if len(candidate_indices) == 0:
-                continue
-
-            double_m = _full_marker(
-                file_path, block, "is_double_peak", candidate_indices, num_pulses
-            )
-            wide_m = _full_marker(
-                file_path, block, "is_wide_pulse", candidate_indices, num_pulses
-            )
-
-            for pulse_idx in candidate_indices:
-                is_double = double_m[pulse_idx] == 1
-                is_wide = wide_m[pulse_idx] == 1
-                if pulse_key == "double" and is_double:
-                    entries.append((file_path, int(pulse_idx)))
-                elif pulse_key == "wide" and is_wide and not is_double:
-                    entries.append((file_path, int(pulse_idx)))
-                elif pulse_key == "normal" and not is_double and not is_wide:
-                    entries.append((file_path, int(pulse_idx)))
-        finally:
-            file.close()
-    return entries
+def load_prototype_mean_waveforms(
+    pulse_key: str, output_dir: Path | None = None
+) -> dict | None:
+    """Load a previously saved prototype mean npz, or None if missing."""
+    output_dir = Path(output_dir) if output_dir is not None else OUTPUT_DIR
+    path = output_dir / f"prototype_{pulse_key}_mean.npz"
+    if not path.exists():
+        return None
+    data = np.load(path, allow_pickle=False)
+    return {
+        "mean": data["mean"],
+        "median": data["median"],
+        "fs": float(data["fs"]),
+        "n_in_mean": int(data["n_in_mean"]),
+        "n_classified": int(data["n_classified"]),
+        "align_mode": str(data["align_mode"]),
+        "pulse_key": str(data["pulse_key"]) if "pulse_key" in data.files else pulse_key,
+        "path": path,
+    }
 
 
 def collect_classifier_pulse_indices(data_path, class_id):
@@ -755,7 +758,7 @@ def main(
     data_path=H5_DIR,
     sample_size=SAMPLE_SIZE,
     random_seed=RANDOM_SEED,
-    apply_classifier=True,
+    apply_classifier=False,
 ):
     apply_presentation_style()
     console.log("Collecting and plotting prototype pulses for each pulse shape...")
@@ -768,18 +771,24 @@ def main(
             apply_special_pulse_classifier(data_path)
         else:
             console.log(
-                "Classifier model not found; using existing h5 pulse-shape markers."
+                "Classifier model not found; using existing special_pulse_class labels."
             )
+    else:
+        console.log(
+            "Using existing special_pulse_class labels (skipping classifier apply)."
+        )
 
     pulse_counts = {}
     mean_traces = {}
 
     for pulse_key, pulse_shape in PULSE_SHAPES.items():
         console.log(f"\n{pulse_shape['label']}:")
-        entries = collect_pulse_shape_indices(data_path, pulse_key)
+        entries = collect_classifier_pulse_indices(
+            data_path, pulse_shape["class_id"]
+        )
         total_count = len(entries)
         pulse_counts[pulse_key] = total_count
-        console.log(f"  Found {total_count} detected pulses")
+        console.log(f"  Found {total_count} RF-classified pulses")
 
         all_corrected, all_normalized, fs = load_all_waveforms(
             entries, align_mode=pulse_shape["align"]
@@ -792,6 +801,18 @@ def main(
         )
         mean_all = np.mean(all_aligned, axis=0)
         mean_traces[pulse_key] = (mean_all, fs, all_corrected)
+        save_prototype_mean_waveforms(
+            pulse_key,
+            all_aligned,
+            fs,
+            OUTPUT_DIR,
+            n_classified=total_count,
+            align_mode=pulse_shape["align"],
+        )
+        console.log(
+            f"  Mean from {len(all_aligned):,} morph-aligned waveforms "
+            f"(of {total_count:,} RF-classified)"
+        )
 
         rng = np.random.default_rng(random_seed)
         sample_idx = rng.choice(len(all_normalized), size=min(sample_size, len(all_normalized)), replace=False)

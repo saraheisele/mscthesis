@@ -139,7 +139,7 @@ def load_pulse_data(pulse_type="all"):
     Load pulse rate histograms and metadata.
 
     Args:
-        pulse_type (str): Type of pulses to load (all, double, wide, fat)
+        pulse_type (str): Type of pulses to load (all, double, wide)
 
     Returns:
         tuple: (pulse_rate_dict, metadata, pulse_config)
@@ -377,7 +377,7 @@ def load_daily_shape_fractions() -> pd.DataFrame:
                 "all_count": total,
                 "all_pulse_rate_hz": all_rates[day_idx],
             }
-            for ptype in ("double", "wide", "fat"):
+            for ptype in ("double", "wide"):
                 sub = np.load(
                     activity_hist_dir(PULSE_TYPES[ptype]["hist_subdir"])
                     / "berlin_dummypulses_count_hist_dict.npz"
@@ -412,7 +412,7 @@ def _plot_lagged_correlation_on_axis(ax, sub: pd.DataFrame, shape_order: list[st
 def plot_lagged_correlations(lag_df: pd.DataFrame, output_dir: Path):
     if lag_df.empty:
         return
-    shape_order = ["all", "double", "wide", "fat"]
+    shape_order = ["all", "double", "wide"]
     env_params = sorted(lag_df["env_param"].unique())
     for env_param in env_params:
         sub = lag_df[lag_df["env_param"] == env_param]
@@ -584,7 +584,7 @@ def print_all_pulses_detailed_summary(
     print("\nMonthly Conductivity Correlations (all pulse types):")
     print("-" * 70)
 
-    for pulse_type in ["all", "double", "wide", "fat"]:
+    for pulse_type in ["all", "double", "wide"]:
         if pulse_type in all_correlations and "monthly" in all_correlations[pulse_type]:
             corr_data = all_correlations[pulse_type]["monthly"]["conductivity"]
             spear_rho, spear_p = corr_data["spearman"]
@@ -610,7 +610,7 @@ def compare_pulse_types_contribution(all_correlations):
     print("-" * 70)
 
     pulse_order = []
-    for pulse_type in ["all", "double", "wide", "fat"]:
+    for pulse_type in ["all", "double", "wide"]:
         if pulse_type in all_correlations and "monthly" in all_correlations[pulse_type]:
             _, p = all_correlations[pulse_type]["monthly"]["conductivity"]["spearman"]
             r, _ = all_correlations[pulse_type]["monthly"]["conductivity"]["spearman"]

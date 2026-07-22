@@ -26,13 +26,6 @@ PULSE_TYPES = {
         "hist_subdir": "wide_pulses_hist",
         "array": "is_wide_pulse",
     },
-    "fat": {
-        "label": "fat pulses",
-        "suffix": "_fat",
-        "figures_subdir": "fat_pulses",
-        "hist_subdir": "fat_pulses_hist",
-        "array": "is_fat_pulse",
-    },
 }
 
 SPECIAL_PULSE_TYPES = {

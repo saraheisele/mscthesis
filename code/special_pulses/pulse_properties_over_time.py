@@ -79,7 +79,6 @@ def collect_pulse_property_records(data_path) -> pd.DataFrame:
 
             double_m = _full_marker(file_path, block, "is_double_peak", candidates, num_pulses)
             wide_m = _full_marker(file_path, block, "is_wide_pulse", candidates, num_pulses)
-            fat_m = _full_marker(file_path, block, "is_fat_pulse", candidates, num_pulses)
 
             for pulse_idx in candidates:
                 pulse_time = rec_start + timedelta(seconds=float(centers[pulse_idx]) / fs)
@@ -94,10 +93,6 @@ def collect_pulse_property_records(data_path) -> pd.DataFrame:
                     trough_ratio = dp["trough_depth_ratio"]
                 elif wide_m[pulse_idx] == 1:
                     shape = "wide"
-                    w, _ = compute_half_max_width(corrected, fs)
-                    half_ms, peak_sep_ms, trough_ratio = w * 1000, np.nan, np.nan
-                elif fat_m[pulse_idx] == 1:
-                    shape = "fat"
                     w, _ = compute_half_max_width(corrected, fs)
                     half_ms, peak_sep_ms, trough_ratio = w * 1000, np.nan, np.nan
                 else:

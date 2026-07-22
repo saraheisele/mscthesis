@@ -4,8 +4,9 @@ Analysis part: pulse shape modelling (extends prototype_pulse_plots overlay).
 Dependencies: prototype_pulse_plots, data_paths, presentation_style.
 
 Model: y(t) = a1*T_w(t-t1) + a2*T_w(t-t2), with free peak positions, shared width
-scale w, and fixed zero baseline. Double pulses are sampled from the RF classifier
-(special_pulse_class), not rule-based is_double_peak markers.
+scale w, and fixed zero baseline. Doubles are selected via special_pulse_class, then
+filtered to waveforms with detectable two-peak morphology (analysis filter only;
+H5 labels are never overwritten).
 """
 
 from __future__ import annotations
@@ -25,7 +26,6 @@ import nixio
 import numpy as np
 from rich.console import Console
 from scipy.optimize import curve_fit
-from scipy.signal import find_peaks
 
 from data_paths import H5_DIR, PULSE_SHAPE_PROTOTYPES_DIR
 from presentation_style import (
@@ -85,6 +85,7 @@ class FitResult:
     r2: float
     rmse: float
     success: bool
+    width_scale_2: float = np.nan  # second-component width; nan → use width_scale
 
 
 def scaled_shifted_template(
@@ -130,34 +131,23 @@ def load_cached_template() -> tuple[np.ndarray, float] | None:
     return data["template"], float(data["fs"])
 
 
-def _peak_guess_on_aligned(waveform: np.ndarray, fs: float, center: int) -> tuple[float, float]:
-    """Fallback peak positions on an aligned waveform (for fit initialization only)."""
-    prominence = 0.05 * np.max(waveform)
-    peaks, _ = find_peaks(waveform, prominence=prominence)
-    if len(peaks) >= 2:
-        top2 = peaks[np.argsort(waveform[peaks])[-2:]]
-        return float(min(top2)), float(max(top2))
-    half_sep = 0.00075 * fs
-    return float(center - half_sep), float(center + half_sep)
-
-
 def prepare_rf_double_pulse(
     corrected: np.ndarray, normalized: np.ndarray, fs: float
-) -> PulseData:
-    """Valley-align RF-labelled doubles; keep all pulses (no rule-based rejection)."""
-    center = len(normalized) // 2
+) -> PulseData | None:
+    """Valley-align an RF-labelled double with detectable two-peak morphology.
+
+    Returns None when morphological peak-finding fails. This is an analysis-only
+    filter and does not change H5 labels.
+    """
     peaks_corr = double_peak_indices(corrected, fs)
+    if peaks_corr is None:
+        return None
 
-    if peaks_corr is not None:
-        valley = double_valley_index(corrected, fs)
-        align_shift = center - valley
-        t1 = float(peaks_corr[0] + align_shift)
-        t2 = float(peaks_corr[1] + align_shift)
-    else:
-        align_shift = center - int(np.argmax(corrected))
-        waveform_tmp = shift_waveform(normalized, align_shift)
-        t1, t2 = _peak_guess_on_aligned(waveform_tmp, fs, center)
-
+    center = len(normalized) // 2
+    valley = double_valley_index(corrected, fs)
+    align_shift = center - valley
+    t1 = float(peaks_corr[0] + align_shift)
+    t2 = float(peaks_corr[1] + align_shift)
     waveform = shift_waveform(normalized, align_shift)
     if t2 <= t1:
         t1, t2 = t2, t1
@@ -168,7 +158,7 @@ def prepare_rf_double_pulse(
 def load_rf_double_sample(
     data_path, sample_size: int, random_seed: int
 ) -> tuple[list[PulseData], float]:
-    """Random sample of RF-classified double pulses (no is_double_peak filter)."""
+    """Random sample of RF doubles that also show two-peak morphology."""
     entries = collect_classifier_pulse_indices(data_path, CLASS_IDS["double"])
     rng = np.random.default_rng(random_seed)
     shuffled = list(entries)
@@ -177,6 +167,8 @@ def load_rf_double_sample(
     pulses: list[PulseData] = []
     fs = None
     open_files: dict = {}
+    n_seen = 0
+    n_skipped_morphology = 0
 
     try:
         for file_path, pulse_idx in shuffled:
@@ -196,16 +188,27 @@ def load_rf_double_sample(
             if fs is None:
                 fs = float(file.sections["pulses_metadata"]["metadata"]["samplerate"])
 
+            n_seen += 1
             trace, _ = get_biggest_unclipped_waveform(pulse_data)
             corrected = baseline_correct(trace)
             normalized = normalize_trace(corrected)
-            pulses.append(prepare_rf_double_pulse(corrected, normalized, fs))
+            prepared = prepare_rf_double_pulse(corrected, normalized, fs)
+            if prepared is None:
+                n_skipped_morphology += 1
+                continue
+            pulses.append(prepared)
     finally:
         for file, _ in open_files.values():
             file.close()
 
     if not pulses:
-        raise RuntimeError("No RF-classified double pulses found.")
+        raise RuntimeError(
+            "No RF-classified doubles with detectable two-peak morphology found."
+        )
+    console.log(
+        f"Morphology filter: kept {len(pulses)} / {n_seen} inspected RF doubles "
+        f"(skipped {n_skipped_morphology} without two detectable peaks)"
+    )
     return pulses, fs
 
 
@@ -232,6 +235,7 @@ def _failed_result(model: str) -> FitResult:
         r2=np.nan,
         rmse=np.nan,
         success=False,
+        width_scale_2=np.nan,
     )
 
 
@@ -251,8 +255,12 @@ def _make_result(
     y: np.ndarray,
     yhat: np.ndarray,
     fs: float,
+    width_scale_2: float = np.nan,
 ) -> FitResult:
-    a1, a2, t1, t2 = _order_peaks(a1, a2, t1, t2)
+    if t2 < t1:
+        a1, a2, t1, t2 = a2, a1, t2, t1
+        if np.isfinite(width_scale_2):
+            width_scale, width_scale_2 = width_scale_2, width_scale
     r2, rmse = fit_metrics(y, yhat)
     delay = t2 - t1
     return FitResult(
@@ -268,6 +276,7 @@ def _make_result(
         r2=r2,
         rmse=rmse,
         success=np.isfinite(r2),
+        width_scale_2=float(width_scale_2),
     )
 
 
@@ -342,6 +351,141 @@ def fit_free_peaks(
         return _failed_result("free_fixed_width")
 
 
+def fit_fixed_delta_t(
+    y: np.ndarray,
+    template: np.ndarray,
+    t1: float,
+    t2: float,
+    fs: float,
+    *,
+    fit_width: bool,
+    independent_widths: bool = False,
+) -> FitResult:
+    """Keep peak times fixed at detected positions; free amplitudes (± widths)."""
+    n = len(y)
+    p1i = int(np.clip(round(t1), 0, n - 1))
+    p2i = int(np.clip(round(t2), 0, n - 1))
+    a1_0 = float(max(y[p1i], 0.2))
+    a2_0 = float(max(y[p2i], 0.2))
+
+    if independent_widths:
+        def model(_x, a1, a2, w1, w2):
+            return (
+                a1 * scaled_shifted_template(template, t1, w1)
+                + a2 * scaled_shifted_template(template, t2, w2)
+            )
+
+        try:
+            popt, _ = curve_fit(
+                model,
+                np.arange(n),
+                y,
+                p0=[a1_0, a2_0, 0.65, 0.65],
+                bounds=(
+                    [0.01, 0.01, WIDTH_BOUNDS[0], WIDTH_BOUNDS[0]],
+                    [2.5, 2.5, WIDTH_BOUNDS[1], WIDTH_BOUNDS[1]],
+                ),
+                maxfev=20_000,
+            )
+            a1, a2, w1, w2 = popt
+            yhat = model(np.arange(n), a1, a2, w1, w2)
+            return _make_result(
+                "fixed_dt_indep_w", a1, a2, t1, t2, w1, y, yhat, fs, width_scale_2=w2
+            )
+        except Exception:
+            return _failed_result("fixed_dt_indep_w")
+
+    if fit_width:
+        def model(_x, a1, a2, width_scale):
+            return (
+                a1 * scaled_shifted_template(template, t1, width_scale)
+                + a2 * scaled_shifted_template(template, t2, width_scale)
+            )
+
+        try:
+            popt, _ = curve_fit(
+                model,
+                np.arange(n),
+                y,
+                p0=[a1_0, a2_0, 0.65],
+                bounds=(
+                    [0.01, 0.01, WIDTH_BOUNDS[0]],
+                    [2.5, 2.5, WIDTH_BOUNDS[1]],
+                ),
+                maxfev=20_000,
+            )
+            a1, a2, width_scale = popt
+            yhat = model(np.arange(n), a1, a2, width_scale)
+            return _make_result("fixed_dt_shared_w", a1, a2, t1, t2, width_scale, y, yhat, fs)
+        except Exception:
+            return _failed_result("fixed_dt_shared_w")
+
+    def model_fixed(_x, a1, a2):
+        return (
+            a1 * scaled_shifted_template(template, t1, 1.0)
+            + a2 * scaled_shifted_template(template, t2, 1.0)
+        )
+
+    try:
+        popt, _ = curve_fit(
+            model_fixed,
+            np.arange(n),
+            y,
+            p0=[a1_0, a2_0],
+            bounds=([0.01, 0.01], [2.5, 2.5]),
+            maxfev=20_000,
+        )
+        a1, a2 = popt
+        yhat = model_fixed(np.arange(n), a1, a2)
+        return _make_result("fixed_dt_w1", a1, a2, t1, t2, 1.0, y, yhat, fs)
+    except Exception:
+        return _failed_result("fixed_dt_w1")
+
+
+def fit_independent_widths(
+    y: np.ndarray,
+    template: np.ndarray,
+    t1_init: float,
+    t2_init: float,
+    fs: float,
+) -> FitResult:
+    """Free amplitudes, peak times, and independent width scales."""
+    n = len(y)
+    min_sep = 0.0004 * fs
+    p1i = int(np.clip(round(t1_init), 0, n - 1))
+    p2i = int(np.clip(round(t2_init), 0, n - 1))
+    a1_0 = float(max(y[p1i], 0.2))
+    a2_0 = float(max(y[p2i], 0.2))
+
+    def model(_x, a1, a2, t1, t2, w1, w2):
+        return (
+            a1 * scaled_shifted_template(template, t1, w1)
+            + a2 * scaled_shifted_template(template, t2, w2)
+        )
+
+    try:
+        popt, _ = curve_fit(
+            model,
+            np.arange(n),
+            y,
+            p0=[a1_0, a2_0, t1_init, t2_init, 0.65, 0.65],
+            bounds=(
+                [0.01, 0.01, 0.0, 0.0, WIDTH_BOUNDS[0], WIDTH_BOUNDS[0]],
+                [2.5, 2.5, float(n - 1), float(n - 1), WIDTH_BOUNDS[1], WIDTH_BOUNDS[1]],
+            ),
+            maxfev=30_000,
+        )
+        a1, a2, t1, t2, w1, w2 = popt
+        if t2 - t1 < min_sep:
+            return _failed_result("free_indep_w")
+        yhat = model(np.arange(n), a1, a2, t1, t2, w1, w2)
+        return _make_result(
+            "free_indep_w", a1, a2, t1, t2, w1, y, yhat, fs, width_scale_2=w2
+        )
+    except Exception:
+        return _failed_result("free_indep_w")
+
+
 def fit_all_pulses(
     pulses: list[PulseData], template: np.ndarray, fs: float
 ) -> tuple[list[FitResult], list[FitResult]]:
@@ -364,9 +508,10 @@ def fit_all_pulses(
 def reconstruct_components(
     result: FitResult, template: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
-    width = 1.0 if not np.isfinite(result.width_scale) else result.width_scale
-    comp1 = result.a1 * scaled_shifted_template(template, result.t1_samples, width)
-    comp2 = result.a2 * scaled_shifted_template(template, result.t2_samples, width)
+    w1 = 1.0 if not np.isfinite(result.width_scale) else result.width_scale
+    w2 = w1 if not np.isfinite(result.width_scale_2) else result.width_scale_2
+    comp1 = result.a1 * scaled_shifted_template(template, result.t1_samples, w1)
+    comp2 = result.a2 * scaled_shifted_template(template, result.t2_samples, w2)
     return comp1, comp2
 
 
@@ -406,6 +551,7 @@ def aggregate_fit_params(results: list[FitResult], stat: str) -> FitResult:
         r2=np.nan,
         rmse=np.nan,
         success=True,
+        width_scale_2=_agg("width_scale_2"),
     )
 
 
@@ -443,6 +589,324 @@ def save_aggregate_fit_params(
         json.dump(payload, handle, indent=2, default=_json_default)
     console.log(f"Saved fit parameters to {out}")
     return out
+
+
+def save_sample_mean_waveforms(
+    pulses: list[PulseData], fs: float, output_dir: Path, *, seed: int
+) -> Path:
+    """Cache valley-aligned mean/median of the morph-filtered fit sample."""
+    waveforms = np.asarray([p.waveform for p in pulses], dtype=float)
+    mean_y = np.mean(waveforms, axis=0)
+    median_y = np.median(waveforms, axis=0)
+    seps = np.asarray([p.separation_ms for p in pulses], dtype=float)
+    out = output_dir / "double_pulse_fit_sample_mean.npz"
+    np.savez(
+        out,
+        mean=mean_y,
+        median=median_y,
+        fs=fs,
+        n=len(pulses),
+        seed=seed,
+        separations_ms=seps,
+    )
+    console.log(f"Saved sample mean waveforms to {out}")
+    return out
+
+
+def fit_waveform_two_templates(
+    y: np.ndarray,
+    template: np.ndarray,
+    fs: float,
+    *,
+    fit_width: bool = True,
+    label: str = "mean",
+) -> FitResult:
+    """Fit two scaled/shifted normal templates directly to one target waveform."""
+    peaks = double_peak_indices(y, fs)
+    if peaks is None:
+        center = len(y) // 2
+        half = 0.001 * fs
+        t1_init, t2_init = float(center - half), float(center + half)
+    else:
+        t1_init, t2_init = float(peaks[0]), float(peaks[1])
+    result = fit_free_peaks(y, template, t1_init, t2_init, fs, fit_width=fit_width)
+    if result.success:
+        result.model = f"direct_{label}_{'free_w' if fit_width else 'fixed_w'}"
+    return result
+
+
+def plot_direct_target_fit(
+    y: np.ndarray,
+    result: FitResult,
+    template: np.ndarray,
+    fs: float,
+    output_dir: Path,
+    *,
+    target_name: str,
+    n_pulses: int,
+    filename: str,
+):
+    """Overlay observed target, direct two-template fit, components, and residual."""
+    yhat, c1, c2 = reconstruct_fit(result, template)
+    residual = y - yhat
+    time_ms = np.arange(len(y)) / fs * 1000
+    peaks = double_peak_indices(y, fs)
+
+    apply_presentation_style()
+    fig, axes = plt.subplots(
+        2, 1, figsize=(12, 8), sharex=True, gridspec_kw={"height_ratios": [3, 1]}
+    )
+    ax, ax_res = axes
+
+    ax.plot(
+        time_ms,
+        y,
+        color=DOUBLE_COLOR,
+        linewidth=2.5,
+        label=f"Observed {target_name}",
+        zorder=5,
+    )
+    ax.plot(
+        time_ms,
+        yhat,
+        color=REFERENCE_COLOR,
+        linewidth=2,
+        label=(
+            f"Direct fit ($\\Delta t$={result.delay_ms:.2f} ms, "
+            f"$w$={result.width_scale:.2f}, $R^2$={result.r2:.3f})"
+        ),
+        zorder=4,
+    )
+    ax.plot(
+        time_ms,
+        c1,
+        color=NORMAL_COLOR,
+        linestyle="--",
+        label=f"Comp. 1 ($a_1$={result.a1:.2f})",
+        zorder=3,
+    )
+    ax.plot(
+        time_ms,
+        c2,
+        color=NORMAL_COLOR,
+        linestyle=":",
+        label=f"Comp. 2 ($a_2$={result.a2:.2f})",
+        zorder=3,
+    )
+    if peaks is not None:
+        ax.scatter(
+            peaks / fs * 1000,
+            y[peaks],
+            color=DOUBLE_COLOR,
+            s=70,
+            marker="*",
+            zorder=6,
+            label=(
+                f"Observed peaks "
+                f"($\\Delta t$={(peaks[1] - peaks[0]) / fs * 1000:.2f} ms)"
+            ),
+        )
+    ax.set_ylabel("Normalized amplitude")
+    ax.set_title(
+        f"Direct two-normal fit to {target_name} double "
+        f"(n={n_pulses} morph-filtered RF doubles)"
+    )
+    ax.legend(loc=LEGEND_LOC, fontsize=8)
+    ax.set_ylim(-0.15, 1.15)
+    ax.grid(True, alpha=0.3)
+
+    ax_res.axhline(0.0, color="0.5", linewidth=1)
+    ax_res.plot(time_ms, residual, color=DOUBLE_COLOR, linewidth=1.5)
+    ax_res.set_xlabel("Time (ms)")
+    ax_res.set_ylabel("Residual")
+    ax_res.set_title(f"Residual (RMSE={result.rmse:.3f})")
+    ax_res.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    out = output_dir / filename
+    fig.savefig(out, dpi=300)
+    save_thesis_figure(f"pulse_shapes/{filename}", fig)
+    plt.close(fig)
+    console.log(f"Saved {out}")
+
+
+def run_direct_mean_target_fits(
+    pulses: list[PulseData],
+    template: np.ndarray,
+    fs: float,
+    output_dir: Path,
+    *,
+    seed: int = RANDOM_SEED,
+) -> dict[str, FitResult]:
+    """Step 1: fit the sample mean/median waveforms directly (not mean-of-params)."""
+    save_sample_mean_waveforms(pulses, fs, output_dir, seed=seed)
+    waveforms = np.asarray([p.waveform for p in pulses], dtype=float)
+    targets = {
+        "mean": np.mean(waveforms, axis=0),
+        "median": np.median(waveforms, axis=0),
+    }
+    results: dict[str, FitResult] = {}
+    for name, y in targets.items():
+        result = fit_waveform_two_templates(
+            y, template, fs, fit_width=True, label=name
+        )
+        results[name] = result
+        console.log(
+            f"Direct {name} fit: success={result.success}, "
+            f"R²={result.r2:.3f}, Δt={result.delay_ms:.3f} ms, "
+            f"w={result.width_scale:.3f}, a1={result.a1:.3f}, a2={result.a2:.3f}"
+        )
+        plot_direct_target_fit(
+            y,
+            result,
+            template,
+            fs,
+            output_dir,
+            target_name=name,
+            n_pulses=len(pulses),
+            filename=f"double_pulse_direct_{name}_fit.png",
+        )
+
+    payload = {
+        "n_pulses": len(pulses),
+        "sample_rate_hz": fs,
+        "seed": seed,
+        "mean_fit": asdict(results["mean"]),
+        "median_fit": asdict(results["median"]),
+    }
+    params_out = output_dir / "double_pulse_direct_mean_fit_params.json"
+    with open(params_out, "w") as handle:
+        json.dump(payload, handle, indent=2, default=_json_default)
+    from data_paths import THESIS_FIGURES_DIR
+
+    thesis_out = (
+        THESIS_FIGURES_DIR / "pulse_shapes" / "double_pulse_direct_mean_fit_params.json"
+    )
+    thesis_out.parent.mkdir(parents=True, exist_ok=True)
+    with open(thesis_out, "w") as handle:
+        json.dump(payload, handle, indent=2, default=_json_default)
+    console.log(f"Saved {params_out}")
+    return results
+
+
+def run_mean_model_hierarchy(
+    y: np.ndarray,
+    template: np.ndarray,
+    fs: float,
+    output_dir: Path,
+    *,
+    n_pulses: int,
+    target_name: str = "mean",
+) -> dict[str, FitResult]:
+    """Step 2: compare constrained two-normal models on one target waveform."""
+    peaks = double_peak_indices(y, fs)
+    if peaks is None:
+        raise RuntimeError(f"No double peaks detected on {target_name} target.")
+    t1, t2 = float(peaks[0]), float(peaks[1])
+    observed_dt_ms = (t2 - t1) / fs * 1000
+
+    results = {
+        "A_w1_free_t": fit_free_peaks(y, template, t1, t2, fs, fit_width=False),
+        "B_fixed_dt_w1": fit_fixed_delta_t(
+            y, template, t1, t2, fs, fit_width=False
+        ),
+        "C_fixed_dt_shared_w": fit_fixed_delta_t(
+            y, template, t1, t2, fs, fit_width=True
+        ),
+        "D_fixed_dt_indep_w": fit_fixed_delta_t(
+            y, template, t1, t2, fs, fit_width=True, independent_widths=True
+        ),
+        "E_free_shared_w": fit_free_peaks(y, template, t1, t2, fs, fit_width=True),
+        "F_free_indep_w": fit_independent_widths(y, template, t1, t2, fs),
+    }
+    for key, result in results.items():
+        if result.success:
+            result.model = key
+        w2 = result.width_scale_2 if np.isfinite(result.width_scale_2) else result.width_scale
+        console.log(
+            f"{key}: success={result.success}, R²={result.r2:.3f}, "
+            f"Δt={result.delay_ms:.3f} ms, w1={result.width_scale:.3f}, "
+            f"w2={w2:.3f}, a1={result.a1:.3f}, a2={result.a2:.3f}"
+        )
+
+    apply_presentation_style()
+    time_ms = np.arange(len(y)) / fs * 1000
+    fig, axes = plt.subplots(2, 3, figsize=(15, 8), sharex=True, sharey=True)
+    order = list(results.keys())
+    for ax, key in zip(axes.ravel(), order):
+        result = results[key]
+        ax.plot(time_ms, y, color=DOUBLE_COLOR, lw=2, label="Observed", zorder=4)
+        if result.success:
+            yhat, c1, c2 = reconstruct_fit(result, template)
+            w2 = (
+                result.width_scale_2
+                if np.isfinite(result.width_scale_2)
+                else result.width_scale
+            )
+            ax.plot(
+                time_ms,
+                yhat,
+                color=REFERENCE_COLOR,
+                lw=1.8,
+                label=f"Fit $R^2$={result.r2:.3f}",
+                zorder=5,
+            )
+            ax.plot(time_ms, c1, color=NORMAL_COLOR, ls="--", alpha=0.85, label="C1")
+            ax.plot(time_ms, c2, color=NORMAL_COLOR, ls=":", alpha=0.85, label="C2")
+            ax.set_title(
+                f"{key}\n"
+                f"$\\Delta t$={result.delay_ms:.2f} ms, "
+                f"$w$=({result.width_scale:.2f},{w2:.2f})"
+            )
+        else:
+            ax.set_title(f"{key}\n(failed)")
+        ax.scatter(
+            [t1 / fs * 1000, t2 / fs * 1000],
+            [y[int(round(t1))], y[int(round(t2))]],
+            color=DOUBLE_COLOR,
+            s=40,
+            marker="*",
+            zorder=6,
+        )
+        ax.grid(True, alpha=0.3)
+        ax.set_ylim(-0.15, 1.15)
+        ax.legend(loc=LEGEND_LOC, fontsize=7)
+
+    for ax in axes[1, :]:
+        ax.set_xlabel("Time (ms)")
+    for ax in axes[:, 0]:
+        ax.set_ylabel("Normalized amplitude")
+    fig.suptitle(
+        f"Model hierarchy on {target_name} double "
+        f"(n={n_pulses}; observed $\\Delta t$={observed_dt_ms:.2f} ms)"
+    )
+    plt.tight_layout()
+    out = output_dir / f"double_pulse_model_hierarchy_{target_name}.png"
+    fig.savefig(out, dpi=300)
+    save_thesis_figure(f"pulse_shapes/double_pulse_model_hierarchy_{target_name}.png", fig)
+    plt.close(fig)
+    console.log(f"Saved {out}")
+
+    payload = {
+        "target": target_name,
+        "n_pulses": n_pulses,
+        "observed_delta_t_ms": observed_dt_ms,
+        "models": {k: asdict(v) for k, v in results.items()},
+    }
+    params_out = output_dir / f"double_pulse_model_hierarchy_{target_name}.json"
+    with open(params_out, "w") as handle:
+        json.dump(payload, handle, indent=2, default=_json_default)
+    from data_paths import THESIS_FIGURES_DIR
+
+    thesis_out = (
+        THESIS_FIGURES_DIR
+        / "pulse_shapes"
+        / f"double_pulse_model_hierarchy_{target_name}.json"
+    )
+    thesis_out.parent.mkdir(parents=True, exist_ok=True)
+    with open(thesis_out, "w") as handle:
+        json.dump(payload, handle, indent=2, default=_json_default)
+    return results
 
 
 def plot_aggregate_fit(
@@ -498,7 +962,8 @@ def plot_aggregate_fit(
     ax.set_xlabel("Time (ms)")
     ax.set_ylabel("Normalized amplitude")
     ax.set_title(
-        f"Mean width-scaled template fit (n={len(pulses)} RF-classified doubles)"
+        f"Mean width-scaled template fit "
+        f"(n={len(pulses)} RF doubles with two-peak morphology)"
     )
     ax.legend(loc=LEGEND_LOC)
     ax.set_ylim(-0.12, 1.12)

@@ -34,11 +34,11 @@ log "=== Apply special-pulse classifier to full H5 files ==="
 python3 special_pulses/double_peaks_detection.py
 log "=== Done: classifier application ==="
 
-for pt in all double wide fat; do
+for pt in all double wide; do
   run_preprocessing "$pt"
 done
 
-for pt in all double wide fat; do
+for pt in all double wide; do
   run_plots "$pt"
 done
 

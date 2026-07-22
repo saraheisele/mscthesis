@@ -4,7 +4,7 @@ Analysis part: spatial pulse-shape comparison (Part 3c).
 Dependencies: volley_pulse_analysis.load_raw_pulse_data, data_paths.
 
 Uses filename tags (*_brightarea_* / *_darkarea_*) to group recordings and
-tests whether double/wide/fat pulse fractions differ between tank areas.
+tests whether double/wide pulse fractions differ between tank areas.
 """
 
 import sys
@@ -43,9 +43,9 @@ def accumulate_area_pulse_stats(h5_files):
         dict: Area stats with pulse counts, totals, and number of files per area
     """
     area_stats = {
-        "bright": {"double": 0, "wide": 0, "fat": 0, "total": 0, "n_files": 0},
-        "dark": {"double": 0, "wide": 0, "fat": 0, "total": 0, "n_files": 0},
-        "unlabeled": {"double": 0, "wide": 0, "fat": 0, "total": 0, "n_files": 0},
+        "bright": {"double": 0, "wide": 0, "total": 0, "n_files": 0},
+        "dark": {"double": 0, "wide": 0, "total": 0, "n_files": 0},
+        "unlabeled": {"double": 0, "wide": 0, "total": 0, "n_files": 0},
     }
 
     for h5_file in h5_files:
@@ -60,7 +60,7 @@ def accumulate_area_pulse_stats(h5_files):
         area_stats[area_key]["total"] += len(pulse_centers)
 
         if pulse_markers:
-            for ptype in ["double", "wide", "fat"]:
+            for ptype in ["double", "wide"]:
                 if ptype in pulse_markers:
                     area_stats[area_key][ptype] += int(np.sum(pulse_markers[ptype]))
 
@@ -89,7 +89,7 @@ def compare_area_pulse_type_proportions(area_stats, reference_area="bright"):
         area_total = area_stats[area]["total"]
         area_counts = area_stats[area]
 
-        for ptype in ["double", "wide", "fat"]:
+        for ptype in ["double", "wide"]:
             ref_n = ref_counts[ptype]
             area_n = area_counts[ptype]
 
@@ -154,7 +154,7 @@ def print_area_pulse_analysis(area_stats, reference_area="bright"):
             continue
 
         print(f"\n{area.upper()} AREA (n={total}):")
-        for ptype in ["double", "wide", "fat"]:
+        for ptype in ["double", "wide"]:
             count = area_stats[area][ptype]
             pct = 100 * count / total
             print(f"  {ptype.upper():6}: {count:5d} pulses ({pct:5.1f}%)")
@@ -170,7 +170,7 @@ def print_area_pulse_analysis(area_stats, reference_area="bright"):
             continue
 
         print(f"\n{area.upper()} vs {reference_area.upper()}:")
-        for ptype in ["double", "wide", "fat"]:
+        for ptype in ["double", "wide"]:
             comp = comparisons[(area, ptype)]
             sig = ""
             if not np.isnan(comp["p_value"]) and comp["p_value"] < 0.05:

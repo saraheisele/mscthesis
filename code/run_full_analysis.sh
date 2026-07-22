@@ -36,11 +36,11 @@ log "Pipeline started (H5_DIR=/home/efish/eelsmfn2021_eods/berlin_tank_site)"
 
 run_ml_detection
 
-for pt in all double wide fat; do
+for pt in all double wide; do
   run_preprocessing "$pt"
 done
 
-for pt in all double wide fat; do
+for pt in all double wide; do
   run_plots "$pt"
 done
 
