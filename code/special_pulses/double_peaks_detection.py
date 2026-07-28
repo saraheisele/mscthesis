@@ -1712,6 +1712,9 @@ def interactive_label_pulses(
     max_files=40,
     append_existing=True,
     exclude_keys=None,
+    n_uncertain=100,
+    n_wide_enrich=75,
+    n_double_enrich=75,
 ):
     """
     Prompt the user to label pulses in a matplotlib window.
@@ -1724,6 +1727,7 @@ def interactive_label_pulses(
     sampling:
         "balanced" — old detector pools (training-style, class-balanced)
         "naturalistic" — random / file-stratified (test-set style)
+        "enrichment" — RF-uncertain + rare-class candidates
     """
     ml_paths = get_default_ml_paths()
     labels_path = Path(labels_path) if labels_path else ml_paths["labels"]
@@ -1734,6 +1738,16 @@ def interactive_label_pulses(
         waveforms, records = load_naturalistic_pulses_for_labeling(
             data_path,
             n_pulses=n_pulses,
+            max_files=max_files,
+            random_seed=random_seed,
+            exclude_keys=exclude_keys,
+        )
+    elif sampling == "enrichment":
+        waveforms, records = load_enrichment_pulses_for_labeling(
+            data_path,
+            n_uncertain=n_uncertain,
+            n_wide=n_wide_enrich,
+            n_double=n_double_enrich,
             max_files=max_files,
             random_seed=random_seed,
             exclude_keys=exclude_keys,
@@ -1749,7 +1763,8 @@ def interactive_label_pulses(
         con.log("No pulse candidates found.")
         return None
 
-    if sampling == "naturalistic":
+    use_ref_timebase = sampling in {"naturalistic", "enrichment"}
+    if use_ref_timebase:
         records, waveforms = apply_label_ref_timebase(
             records, waveforms, ref_fs=LABEL_REF_FS
         )
@@ -1767,14 +1782,14 @@ def interactive_label_pulses(
     waveforms = normalize_waveforms_for_pca(waveforms)
     labels = np.full(len(waveforms), -1, dtype=np.int64)
     label_plot_half_window_ms = compute_label_plot_half_window_ms(
-        records, ref_fs=LABEL_REF_FS if sampling == "naturalistic" else None
+        records, ref_fs=LABEL_REF_FS if use_ref_timebase else None
     )
     label_plot_ylim = compute_label_plot_ylim(records)
 
     con.log("\nLabeling instructions:")
     con.log(f"  Sampling mode: {sampling}")
     con.log(f"  Save path: {labels_path}")
-    if sampling == "naturalistic":
+    if use_ref_timebase:
         con.log(
             f"  Common plot/feature timebase: {LABEL_REF_FS/1000:.0f} kHz "
             "(48 kHz snippets stretched ×2 so all traces share the x-axis)"
@@ -1908,6 +1923,7 @@ def interactive_label_naturalistic_test_set(
     max_files=40,
     random_seed=42,
     append_existing=False,
+    exclude_train_set=True,
 ):
     """
     Label a naturalistic held-out test set (random / file-stratified sampling).
@@ -1918,6 +1934,13 @@ def interactive_label_naturalistic_test_set(
     labels_path = (
         Path(labels_path) if labels_path else ml_paths["naturalistic_test_labels"]
     )
+    exclude_keys = set()
+    if exclude_train_set:
+        exclude_keys |= load_excluded_pulse_keys(ml_paths["naturalistic_train_labels"])
+        con.log(
+            f"Excluding {len(exclude_keys)} pulses already in naturalistic train set."
+        )
+
     con.log("\n" + "=" * 60)
     con.log("NATURALISTIC TEST-SET LABELING")
     con.log("=" * 60)
@@ -1937,6 +1960,7 @@ def interactive_label_naturalistic_test_set(
         n_pulses=n_pulses,
         max_files=max_files,
         append_existing=append_existing,
+        exclude_keys=exclude_keys,
     )
 
 
@@ -1992,6 +2016,352 @@ def interactive_label_naturalistic_train_set(
         max_files=max_files,
         append_existing=append_existing,
         exclude_keys=exclude_keys,
+    )
+
+
+def _load_classifier_for_enrichment(model_path=None):
+    ml_paths = get_default_ml_paths()
+    model_path = Path(model_path) if model_path else ml_paths["model"]
+    if not model_path.exists():
+        raise FileNotFoundError(f"Classifier not found at {model_path}")
+
+    import __main__
+    setattr(__main__, "RobustPCA", RobustPCA)
+
+    with model_path.open("rb") as f:
+        model_data = pickle.load(f)
+    return model_data["classifier"], model_data
+
+
+def load_enrichment_pulses_for_labeling(
+    data_path,
+    n_uncertain=100,
+    n_wide=75,
+    n_double=75,
+    max_files=60,
+    random_seed=11,
+    exclude_keys=None,
+    model_path=None,
+    uncertain_max_proba=0.55,
+    uncertain_margin=0.15,
+    score_pool_per_file=80,
+):
+    """
+    Build an active-learning + rare-class enrichment labeling sample.
+
+    Pools (excluding already-labeled keys):
+      - uncertain: RF max-proba low or top-2 classes nearly tied
+      - wide: old detector wide marker and/or high RF P(wide)
+      - double: old detector double marker and/or high RF P(double)
+    """
+    exclude_keys = set(exclude_keys or set())
+    path_list = get_path_list(Path(data_path))
+    if not path_list:
+        raise FileNotFoundError(f"No H5 files under {data_path}")
+
+    rng = np.random.default_rng(random_seed)
+    classifier, _ = _load_classifier_for_enrichment(model_path)
+    class_ids = [int(c) for c in classifier.classes_]
+    id_to_col = {c: i for i, c in enumerate(class_ids)}
+
+    file_order = rng.permutation(len(path_list))
+    selected_files = [
+        path_list[int(i)] for i in file_order[: min(max_files, len(path_list))]
+    ]
+
+    uncertain_pool = []
+    wide_pool = []
+    double_pool = []
+
+    for file_idx, file_path in enumerate(selected_files, 1):
+        con.log(
+            f"  Scoring enrichment candidates [{file_idx}/{len(selected_files)}] "
+            f"{file_path.name}"
+        )
+        file = open_h5(file_path, nixio.FileMode.ReadOnly)
+        if file is None:
+            continue
+        try:
+            block = get_pulse_block(file)
+            names = [da.name for da in block.data_arrays]
+            if "raw_pulses" not in names:
+                continue
+
+            raw_pulses = block.data_arrays["raw_pulses"]
+            num_pulses = len(raw_pulses)
+            if "predicted_labels" in names:
+                candidate_indices = np.where(
+                    block.data_arrays["predicted_labels"][:] == 1
+                )[0]
+            else:
+                candidate_indices = np.arange(num_pulses)
+            if len(candidate_indices) == 0:
+                continue
+
+            fs = float(file.sections["pulses_metadata"]["metadata"]["samplerate"])
+
+            wide_marker = None
+            double_marker = None
+            wide_arr, _ = get_first_available_array(
+                block, names, LABELING_CLASS_ARRAYS.get(1, ("is_wide_pulse",))
+            )
+            double_arr, _ = get_first_available_array(
+                block, names, LABELING_CLASS_ARRAYS.get(2, ("is_double_peak",))
+            )
+            if wide_arr is not None:
+                wide_marker = expand_marker_to_all_pulses(
+                    wide_arr, candidate_indices, num_pulses, "is_wide_pulse"
+                )
+            if double_arr is not None:
+                double_marker = expand_marker_to_all_pulses(
+                    double_arr, candidate_indices, num_pulses, "is_double_peak"
+                )
+
+            # Detector enrichment candidates (cheap).
+            for pulse_idx in candidate_indices:
+                key = _pulse_record_key(file_path, pulse_idx)
+                if key in exclude_keys:
+                    continue
+                rec = {
+                    "file_path": str(file_path),
+                    "pulse_idx": int(pulse_idx),
+                    "fs": float(fs),
+                    "sampling_pool": "enrichment",
+                }
+                if double_marker is not None and double_marker[pulse_idx] == 1:
+                    double_pool.append({**rec, "sampling_pool": "enrich_double_det"})
+                elif wide_marker is not None and wide_marker[pulse_idx] == 1:
+                    wide_pool.append({**rec, "sampling_pool": "enrich_wide_det"})
+
+            # RF scoring on a random subset per file for uncertain / soft rare.
+            score_n = min(score_pool_per_file, len(candidate_indices))
+            score_idx = rng.choice(candidate_indices, size=score_n, replace=False)
+            traces = []
+            meta = []
+            for pulse_idx in score_idx:
+                key = _pulse_record_key(file_path, pulse_idx)
+                if key in exclude_keys:
+                    continue
+                pulse_data = np.asarray(raw_pulses[int(pulse_idx)][:], dtype=float)
+                trace, best_channel = get_representative_waveform(pulse_data)
+                traces.append(trace)
+                meta.append(
+                    {
+                        "file_path": str(file_path),
+                        "pulse_idx": int(pulse_idx),
+                        "fs": float(fs),
+                        "best_channel": int(best_channel),
+                        "all_channels": pulse_data,
+                    }
+                )
+            if not traces:
+                continue
+
+            X = prepare_classifier_waveforms(np.asarray(traces, dtype=float), classifier)
+            proba = classifier.predict_proba(X)
+            for i, row in enumerate(proba):
+                p_sorted = np.sort(row)[::-1]
+                max_p = float(p_sorted[0])
+                margin = float(p_sorted[0] - p_sorted[1]) if len(p_sorted) > 1 else 1.0
+                p_wide = float(row[id_to_col[1]]) if 1 in id_to_col else 0.0
+                p_double = float(row[id_to_col[2]]) if 2 in id_to_col else 0.0
+                pred = int(class_ids[int(np.argmax(row))])
+                base = {
+                    "file_path": meta[i]["file_path"],
+                    "pulse_idx": meta[i]["pulse_idx"],
+                    "fs": meta[i]["fs"],
+                    "best_channel": meta[i]["best_channel"],
+                    "all_channels": meta[i]["all_channels"],
+                    "rf_max_proba": max_p,
+                    "rf_margin": margin,
+                    "rf_p_wide": p_wide,
+                    "rf_p_double": p_double,
+                    "rf_pred": pred,
+                }
+                if max_p < uncertain_max_proba or margin < uncertain_margin:
+                    uncertain_pool.append(
+                        {**base, "sampling_pool": "enrich_uncertain"}
+                    )
+                if pred == 2 or p_double >= 0.25:
+                    double_pool.append({**base, "sampling_pool": "enrich_double_rf"})
+                elif pred == 1 or p_wide >= 0.30:
+                    wide_pool.append({**base, "sampling_pool": "enrich_wide_rf"})
+        finally:
+            file.close()
+
+    def _dedupe(pool):
+        seen = set()
+        out = []
+        for rec in pool:
+            key = _pulse_record_key(rec["file_path"], rec["pulse_idx"])
+            if key in seen or key in exclude_keys:
+                continue
+            seen.add(key)
+            out.append(rec)
+        return out
+
+    uncertain_pool = _dedupe(uncertain_pool)
+    wide_pool = _dedupe(wide_pool)
+    double_pool = _dedupe(double_pool)
+
+    # Prefer most uncertain / highest rare-class score when oversampled.
+    uncertain_pool.sort(
+        key=lambda r: (r.get("rf_max_proba", 1.0), r.get("rf_margin", 1.0))
+    )
+    wide_pool.sort(key=lambda r: -float(r.get("rf_p_wide", 0.5)))
+    double_pool.sort(key=lambda r: -float(r.get("rf_p_double", 0.5)))
+
+    def _take(pool, n, preferred_prefixes=None):
+        if not pool or n <= 0:
+            return []
+        preferred_prefixes = preferred_prefixes or ()
+        preferred = []
+        other = []
+        for r in pool:
+            pool_name = str(r.get("sampling_pool", ""))
+            if any(pool_name.startswith(p) for p in preferred_prefixes):
+                preferred.append(r)
+            else:
+                other.append(r)
+        chosen = []
+        for src in (preferred, other):
+            need = n - len(chosen)
+            if need <= 0:
+                break
+            if len(src) <= need:
+                chosen.extend(src)
+            else:
+                top = src[: max(need, len(src) // 2)]
+                pick = rng.choice(len(top), size=need, replace=False)
+                chosen.extend(top[int(i)] for i in pick)
+        return chosen
+
+    selected = []
+    selected.extend(_take(uncertain_pool, n_uncertain))
+    used = {_pulse_record_key(r["file_path"], r["pulse_idx"]) for r in selected}
+    wide_pool = [
+        r
+        for r in wide_pool
+        if _pulse_record_key(r["file_path"], r["pulse_idx"]) not in used
+    ]
+    selected.extend(_take(wide_pool, n_wide, preferred_prefixes=("enrich_wide",)))
+    used = {_pulse_record_key(r["file_path"], r["pulse_idx"]) for r in selected}
+    double_pool = [
+        r
+        for r in double_pool
+        if _pulse_record_key(r["file_path"], r["pulse_idx"]) not in used
+    ]
+    selected.extend(_take(double_pool, n_double, preferred_prefixes=("enrich_double",)))
+
+    if not selected:
+        return np.empty((0, 0)), []
+
+    shuffle_order = rng.permutation(len(selected))
+    selected = [selected[int(i)] for i in shuffle_order]
+
+    waveforms = []
+    records = []
+    waveform_cache = {}
+    for record in selected:
+        file_path = record["file_path"]
+        if "all_channels" in record:
+            pulse_data = np.asarray(record["all_channels"], dtype=float)
+            if "best_channel" in record:
+                best_channel = int(record["best_channel"])
+                trace = pulse_data[:, best_channel].copy()
+                if abs(np.min(trace)) > np.max(trace):
+                    trace *= -1
+            else:
+                trace, best_channel = get_representative_waveform(pulse_data)
+        else:
+            if file_path not in waveform_cache:
+                file = open_h5(file_path, nixio.FileMode.ReadOnly)
+                if file is None:
+                    continue
+                try:
+                    block = get_pulse_block(file)
+                    waveform_cache[file_path] = block.data_arrays["raw_pulses"][:]
+                finally:
+                    file.close()
+            pulse_data = waveform_cache[file_path][record["pulse_idx"]]
+            trace, best_channel = get_representative_waveform(pulse_data)
+
+        waveforms.append(trace)
+        records.append(
+            {
+                "file_path": record["file_path"],
+                "pulse_idx": record["pulse_idx"],
+                "fs": record["fs"],
+                "best_channel": int(best_channel),
+                "sampling_pool": record.get("sampling_pool", "enrichment"),
+                "all_channels": np.asarray(pulse_data, dtype=float),
+            }
+        )
+
+    pool_counts = {}
+    for r in records:
+        pool_counts[r["sampling_pool"]] = pool_counts.get(r["sampling_pool"], 0) + 1
+    con.log(
+        f"  Enrichment labeling sample: {len(records)} pulses "
+        f"from {len({r['file_path'] for r in records})} files | pools={pool_counts}"
+    )
+    con.log(
+        f"  Pool sizes before downsample: uncertain={len(uncertain_pool)}, "
+        f"wide={len(wide_pool)}, double={len(double_pool)}"
+    )
+    return np.asarray(waveforms, dtype=float), records
+
+
+def interactive_label_enrichment_train_set(
+    data_path,
+    labels_path=None,
+    n_uncertain=100,
+    n_wide=75,
+    n_double=75,
+    max_files=60,
+    random_seed=11,
+    append_existing=True,
+):
+    """
+    Label uncertain + rare-class enrichment pulses; append to naturalistic train set.
+    """
+    ml_paths = get_default_ml_paths()
+    labels_path = (
+        Path(labels_path) if labels_path else ml_paths["naturalistic_train_labels"]
+    )
+    exclude_keys = load_excluded_pulse_keys(ml_paths["naturalistic_test_labels"])
+    exclude_keys |= load_excluded_pulse_keys(labels_path)
+    con.log(
+        f"Excluding {len(exclude_keys)} already-labeled train/test pulses from enrichment."
+    )
+
+    n_total = n_uncertain + n_wide + n_double
+    con.log("\n" + "=" * 60)
+    con.log("ENRICHMENT TRAINING-SET LABELING")
+    con.log("=" * 60)
+    con.log(
+        "Mix of (1) RF-uncertain pulses and (2) rare-class candidates "
+        "(detector markers + elevated RF P(wide)/P(double))."
+    )
+    con.log(
+        f"Targets: uncertain≈{n_uncertain}, wide≈{n_wide}, double≈{n_double} "
+        f"(~{n_total} total). Labels append to the naturalistic train set."
+    )
+    con.log(f"Output: {labels_path}")
+    con.log("=" * 60)
+
+    return interactive_label_pulses(
+        data_path,
+        labels_path=labels_path,
+        random_seed=random_seed,
+        sampling="enrichment",
+        n_pulses=n_total,
+        max_files=max_files,
+        append_existing=append_existing,
+        exclude_keys=exclude_keys,
+        n_uncertain=n_uncertain,
+        n_wide_enrich=n_wide,
+        n_double_enrich=n_double,
     )
 
 
@@ -3654,6 +4024,7 @@ def main():
             "tune-decisions",
             "label-naturalistic-test",
             "label-naturalistic-train",
+            "label-enrichment-train",
             "eval-naturalistic-test",
         ),
         default="supervised",
@@ -3766,6 +4137,14 @@ def main():
             n_pulses=n_train,
             max_files=max_files,
             append_existing=args.append_test_labels,
+        )
+        return
+
+    if args.mode == "label-enrichment-train":
+        interactive_label_enrichment_train_set(
+            args.data_path,
+            max_files=max(args.max_files, 60),
+            append_existing=True,
         )
         return
 

@@ -3,9 +3,9 @@
 Analysis part: special-pulse visualization (Part 2c of Berlin activity analysis).
 Dependencies: double_peaks_detection, data_paths, h5_io.
 
-Randomly samples pulses, aligns waveforms at shape-specific reference points,
-and overlays individual traces with their mean for normal/double/wide types.
-Uses the trained Random Forest classifier (special_pulse_class) for categorization.
+Randomly samples up to MAX_WAVEFORMS_PER_CLASS pulses per shape for the mean,
+aligns at shape-specific reference points, and overlays SAMPLE_SIZE individual
+traces drawn from that capped set. Uses special_pulse_class for categorization.
 
 Aligned mean/median waveforms are saved under PULSE_SHAPE_PROTOTYPES_DIR as
 ``prototype_<shape>_mean.npz`` for reuse by downstream analyses.
@@ -48,7 +48,8 @@ from pulse_shape_metrics import (
 console = Console()
 
 OUTPUT_DIR = PULSE_SHAPE_PROTOTYPES_DIR
-SAMPLE_SIZE = 100
+SAMPLE_SIZE = 100  # gray overlay traces in prototype plots
+MAX_WAVEFORMS_PER_CLASS = 20_000  # cap for mean / median prototype
 RANDOM_SEED = 42
 
 CLIP_RATIO = 0.995
@@ -467,8 +468,15 @@ def add_detection_markers(ax, mean_trace, fs, pulse_shape, pulse_key=None):
         )
 
 
-def load_all_waveforms(entries, align_mode=None, max_waveforms=None):
-    """Load waveforms for mean computation (optionally capped for memory)."""
+def load_all_waveforms(
+    entries, align_mode=None, max_waveforms=None, random_seed=None
+):
+    """Load waveforms for mean computation (optionally capped via random sample)."""
+    entries = list(entries)
+    if max_waveforms is not None and len(entries) > max_waveforms:
+        rng = np.random.default_rng(random_seed)
+        rng.shuffle(entries)
+
     corrected_waveforms = []
     normalized_waveforms = []
     fs = None
@@ -512,9 +520,10 @@ def plot_prototype_pulse_shape(
     fs,
     output_dir,
     mean_trace_all=None,
+    n_in_mean=None,
     total_count=None,
 ):
-    """Plot sampled pulses with mean computed from all waveforms when provided."""
+    """Plot sampled pulses with mean from the (possibly capped) waveform set."""
     if not normalized_waveforms:
         console.log(f"[yellow]No pulses found for {pulse_shape['label']}. Skipping.")
         return None
@@ -524,10 +533,12 @@ def plot_prototype_pulse_shape(
     )
     if mean_trace_all is not None:
         mean_trace = mean_trace_all
-        mean_label = f"Mean (n={total_count:,})"
+        mean_n = n_in_mean if n_in_mean is not None else total_count
+        mean_label = f"Mean (n={mean_n:,})"
     else:
         mean_trace = np.mean(aligned_sample, axis=0)
-        mean_label = f"Mean (n={len(aligned_sample)})"
+        mean_n = len(aligned_sample)
+        mean_label = f"Mean (n={mean_n})"
 
     time_ms = np.arange(aligned_sample.shape[1]) / fs * 1000
 
@@ -562,9 +573,16 @@ def plot_prototype_pulse_shape(
     ax.set_xlabel("Time (ms)")
     ax.set_ylabel("Normalized amplitude")
     ax.set_ylim(-0.2, 1.05)
+    title_pool = mean_n if mean_n is not None else len(aligned_sample)
+    if total_count is not None and total_count != title_pool:
+        title_suffix = (
+            f"(showing {len(aligned_sample)} of {title_pool:,}; "
+            f"{total_count:,} classified)"
+        )
+    else:
+        title_suffix = f"(showing {len(aligned_sample)} of {title_pool:,})"
     ax.set_title(
-        f"Prototype {pulse_shape['label'].lower()}s "
-        f"(showing {len(aligned_sample)} of {total_count or len(aligned_sample):,})",
+        f"Prototype {pulse_shape['label'].lower()}s {title_suffix}",
         fontsize=13,
         fontweight="bold",
     )
@@ -813,11 +831,16 @@ def save_double_peak_separation_stats(corrected_waveforms, fs, output_dir):
 def main(
     data_path=H5_DIR,
     sample_size=SAMPLE_SIZE,
+    max_waveforms=MAX_WAVEFORMS_PER_CLASS,
     random_seed=RANDOM_SEED,
     apply_classifier=False,
 ):
     apply_presentation_style()
     console.log("Collecting and plotting prototype pulses for each pulse shape...")
+    console.log(
+        f"Mean/median cap: {max_waveforms:,} pulses/class; "
+        f"plot overlay: {sample_size} traces"
+    )
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     if apply_classifier:
@@ -846,8 +869,13 @@ def main(
         pulse_counts[pulse_key] = total_count
         console.log(f"  Found {total_count} RF-classified pulses")
 
+        # Per-class seed so shuffle/sample are independent but reproducible.
+        class_seed = random_seed + int(pulse_shape["class_id"])
         all_corrected, all_normalized, fs = load_all_waveforms(
-            entries, align_mode=pulse_shape["align"]
+            entries,
+            align_mode=pulse_shape["align"],
+            max_waveforms=max_waveforms,
+            random_seed=class_seed,
         )
         if not all_normalized:
             continue
@@ -856,6 +884,7 @@ def main(
             all_normalized, all_corrected, pulse_shape["align"], fs
         )
         mean_all = np.mean(all_aligned, axis=0)
+        n_in_mean = len(all_aligned)
         mean_traces[pulse_key] = (mean_all, fs, all_corrected)
         save_prototype_mean_waveforms(
             pulse_key,
@@ -866,12 +895,16 @@ def main(
             align_mode=pulse_shape["align"],
         )
         console.log(
-            f"  Mean from {len(all_aligned):,} morph-aligned waveforms "
-            f"(of {total_count:,} RF-classified)"
+            f"  Mean from {n_in_mean:,} morph-aligned waveforms "
+            f"(cap {max_waveforms:,}; {total_count:,} RF-classified)"
         )
 
-        rng = np.random.default_rng(random_seed)
-        sample_idx = rng.choice(len(all_normalized), size=min(sample_size, len(all_normalized)), replace=False)
+        rng = np.random.default_rng(class_seed)
+        sample_idx = rng.choice(
+            len(all_normalized),
+            size=min(sample_size, len(all_normalized)),
+            replace=False,
+        )
         sample_corrected = [all_corrected[i] for i in sample_idx]
         sample_normalized = [all_normalized[i] for i in sample_idx]
 
@@ -883,6 +916,7 @@ def main(
             fs,
             OUTPUT_DIR,
             mean_trace_all=mean_all,
+            n_in_mean=n_in_mean,
             total_count=total_count,
         )
 
