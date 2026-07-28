@@ -110,6 +110,28 @@ PCA_MAX_CLASSIFIER_COMPONENTS = 20
 # Max PCA dimensions computed for exploratory scatter plots.
 PCA_MAX_PLOT_COMPONENTS = 10
 
+# Production decision defaults for rare special pulses.
+# Retuned on naturalistic_test_labels.npz (n=486): min_proba wide/double = 0.40
+# slightly beats hard predict() on that test set (macro F1 0.724 vs 0.711).
+# No rule-based gate: ML is the sole shape decision.
+DEFAULT_NATURAL_PRIOR = {
+    0: 0.92,  # normal
+    1: 0.075,  # wide
+    2: 0.005,  # double
+}
+DEFAULT_MIN_PROBA = {
+    1: 0.40,  # wide
+    2: 0.40,  # double
+}
+DEFAULT_DECISION_CONFIG = {
+    "use_prior_reweight": False,
+    "natural_prior": DEFAULT_NATURAL_PRIOR,
+    "min_proba": DEFAULT_MIN_PROBA,
+    "default_class": 0,
+    "rule_gate_double": False,
+    "rf_class_weight": None,
+}
+
 
 class RobustPCA(BaseEstimator, TransformerMixin):
     """
@@ -859,6 +881,8 @@ def get_default_ml_paths():
     return {
         "base": base_path,
         "labels": base_path / "labeled_special_pulses.npz",
+        "naturalistic_test_labels": base_path / "naturalistic_test_labels.npz",
+        "naturalistic_train_labels": base_path / "naturalistic_train_labels.npz",
         "model": base_path / "special_pulse_rf_pca.pkl",
         "pca_plot": pca_dir / "labeled_pulses_pca_space.png",
     }
@@ -1080,6 +1104,147 @@ def prepare_classifier_waveforms(waveforms: np.ndarray, classifier) -> np.ndarra
     return normalize_waveforms_for_pca(waveforms)
 
 
+def class_prior_from_labels(labels, class_ids=None):
+    """Empirical class frequencies as a dict {class_id: prior}."""
+    labels = np.asarray(labels, dtype=np.int64)
+    if class_ids is None:
+        class_ids = sorted(SPECIAL_PULSE_CLASSES)
+    class_ids = [int(c) for c in class_ids]
+    counts = {c: int(np.sum(labels == c)) for c in class_ids}
+    total = max(sum(counts.values()), 1)
+    return {c: counts[c] / total for c in class_ids}
+
+
+def reweight_class_probabilities(proba, class_ids, train_prior, natural_prior):
+    """
+    Bayes-style prior correction: p'(c|x) ∝ p(c|x) * π_nat(c) / π_train(c).
+
+    RF predict_proba reflects the training label mix. Multiplying by the ratio of
+    natural to train priors shifts mass toward the production prevalence.
+    """
+    proba = np.asarray(proba, dtype=float)
+    class_ids = [int(c) for c in class_ids]
+    weights = np.array(
+        [
+            float(natural_prior.get(c, 0.0)) / max(float(train_prior.get(c, 1e-12)), 1e-12)
+            for c in class_ids
+        ],
+        dtype=float,
+    )
+    adjusted = proba * weights[np.newaxis, :]
+    row_sums = adjusted.sum(axis=1, keepdims=True)
+    row_sums[row_sums == 0] = 1.0
+    return adjusted / row_sums
+
+
+def decide_classes_from_proba(
+    proba,
+    class_ids,
+    *,
+    min_proba=None,
+    default_class=0,
+):
+    """
+    Map class probabilities to labels with high bars for rare classes.
+
+    Rare classes (keys in min_proba) are only assigned if their probability meets
+    the threshold and they are the strongest rare candidate; otherwise default_class.
+    """
+    proba = np.asarray(proba, dtype=float)
+    class_ids = np.asarray(class_ids, dtype=np.int64)
+    min_proba = {int(k): float(v) for k, v in (min_proba or {}).items()}
+    default_class = int(default_class)
+
+    id_to_col = {int(c): i for i, c in enumerate(class_ids)}
+    preds = np.full(len(proba), default_class, dtype=np.int64)
+
+    rare_classes = [c for c in sorted(min_proba) if c in id_to_col]
+    if not rare_classes:
+        return class_ids[np.argmax(proba, axis=1)]
+
+    for i, row in enumerate(proba):
+        best_rare = None
+        best_p = -1.0
+        for class_id in rare_classes:
+            p = float(row[id_to_col[class_id]])
+            if p >= min_proba[class_id] and p > best_p:
+                best_rare = class_id
+                best_p = p
+        if best_rare is not None:
+            preds[i] = best_rare
+        else:
+            # Among non-rare / default: prefer argmax, but never assign a rare
+            # class that failed its threshold.
+            eligible = [
+                c
+                for c in class_ids
+                if c not in min_proba or float(row[id_to_col[int(c)]]) >= min_proba[int(c)]
+            ]
+            if not eligible:
+                preds[i] = default_class
+            else:
+                preds[i] = max(eligible, key=lambda c: float(row[id_to_col[int(c)]]))
+    return preds
+
+
+def predict_special_pulse_classes(
+    classifier,
+    waveforms,
+    *,
+    decision_config=None,
+    train_prior=None,
+    pulse_waveforms_raw=None,
+    sample_rates=None,
+):
+    """
+    Predict class IDs using predict_proba + optional prior/threshold/rule gate.
+
+    Parameters
+    ----------
+    classifier : fitted sklearn Pipeline
+    waveforms : array (n, T) already prepared for the classifier
+    decision_config : dict, optional
+    train_prior : dict, optional
+    pulse_waveforms_raw : list/array of (T, C) multi-channel pulses for rule gate
+    sample_rates : array of sample rates for rule gate
+    """
+    cfg = {**DEFAULT_DECISION_CONFIG, **(decision_config or {})}
+    class_ids = np.asarray(classifier.classes_, dtype=np.int64)
+    proba = classifier.predict_proba(waveforms)
+
+    if cfg.get("use_prior_reweight", False):
+        if train_prior is None:
+            raise ValueError("train_prior is required when use_prior_reweight=True")
+        proba = reweight_class_probabilities(
+            proba,
+            class_ids,
+            train_prior,
+            cfg.get("natural_prior", DEFAULT_NATURAL_PRIOR),
+        )
+
+    preds = decide_classes_from_proba(
+        proba,
+        class_ids,
+        min_proba=cfg.get("min_proba", DEFAULT_MIN_PROBA),
+        default_class=cfg.get("default_class", 0),
+    )
+
+    if cfg.get("rule_gate_double", False) and pulse_waveforms_raw is not None:
+        if sample_rates is None:
+            raise ValueError("sample_rates required when rule_gate_double=True")
+        for i, pred in enumerate(preds):
+            if pred != 2:
+                continue
+            is_double, _ = detect_double_pulse(
+                np.asarray(pulse_waveforms_raw[i], dtype=float),
+                float(sample_rates[i]),
+            )
+            if not is_double:
+                preds[i] = 0
+
+    return preds, proba
+
+
 def _make_pca_estimator(n_components, random_state=42):
     return RobustPCA(n_components=n_components, random_state=random_state)
 
@@ -1201,9 +1366,18 @@ def _scatter_labeled_pca_pairs(
     ax.grid(True, alpha=0.25, linestyle="--")
 
 
+# Common timebase for labeling / naturalistic train features.
+# Many H5 files are 48 kHz with ~10 ms snippets; others are 24 kHz with ~20 ms.
+# For comparable shapes while labeling (and for RF features), we plot and store
+# all snippets on this reference rate: equal sample counts → equal plotted duration
+# (48 kHz traces are effectively time-stretched ×2, as if sampled at 24 kHz).
+LABEL_REF_FS = 24000.0
+
+
 def normalize_channels_for_label_plot(pulse_data):
     """
-    Baseline-correct all channels and normalize them with one shared scale.
+    Baseline-correct all channels, flip each to positive dominant polarity,
+    and normalize with one shared scale across channels.
     """
     pulse_data = np.asarray(pulse_data, dtype=float)
     corrected = pulse_data.copy()
@@ -1212,11 +1386,64 @@ def normalize_channels_for_label_plot(pulse_data):
     baseline = np.median(corrected[:baseline_window, :], axis=0, keepdims=True)
     corrected -= baseline
 
+    # Flip each channel so its dominant peak is positive.
+    for channel_idx in range(corrected.shape[1]):
+        trace = corrected[:, channel_idx]
+        if abs(np.min(trace)) > np.max(trace):
+            corrected[:, channel_idx] = -trace
+
     scale = np.max(np.abs(corrected))
     if scale == 0:
         scale = 1.0
 
     return corrected / scale
+
+
+def apply_label_ref_timebase(records, waveforms=None, ref_fs=LABEL_REF_FS):
+    """
+    Reinterpret each pulse on a common reference sample rate for labeling/RF.
+
+    Sample values are unchanged; native_fs is kept for provenance. Display and
+    saved training features then use ref_fs so 48 kHz and 24 kHz snippets share
+    the same plotted duration (×2 stretch for 48 kHz).
+    """
+    ref_fs = float(ref_fs)
+    for record in records:
+        native_fs = float(record["fs"])
+        record["native_fs"] = native_fs
+        record["fs"] = ref_fs
+    if waveforms is not None:
+        return records, np.asarray(waveforms, dtype=float)
+    return records
+
+
+def compute_label_plot_ylim(records):
+    """
+    Fixed y-limits for the labeling UI, shared across all pulses in the session.
+
+    Lower bound is capped at -0.3 so polarity-flipped channels stay comparable.
+    """
+    ymin = 0.0
+    ymax = 0.0
+    for record in records:
+        if "all_channels" in record:
+            pulse_data = normalize_channels_for_label_plot(record["all_channels"])
+        else:
+            pulse_data = np.asarray(record.get("waveform", []), dtype=float)
+            if pulse_data.size == 0:
+                continue
+            if abs(np.min(pulse_data)) > np.max(pulse_data):
+                pulse_data = -pulse_data
+            scale = np.max(np.abs(pulse_data)) or 1.0
+            pulse_data = pulse_data / scale
+        ymin = min(ymin, float(np.min(pulse_data)))
+        ymax = max(ymax, float(np.max(pulse_data)))
+
+    span = max(abs(ymin), abs(ymax), 1.0)
+    margin = 0.05 * span
+    lower = max(ymin - margin, -0.3)
+    upper = ymax + margin
+    return (lower, upper)
 
 
 def pulse_peak_index(pulse_data, best_channel=None):
@@ -1237,11 +1464,11 @@ def peak_aligned_time_ms(n_samples, peak_idx, fs):
     return (np.arange(n_samples) - peak_idx) / fs * 1000
 
 
-def compute_label_plot_half_window_ms(records):
+def compute_label_plot_half_window_ms(records, ref_fs=None):
     """Symmetric half-window (ms) for fixed peak-centered labeling axes."""
     half_windows = []
     for record in records:
-        fs = float(record["fs"])
+        fs = float(ref_fs if ref_fs is not None else record["fs"])
         if "all_channels" in record:
             pulse_data = record["all_channels"]
             peak_idx = pulse_peak_index(
@@ -1268,6 +1495,7 @@ def plot_labeling_pulse(
     total,
     *,
     label_plot_half_window_ms,
+    label_plot_ylim,
 ):
     ax.clear()
     fs = record["fs"]
@@ -1288,15 +1516,19 @@ def plot_labeling_pulse(
                 label=f"ch {channel_idx}" if is_best_channel else None,
             )
     else:
-        peak_idx = pulse_peak_index(waveform)
-        time_axis = peak_aligned_time_ms(len(waveform), peak_idx, fs)
-        ax.plot(time_axis, waveform, linewidth=2.0, color="steelblue")
+        plot_wave = np.asarray(waveform, dtype=float).copy()
+        if abs(np.min(plot_wave)) > np.max(plot_wave):
+            plot_wave *= -1
+        peak_idx = pulse_peak_index(plot_wave)
+        time_axis = peak_aligned_time_ms(len(plot_wave), peak_idx, fs)
+        ax.plot(time_axis, plot_wave, linewidth=2.0, color="steelblue")
 
     ax.axhline(0, color="black", linewidth=0.8, alpha=0.4)
     ax.axvline(0, color="black", linewidth=0.8, alpha=0.25, linestyle=":")
     ax.set_xlim(-label_plot_half_window_ms, label_plot_half_window_ms)
+    ax.set_ylim(label_plot_ylim)
     ax.set_xlabel("Time from peak (ms)")
-    ax.set_ylabel("Amplitude (normalized)")
+    ax.set_ylabel("Amplitude (normalized, +polarity)")
     ax.grid(True, alpha=0.3, linestyle="--")
 
     counts = " | ".join(
@@ -1304,14 +1536,169 @@ def plot_labeling_pulse(
         for label_id, name in LABELING_PULSE_CLASSES.items()
     )
     sampled_as = record.get("sampling_pool", "candidate")
+    native_fs = record.get("native_fs", record["fs"])
+    fs_note = (
+        f"native {native_fs/1000:.0f} kHz→plot {record['fs']/1000:.0f} kHz"
+        if abs(float(native_fs) - float(record["fs"])) > 1
+        else f"{record['fs']/1000:.0f} kHz"
+    )
     title = (
         f"Label pulse {current_idx + 1}/{total} | "
         f"{Path(record['file_path']).name}, pulse {record['pulse_idx']} | "
-        f"sampled as: {sampled_as}\n"
+        f"sampled as: {sampled_as} | {fs_note}\n"
         "[0] normal  [1] wide  [2] double  [S] skip  [Q] finish | "
         f"{counts}"
     )
     ax.set_title(title, fontsize=11, fontweight="bold")
+
+
+def _pulse_record_key(file_path, pulse_idx):
+    return (str(file_path), int(pulse_idx))
+
+
+def load_excluded_pulse_keys(labels_path):
+    """Return set of (file_path, pulse_idx) already labeled (e.g. test set)."""
+    labels_path = Path(labels_path)
+    if not labels_path.exists():
+        return set()
+    data = np.load(labels_path, allow_pickle=False)
+    records = data["records"]
+    return {
+        _pulse_record_key(rec["file_path"], rec["pulse_idx"])
+        for rec in records
+    }
+
+
+def load_naturalistic_pulses_for_labeling(
+    data_path,
+    n_pulses=500,
+    max_files=40,
+    random_seed=42,
+    exclude_keys=None,
+):
+    """
+    Sample pulses at natural prevalence for labeling.
+
+    Stratifies across files (≈equal draw per file) so the set is not dominated
+    by one recording. Does not use old detector class pools — only
+    predicted-positive (or all) pulses, drawn at random.
+
+    exclude_keys : optional set of (file_path, pulse_idx) to skip (e.g. test set).
+    """
+    path_list = get_path_list(Path(data_path))
+    if not path_list:
+        raise FileNotFoundError(f"No H5 files under {data_path}")
+
+    exclude_keys = exclude_keys or set()
+    rng = np.random.default_rng(random_seed)
+    file_order = rng.permutation(len(path_list))
+    selected_files = [path_list[int(i)] for i in file_order[: min(max_files, len(path_list))]]
+
+    pools_by_file = []
+    n_excluded = 0
+    for file_path in selected_files:
+        file = open_h5(file_path, nixio.FileMode.ReadOnly)
+        if file is None:
+            continue
+        try:
+            block = get_pulse_block(file)
+            names = [da.name for da in block.data_arrays]
+            if "raw_pulses" not in names:
+                continue
+            raw_pulses = block.data_arrays["raw_pulses"]
+            num_pulses = len(raw_pulses)
+            if "predicted_labels" in names:
+                candidate_indices = np.where(
+                    block.data_arrays["predicted_labels"][:] == 1
+                )[0]
+            else:
+                candidate_indices = np.arange(num_pulses)
+            if len(candidate_indices) == 0:
+                continue
+            fs = float(file.sections["pulses_metadata"]["metadata"]["samplerate"])
+            pool = []
+            for pulse_idx in candidate_indices:
+                key = _pulse_record_key(file_path, pulse_idx)
+                if key in exclude_keys:
+                    n_excluded += 1
+                    continue
+                pool.append(
+                    {
+                        "file_path": str(file_path),
+                        "pulse_idx": int(pulse_idx),
+                        "fs": float(fs),
+                        "sampling_pool": "naturalistic",
+                    }
+                )
+            if pool:
+                pools_by_file.append(pool)
+        finally:
+            file.close()
+
+    if not pools_by_file:
+        return np.empty((0, 0)), []
+
+    # ≈equal draw per file, then top up if short
+    n_files = len(pools_by_file)
+    per_file = max(1, n_pulses // n_files)
+    selected_records = []
+    leftovers = []
+    for pool in pools_by_file:
+        take = min(per_file, len(pool))
+        chosen = rng.choice(len(pool), size=take, replace=False)
+        chosen_set = {int(j) for j in chosen}
+        selected_records.extend(pool[int(i)] for i in chosen)
+        leftovers.extend(pool[i] for i in range(len(pool)) if i not in chosen_set)
+
+    if len(selected_records) < n_pulses and leftovers:
+        need = min(n_pulses - len(selected_records), len(leftovers))
+        extra = rng.choice(len(leftovers), size=need, replace=False)
+        selected_records.extend(leftovers[int(i)] for i in extra)
+
+    if len(selected_records) > n_pulses:
+        keep = rng.choice(len(selected_records), size=n_pulses, replace=False)
+        selected_records = [selected_records[int(i)] for i in keep]
+
+    shuffle_order = rng.permutation(len(selected_records))
+    selected_records = [selected_records[int(i)] for i in shuffle_order]
+
+    waveforms = []
+    records = []
+    waveform_cache = {}
+    for record in selected_records:
+        file_path = record["file_path"]
+        if file_path not in waveform_cache:
+            file = open_h5(file_path, nixio.FileMode.ReadOnly)
+            if file is None:
+                continue
+            try:
+                block = get_pulse_block(file)
+                waveform_cache[file_path] = block.data_arrays["raw_pulses"][:]
+            finally:
+                file.close()
+
+        pulse_data = waveform_cache[file_path][record["pulse_idx"]]
+        trace, best_channel = get_representative_waveform(pulse_data)
+        waveforms.append(trace)
+        records.append(
+            {
+                "file_path": record["file_path"],
+                "pulse_idx": record["pulse_idx"],
+                "fs": record["fs"],
+                "best_channel": int(best_channel),
+                "sampling_pool": "naturalistic",
+                "all_channels": np.asarray(pulse_data, dtype=float),
+            }
+        )
+
+    con.log(
+        f"  Naturalistic labeling sample: {len(records)} pulses from "
+        f"{len({r['file_path'] for r in records})} files "
+        f"(target n={n_pulses}, max_files={max_files}"
+        + (f", excluded {n_excluded} already-labeled" if n_excluded else "")
+        + ")"
+    )
+    return np.asarray(waveforms, dtype=float), records
 
 
 def interactive_label_pulses(
@@ -1319,6 +1706,12 @@ def interactive_label_pulses(
     labels_path=None,
     pulses_per_type=300,
     random_seed=42,
+    *,
+    sampling="balanced",
+    n_pulses=500,
+    max_files=40,
+    append_existing=True,
+    exclude_keys=None,
 ):
     """
     Prompt the user to label pulses in a matplotlib window.
@@ -1327,25 +1720,65 @@ def interactive_label_pulses(
         0 = normal
         1 = wide
         2 = double
+
+    sampling:
+        "balanced" — old detector pools (training-style, class-balanced)
+        "naturalistic" — random / file-stratified (test-set style)
     """
     ml_paths = get_default_ml_paths()
     labels_path = Path(labels_path) if labels_path else ml_paths["labels"]
     labels_path.parent.mkdir(parents=True, exist_ok=True)
 
     con.log("Loading pulse candidates for manual labeling...")
-    waveforms, records = load_balanced_detector_labeled_pulses(
-        data_path, pulses_per_type=pulses_per_type, random_seed=random_seed
-    )
+    if sampling == "naturalistic":
+        waveforms, records = load_naturalistic_pulses_for_labeling(
+            data_path,
+            n_pulses=n_pulses,
+            max_files=max_files,
+            random_seed=random_seed,
+            exclude_keys=exclude_keys,
+        )
+    elif sampling == "balanced":
+        waveforms, records = load_balanced_detector_labeled_pulses(
+            data_path, pulses_per_type=pulses_per_type, random_seed=random_seed
+        )
+    else:
+        raise ValueError(f"Unknown sampling mode: {sampling}")
 
     if len(waveforms) == 0:
         con.log("No pulse candidates found.")
         return None
 
+    if sampling == "naturalistic":
+        records, waveforms = apply_label_ref_timebase(
+            records, waveforms, ref_fs=LABEL_REF_FS
+        )
+        n_stretched = sum(
+            1
+            for r in records
+            if abs(float(r.get("native_fs", r["fs"])) - LABEL_REF_FS) > 1
+        )
+        con.log(
+            f"  Timebase normalized to {LABEL_REF_FS/1000:.0f} kHz for labeling/"
+            f"features ({n_stretched}/{len(records)} pulses were higher-rate and "
+            "are shown time-stretched × fs/ref_fs)."
+        )
+
     waveforms = normalize_waveforms_for_pca(waveforms)
     labels = np.full(len(waveforms), -1, dtype=np.int64)
-    label_plot_half_window_ms = compute_label_plot_half_window_ms(records)
+    label_plot_half_window_ms = compute_label_plot_half_window_ms(
+        records, ref_fs=LABEL_REF_FS if sampling == "naturalistic" else None
+    )
+    label_plot_ylim = compute_label_plot_ylim(records)
 
     con.log("\nLabeling instructions:")
+    con.log(f"  Sampling mode: {sampling}")
+    con.log(f"  Save path: {labels_path}")
+    if sampling == "naturalistic":
+        con.log(
+            f"  Common plot/feature timebase: {LABEL_REF_FS/1000:.0f} kHz "
+            "(48 kHz snippets stretched ×2 so all traces share the x-axis)"
+        )
     con.log("  0 = normal/non-special pulse")
     con.log("  1 = wide pulse")
     con.log("  2 = double pulse")
@@ -1354,6 +1787,10 @@ def interactive_label_pulses(
     con.log(
         f"  Fixed x-axis: ±{label_plot_half_window_ms:.2f} ms from peak "
         "(for width comparison)"
+    )
+    con.log(
+        f"  Fixed y-axis: [{label_plot_ylim[0]:.2f}, {label_plot_ylim[1]:.2f}] "
+        "(all channels flipped to +polarity)"
     )
 
     state = {"idx": 0, "quit": False}
@@ -1378,6 +1815,7 @@ def interactive_label_pulses(
             state["idx"],
             len(waveforms),
             label_plot_half_window_ms=label_plot_half_window_ms,
+            label_plot_ylim=label_plot_ylim,
         )
         fig.canvas.draw_idle()
 
@@ -1435,7 +1873,7 @@ def interactive_label_pulses(
     save_labels = labels[labeled_mask]
     save_records = labeled_records
 
-    if labels_path.exists():
+    if append_existing and labels_path.exists():
         existing = np.load(labels_path, allow_pickle=False)
         save_waveforms = np.vstack([existing["waveforms"], save_waveforms])
         save_labels = np.concatenate([existing["labels"], save_labels])
@@ -1451,8 +1889,211 @@ def interactive_label_pulses(
         f"Saved {np.sum(labeled_mask)} new labels "
         f"({len(save_labels)} total) to {labels_path}"
     )
+    unique, counts = np.unique(save_labels, return_counts=True)
+    con.log(
+        "Label counts: "
+        + ", ".join(
+            f"{LABELING_PULSE_CLASSES.get(int(u), u)}={int(c)}"
+            for u, c in zip(unique, counts)
+        )
+    )
 
     return labels_path
+
+
+def interactive_label_naturalistic_test_set(
+    data_path,
+    labels_path=None,
+    n_pulses=500,
+    max_files=40,
+    random_seed=42,
+    append_existing=False,
+):
+    """
+    Label a naturalistic held-out test set (random / file-stratified sampling).
+
+    Saved separately from the training label file so it is not used for fitting.
+    """
+    ml_paths = get_default_ml_paths()
+    labels_path = (
+        Path(labels_path) if labels_path else ml_paths["naturalistic_test_labels"]
+    )
+    con.log("\n" + "=" * 60)
+    con.log("NATURALISTIC TEST-SET LABELING")
+    con.log("=" * 60)
+    con.log(
+        "This set is for evaluating the thresholded RF only — "
+        "it will not be used to train the classifier."
+    )
+    con.log(f"Target size: ~{n_pulses} pulses across up to {max_files} files")
+    con.log(f"Output: {labels_path}")
+    con.log("=" * 60)
+
+    return interactive_label_pulses(
+        data_path,
+        labels_path=labels_path,
+        random_seed=random_seed,
+        sampling="naturalistic",
+        n_pulses=n_pulses,
+        max_files=max_files,
+        append_existing=append_existing,
+    )
+
+
+def interactive_label_naturalistic_train_set(
+    data_path,
+    labels_path=None,
+    n_pulses=1200,
+    max_files=80,
+    random_seed=7,
+    append_existing=False,
+    exclude_test_set=True,
+):
+    """
+    Label a naturalistic training set (file-stratified random sampling).
+
+    Excludes pulses already in the frozen naturalistic test set by default.
+    Saved separately from the old detector-balanced training labels.
+    """
+    ml_paths = get_default_ml_paths()
+    labels_path = (
+        Path(labels_path) if labels_path else ml_paths["naturalistic_train_labels"]
+    )
+    exclude_keys = set()
+    if exclude_test_set:
+        exclude_keys = load_excluded_pulse_keys(ml_paths["naturalistic_test_labels"])
+        con.log(
+            f"Excluding {len(exclude_keys)} pulses already in naturalistic test set."
+        )
+
+    con.log("\n" + "=" * 60)
+    con.log("NATURALISTIC TRAINING-SET LABELING")
+    con.log("=" * 60)
+    con.log(
+        "Sampling: random among predicted-positive pulses, stratified across "
+        "many H5 files (≈equal count per file). NOT balanced by old detector "
+        "class pools — prevalence should match the data."
+    )
+    con.log(
+        "Your frozen naturalistic test set is excluded so there is no train/test "
+        "leakage. After labeling, we will train on this file and evaluate on the "
+        "test set."
+    )
+    con.log(f"Target size: ~{n_pulses} pulses across up to {max_files} files")
+    con.log(f"Output: {labels_path}")
+    con.log("=" * 60)
+
+    return interactive_label_pulses(
+        data_path,
+        labels_path=labels_path,
+        random_seed=random_seed,
+        sampling="naturalistic",
+        n_pulses=n_pulses,
+        max_files=max_files,
+        append_existing=append_existing,
+        exclude_keys=exclude_keys,
+    )
+
+
+def evaluate_naturalistic_test_set(
+    labels_path=None,
+    model_path=None,
+):
+    """
+    Score the saved production classifier on the naturalistic test labels.
+    """
+    ml_paths = get_default_ml_paths()
+    labels_path = (
+        Path(labels_path) if labels_path else ml_paths["naturalistic_test_labels"]
+    )
+    model_path = Path(model_path) if model_path else ml_paths["model"]
+
+    if not labels_path.exists():
+        raise FileNotFoundError(
+            f"Naturalistic test labels not found at {labels_path}. "
+            "Run --mode label-naturalistic-test first."
+        )
+    if not model_path.exists():
+        raise FileNotFoundError(f"Model not found at {model_path}")
+
+    import __main__
+    setattr(__main__, "RobustPCA", RobustPCA)
+
+    waveforms, labels, _ = load_labeled_dataset(labels_path)
+    with model_path.open("rb") as f:
+        model_data = pickle.load(f)
+
+    classifier = model_data["classifier"]
+    decision_config = model_data.get("decision_config", DEFAULT_DECISION_CONFIG)
+    train_prior = model_data.get("train_prior", {0: 0.42, 1: 0.20, 2: 0.38})
+
+    X = prepare_classifier_waveforms(waveforms, classifier)
+    y_hard = classifier.predict(X)
+    y_policy, _ = predict_special_pulse_classes(
+        classifier,
+        X,
+        decision_config=decision_config,
+        train_prior=train_prior,
+    )
+
+    labels_sorted = sorted(np.unique(labels))
+    target_names = [SPECIAL_PULSE_CLASSES[int(i)] for i in labels_sorted]
+
+    con.log("\n" + "=" * 60)
+    con.log("NATURALISTIC TEST EVALUATION")
+    con.log("=" * 60)
+    con.log(f"Labels: {labels_path} (n={len(labels)})")
+    con.log(f"Model:  {model_path}")
+    con.log(f"Decision config: {decision_config}")
+    true_prior = class_prior_from_labels(labels)
+    con.log(f"True label rates: {true_prior}")
+
+    con.log("\n--- Hard predict() ---")
+    print(
+        classification_report(
+            labels,
+            y_hard,
+            labels=labels_sorted,
+            target_names=target_names,
+            zero_division=0,
+        )
+    )
+    print(confusion_matrix(labels, y_hard, labels=labels_sorted))
+
+    con.log("\n--- Production decision policy ---")
+    print(
+        classification_report(
+            labels,
+            y_policy,
+            labels=labels_sorted,
+            target_names=target_names,
+            zero_division=0,
+        )
+    )
+    print(confusion_matrix(labels, y_policy, labels=labels_sorted))
+
+    pred_rates = class_prior_from_labels(y_policy)
+    con.log(f"Predicted rates (policy): {pred_rates}")
+
+    out_dir = ml_paths["base"] / "naturalistic_test_eval"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_json = out_dir / "naturalistic_test_metrics.json"
+    summary = {
+        "labels_path": str(labels_path),
+        "model_path": str(model_path),
+        "n": int(len(labels)),
+        "true_prior": true_prior,
+        "decision_config": decision_config,
+        "hard_predict": _compute_multiclass_metrics(labels, y_hard, labels_sorted),
+        "policy": _compute_multiclass_metrics(labels, y_policy, labels_sorted),
+        "policy_double": _binary_prf(labels, y_policy, 2),
+        "policy_wide": _binary_prf(labels, y_policy, 1),
+        "predicted_rates_policy": pred_rates,
+    }
+    with out_json.open("w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2)
+    con.log(f"Saved {out_json}")
+    return summary
 
 
 def load_labeled_dataset(labels_path):
@@ -2134,14 +2775,31 @@ def benchmark_pulse_classifiers(labels_path=None):
     }
 
 
-def train_special_pulse_classifier(labels_path=None, model_path=None, show_pca_plot=False):
+def train_special_pulse_classifier(
+    labels_path=None,
+    model_path=None,
+    show_pca_plot=False,
+    decision_config=None,
+):
     """
     Train a robust PCA + random forest multiclass classifier and print precision/recall/f1.
+
+    Saves decision_config + train_prior alongside the pipeline so deploy can use
+    predict_proba with prior reweighting and rare-class thresholds.
     """
     ml_paths = get_default_ml_paths()
-    labels_path = Path(labels_path) if labels_path else ml_paths["labels"]
+    if labels_path is None:
+        # Prefer naturalistic training labels when available (new workflow).
+        if ml_paths["naturalistic_train_labels"].exists():
+            labels_path = ml_paths["naturalistic_train_labels"]
+            con.log(f"Using naturalistic training labels: {labels_path}")
+        else:
+            labels_path = ml_paths["labels"]
+    else:
+        labels_path = Path(labels_path)
     model_path = Path(model_path) if model_path else ml_paths["model"]
     model_path.parent.mkdir(parents=True, exist_ok=True)
+    decision_config = {**DEFAULT_DECISION_CONFIG, **(decision_config or {})}
 
     waveforms, labels, _ = load_labeled_dataset(labels_path)
     active_label_mask = np.isin(labels, list(LABELING_PULSE_CLASSES))
@@ -2174,8 +2832,10 @@ def train_special_pulse_classifier(labels_path=None, model_path=None, show_pca_p
     labels_sorted = split["labels_sorted"]
     target_names = split["target_names"]
     unique_labels = labels_sorted
+    train_prior = class_prior_from_labels(y_train, class_ids=labels_sorted)
 
     n_components = _get_pca_n_components(X_train)
+    rf_class_weight = decision_config.get("rf_class_weight", None)
 
     classifier = Pipeline(
         steps=[
@@ -2185,7 +2845,7 @@ def train_special_pulse_classifier(labels_path=None, model_path=None, show_pca_p
                 "rf",
                 RandomForestClassifier(
                     n_estimators=300,
-                    class_weight="balanced",
+                    class_weight=rf_class_weight,
                     random_state=42,
                     n_jobs=-1,
                 ),
@@ -2194,9 +2854,32 @@ def train_special_pulse_classifier(labels_path=None, model_path=None, show_pca_p
     )
 
     classifier.fit(X_train, y_train)
-    y_pred = classifier.predict(X_test)
+    y_pred_hard = classifier.predict(X_test)
+    y_pred, _ = predict_special_pulse_classes(
+        classifier,
+        X_test,
+        decision_config=decision_config,
+        train_prior=train_prior,
+    )
 
-    con.log("\nClassifier performance on held-out labeled pulses:")
+    con.log("\nClassifier performance on held-out labeled pulses (hard predict):")
+    print(
+        classification_report(
+            y_test,
+            y_pred_hard,
+            labels=labels_sorted,
+            target_names=target_names,
+            zero_division=0,
+        )
+    )
+    con.log("Confusion matrix (hard predict):")
+    print(confusion_matrix(y_test, y_pred_hard, labels=labels_sorted))
+
+    con.log(
+        "\nHeld-out metrics with production decision policy "
+        f"(prior_reweight={decision_config.get('use_prior_reweight')}, "
+        f"min_proba={decision_config.get('min_proba')}):"
+    )
     print(
         classification_report(
             y_test,
@@ -2206,7 +2889,7 @@ def train_special_pulse_classifier(labels_path=None, model_path=None, show_pca_p
             zero_division=0,
         )
     )
-    con.log("Confusion matrix:")
+    con.log("Confusion matrix (decision policy):")
     print(confusion_matrix(y_test, y_pred, labels=labels_sorted))
 
     metrics = _compute_multiclass_metrics(y_test, y_pred, labels_sorted)
@@ -2225,12 +2908,16 @@ def train_special_pulse_classifier(labels_path=None, model_path=None, show_pca_p
                 "array_names": SPECIAL_CLASS_ARRAYS,
                 "multiclass_array": MULTICLASS_ARRAY_NAME,
                 "waveform_length": int(X_train.shape[1]),
+                "train_prior": train_prior,
+                "decision_config": decision_config,
             },
             f,
         )
 
     con.log(f"Saved trained classifier to {model_path}")
-    con.log("\nFinal held-out classifier metrics:")
+    con.log(f"Train prior: {train_prior}")
+    con.log(f"Decision config: {decision_config}")
+    con.log("\nFinal held-out classifier metrics (decision policy):")
     print(
         f"macro    precision={macro_precision:.3f} "
         f"recall={macro_recall:.3f} f1={macro_f1:.3f}"
@@ -2252,7 +2939,13 @@ def write_or_create_data_array(block, array_name, values):
         block.create_data_array(array_name, array_name, data=values)
 
 
-def predict_special_pulses_in_file(file_path, classifier):
+def predict_special_pulses_in_file(
+    file_path,
+    classifier,
+    *,
+    decision_config=None,
+    train_prior=None,
+):
     file, write_mode = open_h5_readwrite_or_readonly(file_path)
     if file is None:
         return {"status": "skipped", "reason": "locked_or_unreadable"}
@@ -2267,6 +2960,7 @@ def predict_special_pulses_in_file(file_path, classifier):
 
         raw_pulses = block.data_arrays["raw_pulses"]
         num_pulses = len(raw_pulses)
+        fs = float(file.sections["pulses_metadata"]["metadata"]["samplerate"])
 
         if "predicted_labels" in data_array_names:
             predicted_labels = block.data_arrays["predicted_labels"][:]
@@ -2278,13 +2972,31 @@ def predict_special_pulses_in_file(file_path, classifier):
 
         if len(candidate_indices) > 0:
             waveforms = []
+            raw_for_gate = []
             for pulse_idx in candidate_indices:
                 pulse_data = raw_pulses[int(pulse_idx)][:]
+                raw_for_gate.append(pulse_data)
                 trace, _ = get_representative_waveform(pulse_data)
                 waveforms.append(trace)
 
-            waveforms = prepare_classifier_waveforms(np.asarray(waveforms, dtype=float), classifier)
-            predicted_classes[candidate_indices] = classifier.predict(waveforms)
+            waveforms = prepare_classifier_waveforms(
+                np.asarray(waveforms, dtype=float), classifier
+            )
+            cfg = decision_config or DEFAULT_DECISION_CONFIG
+            sample_rates = np.full(len(candidate_indices), fs, dtype=float)
+            preds, _ = predict_special_pulse_classes(
+                classifier,
+                waveforms,
+                decision_config=cfg,
+                train_prior=train_prior,
+                pulse_waveforms_raw=(
+                    raw_for_gate if cfg.get("rule_gate_double") else None
+                ),
+                sample_rates=(
+                    sample_rates if cfg.get("rule_gate_double") else None
+                ),
+            )
+            predicted_classes[candidate_indices] = preds
 
         marker_arrays = {
             MULTICLASS_ARRAY_NAME: predicted_classes,
@@ -2329,14 +3041,494 @@ def apply_special_pulse_classifier(data_path, model_path=None):
         model_data = pickle.load(f)
 
     classifier = model_data["classifier"]
+    decision_config = model_data.get("decision_config", DEFAULT_DECISION_CONFIG)
+    train_prior = model_data.get("train_prior")
+    if train_prior is None:
+        # Older pickles: approximate train prior from balanced label mix.
+        train_prior = {0: 0.42, 1: 0.20, 2: 0.38}
+        con.log(
+            "Model pickle has no train_prior; using approximate balanced priors "
+            f"{train_prior}"
+        )
+
     path_list = get_path_list(Path(data_path))
 
     results = []
     for file_idx, file_path in enumerate(path_list, 1):
         con.log(f"Predicting [{file_idx}/{len(path_list)}] {file_path.name}")
-        results.append(predict_special_pulses_in_file(file_path, classifier))
+        results.append(
+            predict_special_pulses_in_file(
+                file_path,
+                classifier,
+                decision_config=decision_config,
+                train_prior=train_prior,
+            )
+        )
 
     return results
+
+
+def sample_naturalistic_pulses(
+    data_path,
+    n_pulses=400,
+    max_files=8,
+    random_seed=42,
+):
+    """
+    Draw a small random sample of pulses from H5 files (natural prevalence).
+
+    Returns prepared 1D waveforms, multi-channel raw pulses, sample rates, and
+    rule-based double/wide flags for the same sample.
+    """
+    path_list = get_path_list(Path(data_path))
+    if not path_list:
+        raise FileNotFoundError(f"No H5 files under {data_path}")
+
+    rng = np.random.default_rng(random_seed)
+    file_order = rng.permutation(len(path_list))
+    selected_files = [path_list[int(i)] for i in file_order[:max_files]]
+
+    pool = []
+    for file_path in selected_files:
+        file = open_h5(file_path, nixio.FileMode.ReadOnly)
+        if file is None:
+            continue
+        try:
+            block = get_pulse_block(file)
+            names = [da.name for da in block.data_arrays]
+            if "raw_pulses" not in names:
+                continue
+            raw_pulses = block.data_arrays["raw_pulses"]
+            num_pulses = len(raw_pulses)
+            if "predicted_labels" in names:
+                candidate_indices = np.where(block.data_arrays["predicted_labels"][:] == 1)[0]
+            else:
+                candidate_indices = np.arange(num_pulses)
+            fs = float(file.sections["pulses_metadata"]["metadata"]["samplerate"])
+            for pulse_idx in candidate_indices:
+                pool.append((str(file_path), int(pulse_idx), fs))
+        finally:
+            file.close()
+
+    if not pool:
+        raise RuntimeError("No candidate pulses found for naturalistic sampling.")
+
+    sample_size = min(n_pulses, len(pool))
+    chosen = [pool[int(i)] for i in rng.choice(len(pool), size=sample_size, replace=False)]
+
+    # Group by file for efficient loading
+    by_file = {}
+    for file_path, pulse_idx, fs in chosen:
+        by_file.setdefault(file_path, []).append((pulse_idx, fs))
+
+    traces = []
+    raw_list = []
+    sample_rates = []
+    rule_double = []
+    rule_wide = []
+
+    for file_path, items in by_file.items():
+        file = open_h5(file_path, nixio.FileMode.ReadOnly)
+        if file is None:
+            continue
+        try:
+            block = get_pulse_block(file)
+            raw_pulses = block.data_arrays["raw_pulses"]
+            for pulse_idx, fs in items:
+                pulse_data = np.asarray(raw_pulses[pulse_idx][:], dtype=float)
+                trace, _ = get_representative_waveform(pulse_data)
+                is_double, _ = detect_double_pulse(pulse_data, fs)
+                is_wide, _ = detect_wide_pulse(pulse_data, fs)
+                traces.append(trace)
+                raw_list.append(pulse_data)
+                sample_rates.append(fs)
+                rule_double.append(bool(is_double))
+                rule_wide.append(bool(is_wide))
+        finally:
+            file.close()
+
+    return {
+        "traces": np.asarray(traces, dtype=float),
+        "raw_pulses": raw_list,
+        "sample_rates": np.asarray(sample_rates, dtype=float),
+        "rule_double": np.asarray(rule_double, dtype=bool),
+        "rule_wide": np.asarray(rule_wide, dtype=bool),
+        "n_pool": len(pool),
+        "n_files": len(by_file),
+    }
+
+
+def _rate_dict(preds, class_ids=(0, 1, 2)):
+    preds = np.asarray(preds, dtype=np.int64)
+    n = max(len(preds), 1)
+    return {
+        SPECIAL_PULSE_CLASSES[c]: {
+            "count": int(np.sum(preds == c)),
+            "rate": float(np.mean(preds == c)) if len(preds) else 0.0,
+        }
+        for c in class_ids
+    }
+
+
+def _binary_prf(y_true, y_pred, positive_label):
+    y_true = np.asarray(y_true) == positive_label
+    y_pred = np.asarray(y_pred) == positive_label
+    tp = int(np.sum(y_true & y_pred))
+    fp = int(np.sum(~y_true & y_pred))
+    fn = int(np.sum(y_true & ~y_pred))
+    precision = tp / (tp + fp) if (tp + fp) else 0.0
+    recall = tp / (tp + fn) if (tp + fn) else 0.0
+    f1 = (
+        2 * precision * recall / (precision + recall)
+        if (precision + recall)
+        else 0.0
+    )
+    return {
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "tp": tp,
+        "fp": fp,
+        "fn": fn,
+        "support": int(np.sum(y_true)),
+    }
+
+
+def tune_classifier_decisions(
+    data_path=None,
+    labels_path=None,
+    n_natural=400,
+    max_files=8,
+    random_seed=42,
+):
+    """
+    Compare decision policies without writing markers.
+
+    Evaluates on:
+      1) stratified holdout of the (biased) labeled set — optimistic P/R
+      2) small naturalistic unlabeled sample — predicted rates vs rule-based
+
+    Does not claim true naturalistic precision without manual labels.
+    """
+    ml_paths = get_default_ml_paths()
+    labels_path = Path(labels_path) if labels_path else ml_paths["labels"]
+    data_path = Path(data_path) if data_path else H5_DIR
+    out_dir = ml_paths["base"] / "decision_tuning"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    waveforms, labels, _ = load_labeled_dataset(labels_path)
+    active = np.isin(labels, list(LABELING_PULSE_CLASSES))
+    waveforms, labels = waveforms[active], labels[active]
+
+    split = _prepare_classifier_train_test_split(waveforms, labels)
+    X_train, X_test = split["X_train"], split["X_test"]
+    y_train, y_test = split["y_train"], split["y_test"]
+    labels_sorted = split["labels_sorted"]
+    train_prior = class_prior_from_labels(y_train, class_ids=labels_sorted)
+    train_prior = {int(k): float(v) for k, v in train_prior.items()}
+    n_components = _get_pca_n_components(X_train)
+
+    con.log("\n" + "=" * 60)
+    con.log("DECISION POLICY TUNING (no marker writes)")
+    con.log("=" * 60)
+    con.log(f"Labeled holdout: train={len(y_train)} test={len(y_test)}")
+    con.log(f"Train prior: {train_prior}")
+
+    con.log("Sampling naturalistic pulses...")
+    natural = sample_naturalistic_pulses(
+        data_path,
+        n_pulses=n_natural,
+        max_files=max_files,
+        random_seed=random_seed,
+    )
+    rule_preds = np.zeros(len(natural["traces"]), dtype=np.int64)
+    rule_preds[natural["rule_wide"]] = 1
+    # Prefer double over wide if both fire
+    rule_preds[natural["rule_double"]] = 2
+    rule_rates = _rate_dict(rule_preds)
+    # Empirical prior from rule-based on this sample (floored to avoid zeros)
+    rule_prior = {
+        0: max(rule_rates["normal"]["rate"], 0.5),
+        1: max(rule_rates["wide"]["rate"], 0.005),
+        2: max(rule_rates["double"]["rate"], 0.002),
+    }
+    # Renormalize
+    s = sum(rule_prior.values())
+    rule_prior = {k: v / s for k, v in rule_prior.items()}
+
+    con.log(
+        f"Naturalistic sample: n={len(natural['traces'])} from "
+        f"{natural['n_files']} files (pool={natural['n_pool']})"
+    )
+    con.log(
+        "Rule-based rates on sample: "
+        + ", ".join(f"{k}={v['rate']:.3%}" for k, v in rule_rates.items())
+    )
+    con.log(f"Assumed natural prior (default): {DEFAULT_NATURAL_PRIOR}")
+    con.log(f"Rule-estimated prior: {rule_prior}")
+
+    policies = {
+        "A_hard_predict_balanced_weights": {
+            "rf_class_weight": "balanced",
+            "use_prior_reweight": False,
+            "min_proba": {},
+            "rule_gate_double": False,
+            "use_hard_predict": True,
+        },
+        "B_hard_predict_no_class_weight": {
+            "rf_class_weight": None,
+            "use_prior_reweight": False,
+            "min_proba": {},
+            "rule_gate_double": False,
+            "use_hard_predict": True,
+        },
+        "C_threshold_t050": {
+            "rf_class_weight": None,
+            "use_prior_reweight": False,
+            "min_proba": {1: 0.50, 2: 0.50},
+            "rule_gate_double": False,
+            "use_hard_predict": False,
+        },
+        "D_threshold_t070": {
+            "rf_class_weight": None,
+            "use_prior_reweight": False,
+            "min_proba": {1: 0.60, 2: 0.70},
+            "rule_gate_double": False,
+            "use_hard_predict": False,
+        },
+        "E_threshold_t085": {
+            "rf_class_weight": None,
+            "use_prior_reweight": False,
+            "min_proba": {1: 0.65, 2: 0.85},
+            "rule_gate_double": False,
+            "use_hard_predict": False,
+        },
+        "F_threshold_t090": {
+            "rf_class_weight": None,
+            "use_prior_reweight": False,
+            "min_proba": {1: 0.70, 2: 0.90},
+            "rule_gate_double": False,
+            "use_hard_predict": False,
+        },
+        "G_mild_prior_argmax": {
+            "rf_class_weight": None,
+            "use_prior_reweight": True,
+            "natural_prior": {0: 0.90, 1: 0.08, 2: 0.02},
+            "min_proba": {},
+            "rule_gate_double": False,
+            "use_hard_predict": False,
+            "argmax_after_reweight": True,
+        },
+        "H_rule_prior_argmax": {
+            "rf_class_weight": None,
+            "use_prior_reweight": True,
+            "natural_prior": rule_prior,
+            "min_proba": {},
+            "rule_gate_double": False,
+            "use_hard_predict": False,
+            "argmax_after_reweight": True,
+        },
+        "I_threshold_t070_rule_gate": {
+            "rf_class_weight": None,
+            "use_prior_reweight": False,
+            "min_proba": {1: 0.60, 2: 0.70},
+            "rule_gate_double": True,
+            "use_hard_predict": False,
+        },
+        "J_threshold_t050_rule_gate": {
+            "rf_class_weight": None,
+            "use_prior_reweight": False,
+            "min_proba": {1: 0.50, 2: 0.50},
+            "rule_gate_double": True,
+            "use_hard_predict": False,
+        },
+        "K_mild_prior_plus_t060": {
+            "rf_class_weight": None,
+            "use_prior_reweight": True,
+            "natural_prior": {0: 0.90, 1: 0.08, 2: 0.02},
+            "min_proba": {1: 0.40, 2: 0.60},
+            "rule_gate_double": False,
+            "use_hard_predict": False,
+        },
+    }
+
+    # Fit one RF per class_weight setting and reuse
+    fitted = {}
+    for weight_key in ("balanced", None):
+        pipe = Pipeline(
+            steps=[
+                ("scaler", StandardScaler()),
+                ("pca", _make_pca_estimator(n_components)),
+                (
+                    "rf",
+                    RandomForestClassifier(
+                        n_estimators=300,
+                        class_weight=weight_key,
+                        random_state=42,
+                        n_jobs=-1,
+                    ),
+                ),
+            ]
+        )
+        pipe.fit(X_train, y_train)
+        fitted[weight_key] = pipe
+
+    X_nat = prepare_classifier_waveforms(natural["traces"], fitted[None])
+
+    results = []
+    for name, pol in policies.items():
+        clf = fitted[pol["rf_class_weight"]]
+        decision_config = {
+            "use_prior_reweight": pol.get("use_prior_reweight", False),
+            "natural_prior": {
+                int(k): float(v)
+                for k, v in pol.get("natural_prior", DEFAULT_NATURAL_PRIOR).items()
+            },
+            "min_proba": {int(k): float(v) for k, v in pol.get("min_proba", {}).items()},
+            "default_class": 0,
+            "rule_gate_double": pol.get("rule_gate_double", False),
+            "rf_class_weight": pol["rf_class_weight"],
+        }
+
+        if pol.get("use_hard_predict"):
+            y_hold = clf.predict(X_test)
+            y_nat = clf.predict(X_nat)
+        elif pol.get("argmax_after_reweight"):
+            proba = clf.predict_proba(X_test)
+            if decision_config["use_prior_reweight"]:
+                proba = reweight_class_probabilities(
+                    proba,
+                    clf.classes_,
+                    train_prior,
+                    decision_config["natural_prior"],
+                )
+            y_hold = np.asarray(clf.classes_, dtype=np.int64)[np.argmax(proba, axis=1)]
+            proba_n = clf.predict_proba(X_nat)
+            if decision_config["use_prior_reweight"]:
+                proba_n = reweight_class_probabilities(
+                    proba_n,
+                    clf.classes_,
+                    train_prior,
+                    decision_config["natural_prior"],
+                )
+            y_nat = np.asarray(clf.classes_, dtype=np.int64)[np.argmax(proba_n, axis=1)]
+        else:
+            y_hold, _ = predict_special_pulse_classes(
+                clf,
+                X_test,
+                decision_config=decision_config,
+                train_prior=train_prior,
+            )
+            y_nat, _ = predict_special_pulse_classes(
+                clf,
+                X_nat,
+                decision_config=decision_config,
+                train_prior=train_prior,
+                pulse_waveforms_raw=(
+                    natural["raw_pulses"]
+                    if decision_config["rule_gate_double"]
+                    else None
+                ),
+                sample_rates=(
+                    natural["sample_rates"]
+                    if decision_config["rule_gate_double"]
+                    else None
+                ),
+            )
+
+        hold_metrics = _compute_multiclass_metrics(y_test, y_hold, labels_sorted)
+        double_hold = _binary_prf(y_test, y_hold, 2)
+        wide_hold = _binary_prf(y_test, y_hold, 1)
+        nat_rates = _rate_dict(y_nat)
+
+        row = {
+            "policy": name,
+            "decision_config": decision_config,
+            "holdout_macro_f1": hold_metrics["macro_f1"],
+            "holdout_weighted_f1": hold_metrics["weighted_f1"],
+            "holdout_double": double_hold,
+            "holdout_wide": wide_hold,
+            "natural_rates": nat_rates,
+            "natural_double_rate": nat_rates["double"]["rate"],
+            "natural_wide_rate": nat_rates["wide"]["rate"],
+            "natural_normal_rate": nat_rates["normal"]["rate"],
+            "rule_double_rate": rule_rates["double"]["rate"],
+            "rule_wide_rate": rule_rates["wide"]["rate"],
+        }
+        results.append(row)
+
+        con.log(
+            f"{name}: hold macroF1={hold_metrics['macro_f1']:.3f} "
+            f"double P/R={double_hold['precision']:.2f}/{double_hold['recall']:.2f} | "
+            f"nat rates N/W/D="
+            f"{nat_rates['normal']['rate']:.3%}/"
+            f"{nat_rates['wide']['rate']:.3%}/"
+            f"{nat_rates['double']['rate']:.3%}"
+        )
+
+    # Prefer policies whose naturalistic double rate is near rule-based (and ≪ 5%),
+    # then maximize holdout double precision, then macro F1.
+    def rank_key(r):
+        double_ok = r["natural_double_rate"] < 0.05
+        return (
+            0 if double_ok else 1,
+            abs(r["natural_double_rate"] - r["rule_double_rate"]),
+            abs(r["natural_wide_rate"] - r["rule_wide_rate"]),
+            -r["holdout_double"]["precision"],
+            -r["holdout_double"]["f1"],
+            -r["holdout_macro_f1"],
+        )
+
+    ranked = sorted(results, key=rank_key)
+    best = ranked[0]
+
+    summary = {
+        "labels_path": str(labels_path),
+        "data_path": str(data_path),
+        "train_prior": train_prior,
+        "natural_prior_assumed": DEFAULT_NATURAL_PRIOR,
+        "rule_estimated_prior": rule_prior,
+        "naturalistic_n": int(len(natural["traces"])),
+        "rule_based_rates": rule_rates,
+        "note": (
+            "Holdout P/R is on a balanced labeled set and overestimates rare-class "
+            "performance in production. Naturalistic rates have no ground truth; "
+            "compare to rule-based rates and biological expectation (doubles ≪ few %)."
+        ),
+        "results": results,
+        "recommended_policy": best["policy"],
+        "recommended_decision_config": best["decision_config"],
+    }
+
+    out_json = out_dir / "decision_tuning_results.json"
+    with out_json.open("w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2)
+
+    table = Table(title="Decision policy comparison")
+    table.add_column("Policy")
+    table.add_column("Hold macroF1", justify="right")
+    table.add_column("Dbl P/R", justify="right")
+    table.add_column("Nat double%", justify="right")
+    table.add_column("Nat wide%", justify="right")
+    table.add_column("Nat normal%", justify="right")
+    for r in results:
+        marker = " *" if r["policy"] == best["policy"] else ""
+        table.add_row(
+            r["policy"] + marker,
+            f"{r['holdout_macro_f1']:.3f}",
+            f"{r['holdout_double']['precision']:.2f}/{r['holdout_double']['recall']:.2f}",
+            f"{100 * r['natural_double_rate']:.2f}",
+            f"{100 * r['natural_wide_rate']:.2f}",
+            f"{100 * r['natural_normal_rate']:.2f}",
+        )
+    con.print(table)
+    con.log(
+        f"Rule-based on same sample: double={100 * rule_rates['double']['rate']:.2f}%, "
+        f"wide={100 * rule_rates['wide']['rate']:.2f}%"
+    )
+    con.log(f"Recommended (rate-aware): {best['policy']}")
+    con.log(f"Saved {out_json}")
+    return summary
 
 
 def run_supervised_detection(
@@ -2358,7 +3550,13 @@ def run_supervised_detection(
     automatically if no model exists but labeled examples are available.
     """
     ml_paths = get_default_ml_paths()
-    labels_path = Path(labels_path) if labels_path else ml_paths["labels"]
+    if labels_path is None:
+        if ml_paths["naturalistic_train_labels"].exists():
+            labels_path = ml_paths["naturalistic_train_labels"]
+        else:
+            labels_path = ml_paths["labels"]
+    else:
+        labels_path = Path(labels_path)
     model_path = Path(model_path) if model_path else ml_paths["model"]
 
     if label:
@@ -2449,7 +3647,15 @@ def main():
     )
     parser.add_argument(
         "--mode",
-        choices=("supervised", "rule-based", "benchmark"),
+        choices=(
+            "supervised",
+            "rule-based",
+            "benchmark",
+            "tune-decisions",
+            "label-naturalistic-test",
+            "label-naturalistic-train",
+            "eval-naturalistic-test",
+        ),
         default="supervised",
         help="Detection mode (default: supervised ML classifier)",
     )
@@ -2474,7 +3680,24 @@ def main():
         "--pulses-per-type",
         type=int,
         default=300,
-        help="Pulses to sample per class during labeling (default: 300)",
+        help="Pulses to sample per class during balanced labeling (default: 300)",
+    )
+    parser.add_argument(
+        "--n-pulses",
+        type=int,
+        default=500,
+        help="Pulses to sample for naturalistic labeling (default: 500; train mode uses 1200 if unset via mode)",
+    )
+    parser.add_argument(
+        "--max-files",
+        type=int,
+        default=40,
+        help="Max H5 files to draw from for naturalistic sampling (default: 40)",
+    )
+    parser.add_argument(
+        "--append-test-labels",
+        action="store_true",
+        help="Append to existing naturalistic test labels instead of overwriting",
     )
     parser.add_argument(
         "--train",
@@ -2520,6 +3743,34 @@ def main():
         ARRAY_NAME = MODE_CONFIG[DETECTION_MODE]["array_name"]
         DISPLAY_NAME = MODE_CONFIG[DETECTION_MODE]["display_name"]
         process_all_h5_files(args.data_path)
+        return
+
+    if args.mode == "tune-decisions":
+        tune_classifier_decisions(data_path=args.data_path)
+        return
+
+    if args.mode == "label-naturalistic-test":
+        interactive_label_naturalistic_test_set(
+            args.data_path,
+            n_pulses=args.n_pulses,
+            max_files=args.max_files,
+            append_existing=args.append_test_labels,
+        )
+        return
+
+    if args.mode == "label-naturalistic-train":
+        n_train = args.n_pulses if args.n_pulses != 500 else 1200
+        max_files = args.max_files if args.max_files != 40 else 80
+        interactive_label_naturalistic_train_set(
+            args.data_path,
+            n_pulses=n_train,
+            max_files=max_files,
+            append_existing=args.append_test_labels,
+        )
+        return
+
+    if args.mode == "eval-naturalistic-test":
+        evaluate_naturalistic_test_set()
         return
 
     benchmark_pulse_classifiers()

@@ -1,0 +1,29 @@
+{
+  "threshold_ms": 2.3008483408370854,
+  "peak1_ms": 1.53763340003335,
+  "peak2_ms": 3.211313990328498,
+  "method": "kde",
+  "n_total": 465619,
+  "n_below": 301352,
+  "n_above": 164267,
+  "mean_sample_size_requested": 3000,
+  "n_below_in_mean": 3000,
+  "n_above_in_mean": 3000,
+  "sampling_frequency": {
+    "threshold_ms": 2.3008483408370854,
+    "below": {
+      "n": 301352,
+      "24 kHz": 5567,
+      "48 kHz": 295785,
+      "other": 0
+    },
+    "above": {
+      "n": 164267,
+      "24 kHz": 164018,
+      "48 kHz": 249,
+      "other": 0
+    }
+  },
+  "data_path": "/home/eisele/wrk/mscthesis/data/raw/eels-mfn2021_dummy_pulses_redetected/berlin_tank_site",
+  "random_seed": 42
+}

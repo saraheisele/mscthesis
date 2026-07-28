@@ -1,0 +1,23 @@
+{
+  "n_total": 465619,
+  "overall": {
+    "median_samples": 76.0,
+    "mean_samples": 77.82335772380422,
+    "p5_samples": 58.0,
+    "p95_samples": 105.00000000000001
+  },
+  "by_fs": {
+    "24kHz": {
+      "n": 169585,
+      "median_samples": 85.0,
+      "mean_samples": 85.62998496329274,
+      "median_ms": 3.5416666666666665
+    },
+    "48kHz": {
+      "n": 296034,
+      "median_samples": 74.0,
+      "mean_samples": 73.35128059614775,
+      "median_ms": 1.5416666666666667
+    }
+  }
+}

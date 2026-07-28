@@ -453,7 +453,6 @@ def add_detection_markers(ax, mean_trace, fs, pulse_shape, pulse_key=None):
                 fontsize=9,
                 color=color,
             )
-        add_half_max_markers(ax, mean_trace, fs, color)
         return
 
     if pulse_shape["align"] == "maximum":
@@ -466,12 +465,6 @@ def add_detection_markers(ax, mean_trace, fs, pulse_shape, pulse_key=None):
             zorder=6,
             label="Aligned maximum",
         )
-
-    if pulse_key == "wide":
-        add_half_max_markers(ax, mean_trace, fs, color)
-        return
-
-    add_half_max_markers(ax, mean_trace, fs, color)
 
 
 def load_all_waveforms(entries, align_mode=None, max_waveforms=None):
@@ -554,24 +547,6 @@ def plot_prototype_pulse_shape(
 
     add_detection_markers(ax, mean_trace, fs, pulse_shape, pulse_key=pulse_key)
 
-    if pulse_key in {"normal", "wide"} and corrected_waveforms:
-        center = len(mean_trace) // 2
-        aligned_corrected = np.asarray(
-            [
-                shift_waveform(
-                    corrected_trace,
-                    center
-                    - alignment_reference_index(
-                        corrected_trace, pulse_shape["align"], fs
-                    ),
-                )
-                for corrected_trace in corrected_waveforms
-            ]
-        )
-        add_symmetry_fraction_markers(
-            ax, np.mean(aligned_corrected, axis=0), fs, pulse_shape["color"]
-        )
-
     criteria_text = "\n".join(f"• {line}" for line in pulse_shape["criteria"])
     ax.text(
         0.98,
@@ -586,8 +561,7 @@ def plot_prototype_pulse_shape(
 
     ax.set_xlabel("Time (ms)")
     ax.set_ylabel("Normalized amplitude")
-    if np.min(aligned_sample) < -1:
-        ax.set_ylim(-1, None)
+    ax.set_ylim(-0.2, 1.05)
     ax.set_title(
         f"Prototype {pulse_shape['label'].lower()}s "
         f"(showing {len(aligned_sample)} of {total_count or len(aligned_sample):,})",
@@ -601,6 +575,7 @@ def plot_prototype_pulse_shape(
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"prototype_{pulse_key}_pulse.png"
     fig.savefig(output_path, dpi=300)
+    save_thesis_figure(f"pulse_shapes/prototype_{pulse_key}_pulse.png", fig)
     plt.close(fig)
     console.log(f"Saved {output_path}")
     return output_path
@@ -661,6 +636,87 @@ def plot_symmetry_analysis(
             handle,
             indent=2,
         )
+
+
+def plot_mean_pulse_shapes_panel(
+    output_dir: Path | None = None,
+    *,
+    panel_order=("normal", "double", "wide"),
+    save_name: str = "mean_pulse_shapes_panel.png",
+) -> Path | None:
+    """Three-panel talk figure: mean normal / double / wide waveforms side by side."""
+    output_dir = Path(output_dir) if output_dir is not None else OUTPUT_DIR
+    apply_presentation_style()
+
+    means = {}
+    for key in panel_order:
+        loaded = load_prototype_mean_waveforms(key, output_dir)
+        if loaded is None:
+            console.log(f"[yellow]Missing prototype_{key}_mean.npz — skip panel figure.")
+            return None
+        means[key] = loaded
+
+    fs_values = {means[k]["fs"] for k in panel_order}
+    if len(fs_values) != 1:
+        console.log(f"[yellow]Inconsistent sample rates {fs_values}; plotting anyway.")
+
+    fig, axes = plt.subplots(
+        1,
+        len(panel_order),
+        figsize=(14, 4.2),
+        sharey=True,
+        constrained_layout=True,
+    )
+    if len(panel_order) == 1:
+        axes = [axes]
+
+    y_max = 0.0
+    y_min = 0.0
+    for ax, key in zip(axes, panel_order):
+        shape = PULSE_SHAPES[key]
+        mean = np.asarray(means[key]["mean"], dtype=float)
+        n = int(means[key]["n_in_mean"])
+        time_ms = np.arange(len(mean)) / means[key]["fs"] * 1000
+        # Center time on the alignment sample so shapes line up visually.
+        time_ms = time_ms - time_ms[len(mean) // 2]
+
+        color = shape["color"]
+        ax.plot(time_ms, mean, color=color, linewidth=3.0, solid_capstyle="round")
+        ax.axhline(0.0, color="#bbbbbb", linewidth=1.0, zorder=0)
+        ax.axvline(0.0, color="#dddddd", linewidth=1.0, linestyle=":", zorder=0)
+
+        ax.set_title(shape["label"], color=color, pad=10)
+        ax.set_xlabel("Time (ms)")
+        ax.grid(True, alpha=0.28)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.text(
+            0.97,
+            0.95,
+            f"n = {n:,}",
+            transform=ax.transAxes,
+            ha="right",
+            va="top",
+            fontsize=11,
+            color="#555555",
+        )
+        y_max = max(y_max, float(np.nanmax(mean)))
+        y_min = min(y_min, float(np.nanmin(mean)))
+
+    axes[0].set_ylabel("Normalized amplitude")
+    pad = 0.08 * max(y_max - y_min, 1.0)
+    axes[0].set_ylim(y_min - pad, y_max + pad)
+    for ax in axes:
+        ax.set_xlim(-5.0, 5.0)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / save_name
+    fig.savefig(output_path, dpi=300)
+    thesis_path = save_thesis_figure(f"pulse_shapes/{save_name}", fig)
+    plt.close(fig)
+    console.log(f"Saved {output_path}")
+    console.log(f"Saved thesis figure {thesis_path}")
+    return output_path
 
 
 def plot_normal_double_overlay(
@@ -845,6 +901,8 @@ def main(
         double_mean, fs_d, _ = mean_traces["double"]
         if fs_n == fs_d:
             plot_normal_double_overlay(normal_mean, double_mean, fs_n, OUTPUT_DIR)
+
+    plot_mean_pulse_shapes_panel(OUTPUT_DIR)
 
 
 if __name__ == "__main__":
