@@ -121,6 +121,25 @@ def copy_thesis_asset(source: Path, filename: str | None = None) -> Path:
     return dest
 
 
+def thesis_figure_path(filename: str) -> Path:
+    """Return the absolute path for a thesis figure relative to the active root."""
+    from data_paths import active_thesis_figures_dir
+
+    path = active_thesis_figures_dir() / filename
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def save_thesis_json(filename: str, payload) -> Path:
+    """Write a JSON sidecar next to thesis figures (respects dummy vs full root)."""
+    import json
+
+    path = thesis_figure_path(filename)
+    with open(path, "w") as handle:
+        json.dump(payload, handle, indent=2, default=str)
+    return path
+
+
 def shade_dark_region(
     ax,
     boundary_m: float,

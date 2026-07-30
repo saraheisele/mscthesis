@@ -30,7 +30,12 @@ from data_paths import (
     MATING_CORRELATION_DIR,
     PULSE_SHAPE_PROTOTYPES_DIR,
 )
-from presentation_style import LEGEND_LOC, apply_presentation_style, pulse_shape_color, save_thesis_figure
+from presentation_style import (
+    LEGEND_LOC,
+    apply_presentation_style,
+    pulse_shape_color,
+    save_thesis_figure,
+)
 from h5_io import get_path_list, get_pulse_block, load_marker_array, open_h5
 from special_pulses.double_peaks_detection import (
     compute_half_max_width,
@@ -46,6 +51,8 @@ from special_pulses.pulse_shape_metrics import double_pulse_metrics
 console = Console()
 HALF_WIDTH_OUTPUT_DIR = HALF_WIDTH_DISTRIBUTIONS_DIR
 MATING_OUTPUT_DIR = MATING_CORRELATION_DIR
+MATING_MARKER_COLOR = "crimson"
+MAX_IPI_S = 60.0  # ignore gaps longer than this when estimating instantaneous Hz
 
 def _full_marker(file_path, block, array_name, candidates, num_pulses):
     raw = load_marker_array(file_path, array_name, block)
@@ -144,8 +151,65 @@ def plot_half_width_trend(df: pd.DataFrame, output_dir: Path):
     plt.close(fig)
 
 
-def plot_half_width_monthly(df: pd.DataFrame, output_dir: Path):
-    """Monthly half-width distributions, all pulse shapes pooled."""
+def _mating_events_df(mating_notes: pd.DataFrame | list | None) -> pd.DataFrame:
+    if mating_notes is None:
+        return pd.DataFrame(columns=["event_time"])
+    if isinstance(mating_notes, list):
+        mating_notes = pd.DataFrame(mating_notes)
+    if mating_notes.empty or "event_time" not in mating_notes.columns:
+        return pd.DataFrame(columns=["event_time"])
+    out = mating_notes.copy()
+    out["event_time"] = pd.to_datetime(out["event_time"])
+    return out
+
+
+def _mark_mating_on_period_axis(
+    ax,
+    months: list,
+    mating_notes: pd.DataFrame | list | None,
+    *,
+    y_frac: float = 0.97,
+    label: str = "Mating note",
+) -> None:
+    """Mark months that contain mating notes (1-based boxplot x positions)."""
+    mating = _mating_events_df(mating_notes)
+    if mating.empty or not months:
+        return
+
+    mating_months = set(mating["event_time"].dt.to_period("M"))
+    marked = False
+    y_max = ax.get_ylim()[1]
+    y_min = ax.get_ylim()[0]
+    y = y_min + y_frac * (y_max - y_min)
+    for idx, month in enumerate(months, start=1):
+        if month not in mating_months:
+            continue
+        ax.axvline(idx, color=MATING_MARKER_COLOR, linestyle="--", alpha=0.55, linewidth=1.2)
+        ax.scatter(
+            [idx],
+            [y],
+            marker="v",
+            color=MATING_MARKER_COLOR,
+            s=45,
+            zorder=6,
+            label=label if not marked else None,
+        )
+        marked = True
+    if marked:
+        ax.legend(loc=LEGEND_LOC, fontsize=10)
+
+
+def plot_half_width_monthly(
+    df: pd.DataFrame,
+    output_dir: Path,
+    mating_notes: pd.DataFrame | list | None = None,
+):
+    """Monthly half-width distributions, all pulse shapes pooled.
+
+    Uses boxplots of the per-pulse half-width distribution (percentiles), so
+    unequal recording effort / sample size does not inflate the y-axis — only
+    the distribution shape is shown. Sample sizes are annotated under each box.
+    """
     sub = df[df["half_width_ms"].notna()].copy()
     if sub.empty:
         return
@@ -156,19 +220,118 @@ def plot_half_width_monthly(df: pd.DataFrame, output_dir: Path):
         return
 
     grouped = [sub.loc[sub["month"] == month, "half_width_ms"].values for month in months]
+    counts = [len(vals) for vals in grouped]
     labels = [str(month) for month in months]
 
-    fig, ax = plt.subplots(figsize=(max(12, len(months) * 0.45), 5))
-    ax.boxplot(grouped, tick_labels=labels, showfliers=False, patch_artist=True,
-               boxprops={"facecolor": "steelblue", "alpha": 0.35},
-               medianprops={"color": "black", "linewidth": 1.5})
+    # Equal box widths: distribution percentiles are already sample-size independent.
+    fig, ax = plt.subplots(figsize=(max(12, len(months) * 0.45), 5.5))
+    ax.boxplot(
+        grouped,
+        tick_labels=labels,
+        showfliers=False,
+        patch_artist=True,
+        widths=0.55,
+        boxprops={"facecolor": "steelblue", "alpha": 0.35},
+        medianprops={"color": "black", "linewidth": 1.5},
+    )
     ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=8)
     ax.set_ylabel("Half width (ms)")
     ax.set_xlabel("Month")
-    ax.set_title("Monthly half-width distribution (all pulses)")
+    ax.set_title(
+        "Monthly half-width distribution (all pulses)\n"
+        "boxplot percentiles — normalized for sample size; n annotated"
+    )
     ax.grid(True, axis="y", alpha=0.3)
+
+    y0 = ax.get_ylim()[0]
+    for idx, n in enumerate(counts, start=1):
+        ax.text(idx, y0, f"n={n}", ha="center", va="bottom", fontsize=6, color="0.35")
+
+    _mark_mating_on_period_axis(ax, months, mating_notes)
     plt.tight_layout()
     fig.savefig(output_dir / "half_width_monthly_heatmap.png", dpi=300)
+    save_thesis_figure("exploratory_mating_corr/half_width_monthly_heatmap.png", fig)
+    plt.close(fig)
+
+
+def plot_double_pulse_frequency_monthly(
+    df: pd.DataFrame,
+    output_dir: Path,
+    mating_notes: pd.DataFrame | list | None = None,
+    *,
+    first_month: pd.Period | None = None,
+):
+    """Monthly distribution of instantaneous double-pulse frequency (Hz).
+
+    Frequency is 1/IPI between successive double pulses (IPI ≤ MAX_IPI_S).
+    Same boxplot style as half_width_monthly_heatmap.png; x-axis spans every
+    month since recording start (empty months kept for mating markers).
+    """
+    dbl = df[df["pulse_shape"] == "double"].sort_values("timestamp").copy()
+    if dbl.empty:
+        return
+
+    dbl["ipi_s"] = dbl["timestamp"].diff().dt.total_seconds()
+    valid = dbl[(dbl["ipi_s"] > 0) & (dbl["ipi_s"] <= MAX_IPI_S)].copy()
+    if valid.empty:
+        return
+    valid["freq_hz"] = 1.0 / valid["ipi_s"]
+    valid["month"] = valid["timestamp"].dt.to_period("M")
+
+    data_start = df["timestamp"].dt.to_period("M").min() if not df.empty else valid["month"].min()
+    data_end = df["timestamp"].dt.to_period("M").max() if not df.empty else valid["month"].max()
+    if first_month is not None:
+        data_start = first_month
+
+    months = list(pd.period_range(data_start, data_end, freq="M"))
+    grouped = []
+    positions = []
+    counts = []
+    for idx, month in enumerate(months, start=1):
+        vals = valid.loc[valid["month"] == month, "freq_hz"].values
+        if vals.size == 0:
+            continue
+        grouped.append(vals)
+        positions.append(idx)
+        counts.append(len(vals))
+
+    if not positions:
+        return
+
+    labels = [str(month) for month in months]
+    color = pulse_shape_color("double")
+
+    fig, ax = plt.subplots(figsize=(max(12, len(months) * 0.45), 5.5))
+    ax.boxplot(
+        grouped,
+        positions=positions,
+        tick_labels=[labels[p - 1] for p in positions],
+        showfliers=False,
+        patch_artist=True,
+        widths=0.55,
+        boxprops={"facecolor": color, "alpha": 0.35},
+        medianprops={"color": "black", "linewidth": 1.5},
+    )
+    ax.set_xticks(range(1, len(months) + 1))
+    ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=8)
+    ax.set_xlim(0.5, len(months) + 0.5)
+    ax.set_ylabel("Double-pulse frequency (Hz)")
+    ax.set_xlabel("Month since recording start")
+    ax.set_title(
+        "Monthly double-pulse frequency distribution\n"
+        "instantaneous 1/IPI (≤60 s); boxplot percentiles — normalized for sample size"
+    )
+    ax.grid(True, axis="y", alpha=0.3)
+    ax.set_ylim(bottom=0)
+
+    y0 = ax.get_ylim()[0]
+    for pos, n in zip(positions, counts):
+        ax.text(pos, y0, f"n={n}", ha="center", va="bottom", fontsize=6, color="0.35")
+
+    _mark_mating_on_period_axis(ax, months, mating_notes)
+    plt.tight_layout()
+    fig.savefig(output_dir / "double_pulse_frequency_monthly.png", dpi=300)
+    save_thesis_figure("exploratory_mating_corr/double_pulse_frequency_monthly.png", fig)
     plt.close(fig)
 
 
@@ -318,17 +481,20 @@ def main(data_path=H5_DIR):
     df.to_csv(MATING_OUTPUT_DIR / "pulse_properties_timeseries.csv", index=False)
     console.log(f"  {len(df):,} pulses with properties")
 
+    mating_notes = pd.DataFrame(extract_mating_events())
+    mating_notes.to_csv(MATING_OUTPUT_DIR / "mating_notes_from_docx.csv", index=False)
+
     if df["half_width_ms"].notna().any():
         plot_half_width_trend(df, HALF_WIDTH_OUTPUT_DIR)
-        plot_half_width_monthly(df, HALF_WIDTH_OUTPUT_DIR)
+        plot_half_width_monthly(df, HALF_WIDTH_OUTPUT_DIR, mating_notes)
         plot_half_width_distribution(df, HALF_WIDTH_OUTPUT_DIR)
+
+    plot_double_pulse_frequency_monthly(df, HALF_WIDTH_OUTPUT_DIR, mating_notes)
 
     for prop in ("peak_separation_ms", "trough_depth_ratio"):
         if prop in df.columns and df[prop].notna().any():
             plot_property_kde(df, prop, PULSE_SHAPE_PROTOTYPES_DIR)
 
-    mating_notes = pd.DataFrame(extract_mating_events())
-    mating_notes.to_csv(MATING_OUTPUT_DIR / "mating_notes_from_docx.csv", index=False)
     plot_double_pulse_zoom(df, mating_notes, MATING_OUTPUT_DIR)
 
     console.log(

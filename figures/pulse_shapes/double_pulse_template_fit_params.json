@@ -1,37 +1,29 @@
 {
-  "pulse_source": "rf_classifier_special_pulse_class",
-  "n_pulses": 5000,
-  "sample_rate_hz": 24000.0,
-  "mean_fit": {
-    "model": "mean",
-    "a1": 0.5431178651556607,
-    "a2": 0.7683280637731703,
-    "t1_samples": 193.50823600398192,
-    "t2_samples": 286.19155471615807,
-    "delay_samples": 92.6833187121761,
-    "delay_ms": 3.861804946340672,
-    "amplitude_ratio": 6.972055497479612,
-    "width_scale": 0.8130027960706205,
-    "r2": 0.568327074688449,
-    "rmse": 0.1480755224364224,
-    "success": true,
-    "t1_ms": 8.06284316683258,
-    "t2_ms": 11.924648113173253
+  "pulse_source": "prototype_double_npz",
+  "prototype_stat": "median",
+  "model": "A_w1_free_t",
+  "n_pulses": 6428,
+  "sample_rate_hz": 48000.0,
+  "fit": {
+    "model": "A_w1_free_t",
+    "a1": 0.7301947493062367,
+    "a2": 0.8218788075454395,
+    "t1_samples": 210.65412892238908,
+    "t2_samples": 270.1236896156635,
+    "delay_samples": 59.469560693274445,
+    "delay_ms": 1.2389491811098843,
+    "amplitude_ratio": 1.1255611031527033,
+    "width_scale": 1.0,
+    "r2": 0.991242501244334,
+    "rmse": 0.03288297463958178,
+    "success": "True",
+    "width_scale_2": NaN,
+    "t1_ms": 4.3886276858831055,
+    "t2_ms": 5.62757686699299
   },
-  "median_fit": {
-    "model": "median",
-    "a1": 0.6209517697033649,
-    "a2": 0.8898037797132511,
-    "t1_samples": 206.11936255925337,
-    "t2_samples": 267.29944545801015,
-    "delay_samples": 68.34351043665023,
-    "delay_ms": 2.8476462681937598,
-    "amplitude_ratio": 1.3693074609267994,
-    "width_scale": 0.8350169487455876,
-    "r2": 0.5706649786766165,
-    "rmse": 0.1476739957981628,
-    "success": true,
-    "t1_ms": 8.588306773302225,
-    "t2_ms": 11.137476894083758
+  "notes": {
+    "why_direct_fit": "Direct fit to the prototype waveform; not mean-of-params.",
+    "why_median": "Median prototype preferred over mean (right-skewed separations / outliers).",
+    "why_model_A": "Native-width normals with free times/amplitudes; most honest two-normal hypothesis without extra width freedom."
   }
 }

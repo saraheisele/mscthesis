@@ -505,11 +505,17 @@ def main():
     use_audio = not args.no_audio
     if args.output is None:
         out_dir = POSITION_FIGURES_DIR / "animations"
-        ext = ".mp4" if use_audio else ".gif"
-        out_name = f"{wav_path.stem}_peak_positive{ext}"
-        output_path = out_dir / out_name
+        out_dir.mkdir(parents=True, exist_ok=True)
+        primary_ext = ".mp4" if use_audio else ".gif"
+        output_path = out_dir / f"{wav_path.stem}_peak_positive{primary_ext}"
+        gif_path = out_dir / f"{wav_path.stem}_peak_positive.gif"
     else:
-        output_path = args.output
+        output_path = Path(args.output)
+        gif_path = (
+            output_path.with_suffix(".gif")
+            if output_path.suffix.lower() != ".gif"
+            else None
+        )
 
     save_animation(
         fig,
@@ -522,6 +528,27 @@ def main():
     thesis_name = f"eel_position_animation{output_path.suffix}"
     copy_thesis_asset(output_path, f"position_estimation/{thesis_name}")
     print(f"Saved animation to {output_path}")
+
+    # Also produce a silent GIF thesis asset when the primary output is MP4.
+    if gif_path is not None and output_path.suffix.lower() == ".mp4" and output_path.exists():
+        import subprocess
+
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(output_path),
+                "-vf",
+                f"fps={args.fps}",
+                str(gif_path),
+            ],
+            check=False,
+            capture_output=True,
+        )
+        if gif_path.exists():
+            copy_thesis_asset(gif_path, "position_estimation/eel_position_animation.gif")
+            print(f"Saved GIF animation to {gif_path}")
 
     if args.show:
         plt.show()

@@ -17,24 +17,26 @@ mscthesis/
 ├── code/                  Analysis pipeline (see code/README.md)
 ├── data/
 │   ├── raw/               Predetected pulses, environmental Excel files
-│   ├── intermediate/      Preprocessed histograms (.npz)
-│   └── processed/         Figures and correlation outputs
+│   ├── intermediate/      Preprocessed histograms (.npz), classifier artifacts
+│   └── processed/         Diagnostic plots / tables (dummy under processed/dummy/)
+├── figures/               Thesis figures (dummy); full-dataset copies under figures/full/
 ├── requirements.txt
 └── README.md
 ```
 
 ## Analysis pipeline
 
-All analysis scripts live in [`code/`](code/). See [`code/README.md`](code/README.md) for the full script reference, data paths, and recommended run order.
+All analysis scripts live in [`code/`](code/). See [`code/README.md`](code/README.md) for the full script reference, figure layout, and recommended run order.
 
-**Typical workflow:**
+**Typical workflow** — run the unified pipeline from `code/`:
 
-1. Run special-pulse detection (`special_pulses/double_peaks_detection.py`)
-2. Build activity histograms (`activity_timescales/eel_data_preprocessing.py`) for each pulse type
-3. Generate plots and correlations (`activity_timescales/pulse_analysis_plots.py`, `correlations/correlate_pulse_shapes.py`, …)
-4. Run environmental, feeding, and position analyses as needed
+```bash
+cd code
+./run_analysis.sh dummy   # development subset → figures/, data/processed/dummy/
+./run_analysis.sh full    # full Berlin dataset → figures/full/, data/processed/
+```
 
-Paths default to a development subset under `data/raw/eels-mfn2021_dummy_pulses_redetected/`. Switch to the full dataset in `code/data_paths.py`.
+Paths are selected via `EEL_USE_DUMMY_DATASET` (set by the runner) in `code/data_paths.py`. Individual scripts can still be run interactively for iteration.
 
 ## External tools
 

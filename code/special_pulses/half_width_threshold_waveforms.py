@@ -27,7 +27,7 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.signal import find_peaks
 from scipy.stats import gaussian_kde
 
-from data_paths import H5_DIR, THESIS_FIGURES_DIR
+from data_paths import H5_DIR, active_thesis_figures_dir
 from h5_io import get_path_list, get_pulse_block, open_h5
 from presentation_style import apply_presentation_style
 from special_pulses.double_peaks_detection import compute_half_max_width
@@ -40,7 +40,7 @@ from special_pulses.pulse_shape_metrics import shift_waveform
 
 console = Console()
 
-OUTPUT_DIR = THESIS_FIGURES_DIR / "workinprogress"
+OUTPUT_DIR = active_thesis_figures_dir() / "workinprogress"
 CACHE_PATH = OUTPUT_DIR / "half_width_pulse_catalog.npz"
 
 RANDOM_SEED = 42
@@ -395,7 +395,10 @@ def plot_fs_distribution(fs_below: np.ndarray, fs_above: np.ndarray, thr: float,
 
 
 def main(data_path=H5_DIR):
+    global OUTPUT_DIR, CACHE_PATH
     apply_presentation_style()
+    OUTPUT_DIR = active_thesis_figures_dir() / "workinprogress"
+    CACHE_PATH = OUTPUT_DIR / "half_width_pulse_catalog.npz"
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(RANDOM_SEED)
 

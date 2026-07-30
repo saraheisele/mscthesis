@@ -19,7 +19,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
 
-from data_paths import active_thesis_figures_dir, activity_hist_dir, processed_figures_dir
+from correlations.mating_notes_utils import extract_mating_events
+from data_paths import activity_hist_dir, processed_figures_dir
 from plotting_utils import format_x_axis
 from presentation_style import LEGEND_LOC, apply_presentation_style, pulse_shape_color, save_thesis_figure
 from pulse_config import PULSE_TYPES, select_pulse_type
@@ -27,6 +28,7 @@ from pulse_config import PULSE_TYPES, select_pulse_type
 USE_BOOTSTRAP = True
 BOOTSTRAP_ITERATIONS = 1000
 BOOTSTRAP_CI_LEVEL = 95
+MATING_MARKER_COLOR = "crimson"
 
 GLOBAL_PLOTS = [
     ("minute", "24-hour pulse rate histogram (1-min bins)", "24h_minute{suffix}.png"),
@@ -105,6 +107,55 @@ def bootstrap_ci_summary(arr, n_bootstrap=10000, ci_level=95):
     return median, ci_lo, ci_hi
 
 
+def month_since_start_index(event_time, first_month_year: int, first_month_month: int) -> int:
+    """Return 0-based month_since_start bin for an event timestamp."""
+    return (event_time.year - first_month_year) * 12 + (event_time.month - first_month_month)
+
+
+def mark_mating_on_month_since_start(
+    ax,
+    axis_meta: dict,
+    n_bins: int,
+    mating_events=None,
+    *,
+    label: str = "Mating note",
+):
+    """Overlay vertical markers for mating notes on a month_since_start axis."""
+    if mating_events is None:
+        mating_events = extract_mating_events()
+    if not mating_events:
+        return
+
+    first_year = int(axis_meta["first_month_year"])
+    first_month = int(axis_meta["first_month_month"])
+    marked = False
+    y_max = ax.get_ylim()[1]
+    for event in mating_events:
+        event_time = event["event_time"]
+        idx = month_since_start_index(event_time, first_year, first_month)
+        if idx < 0 or idx >= n_bins:
+            continue
+        ax.axvline(
+            idx,
+            color=MATING_MARKER_COLOR,
+            linestyle="--",
+            alpha=0.7,
+            linewidth=1.2,
+        )
+        ax.scatter(
+            [idx],
+            [0.97 * y_max],
+            marker="v",
+            color=MATING_MARKER_COLOR,
+            s=55,
+            zorder=6,
+            label=label if not marked else None,
+        )
+        marked = True
+    if marked:
+        ax.legend(loc=LEGEND_LOC, fontsize=10)
+
+
 def plot_pulse_rate(
     pulse_rate_hist_dict,
     save_path,
@@ -112,6 +163,9 @@ def plot_pulse_rate(
     timescale,
     title,
     filename,
+    *,
+    mating_events=None,
+    save_exploratory: bool = False,
 ):
     if timescale not in pulse_rate_hist_dict:
         return
@@ -128,9 +182,14 @@ def plot_pulse_rate(
     )
     ax.set_ylabel("Pulse Rate (Hz)")
     start_y_axis_at_zero(ax)
+    if timescale == "month_since_start" and mating_events is not None:
+        mark_mating_on_month_since_start(ax, axis_meta, len(rate), mating_events)
+        title = f"{title} — mating notes marked"
     fig.suptitle(title)
     plt.tight_layout()
     plt.savefig(save_path / filename, dpi=300)
+    if save_exploratory:
+        save_thesis_figure(f"exploratory_mating_corr/{filename}", fig)
     plt.close()
 
 
@@ -231,7 +290,8 @@ def plot_circadian_panel_figure(
 def plot_circadian_panels_all_shapes(save_path=None):
     """Four-panel overview with all pulse categories overlaid."""
     if save_path is None:
-        save_path = active_thesis_figures_dir() / "activity_timescales"
+        save_path = processed_figures_dir(PULSE_TYPES["all"]["figures_subdir"])
+    save_path = Path(save_path)
     save_path.mkdir(parents=True, exist_ok=True)
 
     axis_meta = load_histogram_metadata(
@@ -289,6 +349,7 @@ def plot_circadian_panels_all_shapes(save_path=None):
     filename = "circadian_panels_all_shapes.png"
     out_path = save_path / filename
     fig.savefig(out_path, dpi=300)
+    save_thesis_figure(f"activity_timescales/{filename}", fig)
     plt.close(fig)
     print(f"Saved combined circadian panels to {out_path}")
 
@@ -333,6 +394,7 @@ def main():
     pulse_rate_data = np.load(data_path / "berlin_dummypulses_pulse_rate_hz_hist_dict.npz")
     pulse_rate_hist_dict = {k: pulse_rate_data[k] for k in pulse_rate_data.files}
     axis_meta = load_histogram_metadata(data_path)
+    mating_events = extract_mating_events() if pulse_type == "all" else None
 
     for timescale, title, filename in GLOBAL_PLOTS:
         plot_pulse_rate(
@@ -342,6 +404,8 @@ def main():
             timescale,
             title,
             filename.format(suffix=suffix),
+            mating_events=mating_events if timescale == "month_since_start" else None,
+            save_exploratory=(pulse_type == "all" and timescale == "month_since_start"),
         )
 
     session_data = np.load(data_path / "berlin_dummypulses_session_pulse_rate_hz.npz")

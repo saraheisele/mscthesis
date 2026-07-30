@@ -1,0 +1,14 @@
+{
+  "overall": {
+    "normal": 376825,
+    "wide": 69979,
+    "double": 18816
+  },
+  "mating_window_days": 2,
+  "mating_window": {
+    "normal": 33124,
+    "wide": 228,
+    "double": 14
+  },
+  "n_mating_notes": 17
+}

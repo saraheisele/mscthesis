@@ -3,9 +3,13 @@
 Analysis part: infrastructure — all scripts import paths from here.
 Dependencies: none.
 
-Set USE_DUMMY_DATASET to switch between the development subset and the full
-Berlin tank dataset. Dummy outputs are written under data/processed/dummy/ so
-full-dataset figures in data/processed/ are never overwritten.
+Set USE_DUMMY_DATASET (or env EEL_USE_DUMMY_DATASET) to switch between the
+development subset and the full Berlin tank dataset.
+
+Dummy thesis figures → figures/
+Full thesis figures  → figures/full/
+Dummy processed plots → data/processed/dummy/
+Full processed plots  → data/processed/
 """
 
 from pathlib import Path

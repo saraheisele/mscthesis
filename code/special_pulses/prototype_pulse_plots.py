@@ -355,24 +355,44 @@ def load_sampled_waveforms(entries, sample_size, random_seed, align_mode=None):
     return corrected_waveforms, normalized_waveforms, fs
 
 
-def add_half_max_markers(ax, mean_trace, fs, color):
+def add_half_max_markers(ax, mean_trace, fs, color, time_offset_ms=0.0):
+    """Mark half-maximum level and FWHM span of the mean waveform."""
     width_sec, width_info = compute_half_max_width(mean_trace, fs)
-    left_t = width_info["left_idx"] / fs * 1000
-    right_t = width_info["right_idx"] / fs * 1000
+    if np.isnan(width_sec):
+        return
+    left_t = width_info["left_idx"] / fs * 1000 + time_offset_ms
+    right_t = width_info["right_idx"] / fs * 1000 + time_offset_ms
+    half_h = width_info["half_height"]
+    width_ms = width_sec * 1000
+
     ax.axhline(
-        width_info["half_height"],
+        half_h,
         color=color,
         linestyle="--",
-        alpha=0.8,
-        linewidth=1.2,
-        label="Half maximum",
+        alpha=0.55,
+        linewidth=1.0,
+        zorder=3,
     )
     ax.axvspan(
         left_t,
         right_t,
         color=color,
-        alpha=0.15,
-        label=f"Width = {width_sec * 1000:.2f} ms",
+        alpha=0.12,
+        zorder=2,
+    )
+    # Explicit width bar (legend entry for half-width).
+    ax.plot(
+        [left_t, right_t],
+        [half_h, half_h],
+        color=color,
+        linestyle="-",
+        linewidth=2.0,
+        marker="|",
+        markersize=14,
+        markeredgewidth=2.0,
+        alpha=0.95,
+        zorder=6,
+        label=f"Half-width = {width_ms:.2f} ms",
     )
 
 
@@ -427,6 +447,7 @@ def add_detection_markers(ax, mean_trace, fs, pulse_shape, pulse_key=None):
         peaks = double_peak_indices(mean_trace, fs)
         if peaks is not None:
             peak_times = peaks / fs * 1000
+            dt_ms = (peaks[1] - peaks[0]) / fs * 1000
             ax.scatter(
                 peak_times,
                 mean_trace[peaks],
@@ -445,14 +466,20 @@ def add_detection_markers(ax, mean_trace, fs, pulse_shape, pulse_key=None):
                 zorder=6,
                 label="Inter-peak trough",
             )
-            dt_ms = (peaks[1] - peaks[0]) / fs * 1000
-            ax.annotate(
-                f"Δt = {dt_ms:.2f} ms",
-                xy=(np.mean(peak_times), np.mean(mean_trace[peaks])),
-                xytext=(8, 12),
-                textcoords="offset points",
-                fontsize=9,
+            # Peak-to-peak Δt: visual bar + dedicated legend entry.
+            peak_y = float(np.mean(mean_trace[peaks]))
+            ax.plot(
+                peak_times,
+                [peak_y, peak_y],
                 color=color,
+                linestyle=":",
+                linewidth=1.6,
+                marker="|",
+                markersize=10,
+                markeredgewidth=1.6,
+                alpha=0.9,
+                zorder=5,
+                label=f"$\\Delta t$ = {dt_ms:.2f} ms",
             )
         return
 
@@ -469,9 +496,16 @@ def add_detection_markers(ax, mean_trace, fs, pulse_shape, pulse_key=None):
 
 
 def load_all_waveforms(
-    entries, align_mode=None, max_waveforms=None, random_seed=None
+    entries,
+    align_mode=None,
+    max_waveforms=None,
+    random_seed=None,
+    required_fs: float | None = None,
 ):
-    """Load waveforms for mean computation (optionally capped via random sample)."""
+    """Load waveforms for mean computation (optionally capped via random sample).
+
+    If ``required_fs`` is set, skip files whose metadata samplerate differs.
+    """
     entries = list(entries)
     if max_waveforms is not None and len(entries) > max_waveforms:
         rng = np.random.default_rng(random_seed)
@@ -493,12 +527,20 @@ def load_all_waveforms(
                 if file is None:
                     continue
                 block = get_pulse_block(file)
-                open_files[file_key] = (file, block)
+                file_fs = float(file.sections["pulses_metadata"]["metadata"]["samplerate"])
+                if required_fs is not None and abs(file_fs - required_fs) >= 1e-6:
+                    file.close()
+                    open_files[file_key] = None
+                    continue
+                open_files[file_key] = (file, block, file_fs)
 
-            file, block = open_files[file_key]
+            cached = open_files[file_key]
+            if cached is None:
+                continue
+            file, block, file_fs = cached
             pulse_data = block.data_arrays["raw_pulses"][pulse_idx][:]
             if fs is None:
-                fs = float(file.sections["pulses_metadata"]["metadata"]["samplerate"])
+                fs = file_fs
             trace, _ = get_biggest_unclipped_waveform(pulse_data)
             corrected = baseline_correct(trace)
             if align_mode == "valley" and double_peak_indices(corrected, fs) is None:
@@ -506,8 +548,9 @@ def load_all_waveforms(
             corrected_waveforms.append(corrected)
             normalized_waveforms.append(normalize_trace(corrected))
     finally:
-        for file, _ in open_files.values():
-            file.close()
+        for cached in open_files.values():
+            if cached is not None:
+                cached[0].close()
 
     return corrected_waveforms, normalized_waveforms, fs
 
@@ -557,6 +600,7 @@ def plot_prototype_pulse_shape(
     )
 
     add_detection_markers(ax, mean_trace, fs, pulse_shape, pulse_key=pulse_key)
+    add_half_max_markers(ax, mean_trace, fs, pulse_shape["color"])
 
     criteria_text = "\n".join(f"• {line}" for line in pulse_shape["criteria"])
     ax.text(
