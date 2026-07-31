@@ -410,16 +410,34 @@ def process_all_h5_files(data_path):
 
 
 def get_default_ml_paths():
+    """Return classifier artifact paths for the active dataset domain.
+
+    Dummy and full keep fully separate train/test/model files so a full-domain
+    retrain cannot overwrite the dummy-domain artifacts (or vice versa).
+    """
+    from data_paths import USE_DUMMY_DATASET
+
     base_path = SPECIAL_PULSE_CLASSIFIER_DIR
     pca_dir = PCA_SPACE_DIR
     pca_dir.mkdir(parents=True, exist_ok=True)
+    if USE_DUMMY_DATASET:
+        return {
+            "base": base_path,
+            "labels": base_path / "labeled_special_pulses.npz",
+            "naturalistic_test_labels": base_path / "naturalistic_test_labels.npz",
+            "naturalistic_train_labels": base_path / "naturalistic_train_labels.npz",
+            "model": base_path / "special_pulse_rf_pca.pkl",
+            "pca_plot": pca_dir / "labeled_pulses_pca_space.png",
+            "domain": "dummy",
+        }
     return {
         "base": base_path,
-        "labels": base_path / "labeled_special_pulses.npz",
-        "naturalistic_test_labels": base_path / "naturalistic_test_labels.npz",
-        "naturalistic_train_labels": base_path / "naturalistic_train_labels.npz",
-        "model": base_path / "special_pulse_rf_pca.pkl",
-        "pca_plot": pca_dir / "labeled_pulses_pca_space.png",
+        "labels": base_path / "labeled_special_pulses_full.npz",
+        "naturalistic_test_labels": base_path / "naturalistic_test_labels_full.npz",
+        "naturalistic_train_labels": base_path / "naturalistic_train_labels_full.npz",
+        "model": base_path / "special_pulse_rf_pca_full.pkl",
+        "pca_plot": pca_dir / "labeled_pulses_pca_space_full.png",
+        "domain": "full",
     }
 
 
@@ -637,6 +655,43 @@ def prepare_classifier_waveforms(waveforms: np.ndarray, classifier) -> np.ndarra
     target_length = classifier_waveform_length(classifier)
     waveforms = resample_waveforms(waveforms, target_length)
     return normalize_waveforms_for_pca(waveforms)
+
+
+def sampling_pools_from_records(records, default_pool="naturalistic"):
+    """Return per-row sampling_pool strings (default for legacy npz rows)."""
+    records = np.asarray(records)
+    if records.dtype.names and "sampling_pool" in records.dtype.names:
+        return np.asarray([str(p) for p in records["sampling_pool"]])
+    return np.full(len(records), default_pool, dtype=object)
+
+
+def enrichment_compensated_class_weights(labels, records, class_ids=(0, 1, 2)):
+    """
+    Class weights that restore the naturalistic-subset prior after enrichment.
+
+    Enrichment oversamples wide/double; without compensation the RF tends to
+    over-call those classes. Weights are target_prior[c] / train_prior[c],
+    where target_prior is estimated from non-enrichment rows only.
+    """
+    labels = np.asarray(labels, dtype=np.int64)
+    pools = sampling_pools_from_records(records)
+    is_enrich = np.array(
+        [str(p).startswith("enrich") for p in pools], dtype=bool
+    )
+    nat_mask = ~is_enrich
+    if np.any(nat_mask):
+        target_prior = class_prior_from_labels(labels[nat_mask], class_ids=class_ids)
+    else:
+        target_prior = dict(DEFAULT_NATURAL_PRIOR)
+    train_prior = class_prior_from_labels(labels, class_ids=class_ids)
+    weights = {}
+    for c in class_ids:
+        tp = float(target_prior.get(c, 0.0))
+        pp = float(train_prior.get(c, 0.0))
+        if pp <= 0:
+            continue
+        weights[int(c)] = float(tp / pp) if tp > 0 else 1.0
+    return weights, target_prior, train_prior, int(np.sum(is_enrich))
 
 
 def class_prior_from_labels(labels, class_ids=None):
@@ -1234,13 +1289,14 @@ def train_special_pulse_classifier(
     model_path.parent.mkdir(parents=True, exist_ok=True)
     decision_config = {**DEFAULT_DECISION_CONFIG, **(decision_config or {})}
 
-    waveforms, labels, _ = load_labeled_dataset(labels_path)
+    waveforms, labels, records = load_labeled_dataset(labels_path)
     active_label_mask = np.isin(labels, list(LABELING_PULSE_CLASSES))
     if not np.all(active_label_mask):
         ignored_count = int(np.sum(~active_label_mask))
         con.log(f"Ignoring {ignored_count} labels outside normal/wide/double.")
         waveforms = waveforms[active_label_mask]
         labels = labels[active_label_mask]
+        records = records[active_label_mask]
     if len(labels) == 0:
         raise ValueError(
             "No normal/wide/double labels available to train a classifier."
@@ -1250,6 +1306,33 @@ def train_special_pulse_classifier(
     if len(unique_labels) < 2:
         raise ValueError("Need at least two labeled classes to train a classifier.")
 
+    # If enrichment rows are present and no explicit rf_class_weight was set,
+    # down-weight rare classes back toward the naturalistic prior so enrichment
+    # improves shape learning without inflating predicted wide/double rates.
+    (
+        auto_weights,
+        naturalistic_prior,
+        raw_train_prior,
+        n_enrich,
+    ) = enrichment_compensated_class_weights(labels, records)
+    if (
+        n_enrich > 0
+        and decision_config.get("rf_class_weight", None) is None
+        and decision_config.get("auto_enrichment_class_weights", True)
+    ):
+        decision_config["rf_class_weight"] = auto_weights
+        decision_config["naturalistic_train_prior"] = {
+            int(k): float(v) for k, v in naturalistic_prior.items()
+        }
+        decision_config["raw_train_prior_before_weight"] = {
+            int(k): float(v) for k, v in raw_train_prior.items()
+        }
+        con.log(
+            f"Enrichment compensation: {n_enrich} enrichment rows; "
+            f"rf_class_weight={auto_weights} "
+            f"(target naturalistic prior={naturalistic_prior})"
+        )
+
     plot_labeled_pulses_pca_space(
         waveforms,
         labels,
@@ -1257,7 +1340,7 @@ def train_special_pulse_classifier(
         show=show_pca_plot,
     )
 
-    split = _prepare_classifier_train_test_split(waveforms, labels)
+    split = _prepare_classifier_train_test_split(waveforms, labels, records=records)
     X_train = split["X_train"]
     X_test = split["X_test"]
     y_train = split["y_train"]

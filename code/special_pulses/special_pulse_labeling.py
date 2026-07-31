@@ -272,7 +272,12 @@ def load_naturalistic_pulses_for_labeling(
 
     pools_by_file = []
     n_excluded = 0
-    for file_path in selected_files:
+    for file_i, file_path in enumerate(selected_files, 1):
+        if file_i == 1 or file_i % 20 == 0 or file_i == len(selected_files):
+            con.log(
+                f"  Scanning candidate indices [{file_i}/{len(selected_files)}] "
+                f"{file_path.name}"
+            )
         file = open_h5(file_path, nixio.FileMode.ReadOnly)
         if file is None:
             continue
@@ -340,32 +345,41 @@ def load_naturalistic_pulses_for_labeling(
 
     waveforms = []
     records = []
-    waveform_cache = {}
+    # Open each file once and fetch only the selected pulse indices.
+    # Do NOT cache raw_pulses[:] — full arrays are multi-GB and thrash RAM.
+    by_file = {}
     for record in selected_records:
-        file_path = record["file_path"]
-        if file_path not in waveform_cache:
-            file = open_h5(file_path, nixio.FileMode.ReadOnly)
-            if file is None:
-                continue
-            try:
-                block = get_pulse_block(file)
-                waveform_cache[file_path] = block.data_arrays["raw_pulses"][:]
-            finally:
-                file.close()
+        by_file.setdefault(record["file_path"], []).append(record)
 
-        pulse_data = waveform_cache[file_path][record["pulse_idx"]]
-        trace, best_channel = get_representative_waveform(pulse_data)
-        waveforms.append(trace)
-        records.append(
-            {
-                "file_path": record["file_path"],
-                "pulse_idx": record["pulse_idx"],
-                "fs": record["fs"],
-                "best_channel": int(best_channel),
-                "sampling_pool": "naturalistic",
-                "all_channels": np.asarray(pulse_data, dtype=float),
-            }
-        )
+    for file_i, (file_path, file_records) in enumerate(by_file.items(), 1):
+        if file_i == 1 or file_i % 20 == 0 or file_i == len(by_file):
+            con.log(
+                f"  Loading selected waveforms [{file_i}/{len(by_file)}] "
+                f"{Path(file_path).name} ({len(file_records)} pulses)"
+            )
+        nix_file = open_h5(file_path, nixio.FileMode.ReadOnly)
+        if nix_file is None:
+            continue
+        try:
+            raw_pulses = get_pulse_block(nix_file).data_arrays["raw_pulses"]
+            for record in file_records:
+                pulse_data = np.asarray(
+                    raw_pulses[int(record["pulse_idx"])][:], dtype=float
+                )
+                trace, best_channel = get_representative_waveform(pulse_data)
+                waveforms.append(trace)
+                records.append(
+                    {
+                        "file_path": record["file_path"],
+                        "pulse_idx": record["pulse_idx"],
+                        "fs": record["fs"],
+                        "best_channel": int(best_channel),
+                        "sampling_pool": "naturalistic",
+                        "all_channels": np.asarray(pulse_data, dtype=float),
+                    }
+                )
+        finally:
+            nix_file.close()
 
     con.log(
         f"  Naturalistic labeling sample: {len(records)} pulses from "
@@ -542,33 +556,75 @@ def interactive_label_pulses(
         con.log("No labels collected.")
         return None
 
-    labeled_records = np.array(
-        [
-            (
-                records[i]["file_path"],
-                records[i]["pulse_idx"],
-                records[i]["fs"],
-                records[i]["best_channel"],
-            )
-            for i in np.where(labeled_mask)[0]
-        ],
-        dtype=[
-            ("file_path", "U512"),
-            ("pulse_idx", "i8"),
-            ("fs", "f8"),
-            ("best_channel", "i8"),
-        ],
-    )
+    def _as_pool_records(record_list):
+        return np.array(
+            [
+                (
+                    r["file_path"],
+                    r["pulse_idx"],
+                    r["fs"],
+                    r["best_channel"],
+                    str(r.get("sampling_pool", "naturalistic")),
+                )
+                for r in record_list
+            ],
+            dtype=[
+                ("file_path", "U512"),
+                ("pulse_idx", "i8"),
+                ("fs", "f8"),
+                ("best_channel", "i8"),
+                ("sampling_pool", "U64"),
+            ],
+        )
 
+    def _upgrade_records(rec_arr, default_pool="naturalistic"):
+        """Ensure records include sampling_pool (older npz files lack it)."""
+        rec_arr = np.asarray(rec_arr)
+        names = set(rec_arr.dtype.names or ())
+        if "sampling_pool" in names:
+            return rec_arr.astype(
+                [
+                    ("file_path", "U512"),
+                    ("pulse_idx", "i8"),
+                    ("fs", "f8"),
+                    ("best_channel", "i8"),
+                    ("sampling_pool", "U64"),
+                ],
+                copy=False,
+            )
+        return np.array(
+            [
+                (
+                    r["file_path"],
+                    r["pulse_idx"],
+                    r["fs"],
+                    r["best_channel"],
+                    default_pool,
+                )
+                for r in rec_arr
+            ],
+            dtype=[
+                ("file_path", "U512"),
+                ("pulse_idx", "i8"),
+                ("fs", "f8"),
+                ("best_channel", "i8"),
+                ("sampling_pool", "U64"),
+            ],
+        )
+
+    labeled_idx = np.where(labeled_mask)[0]
     save_waveforms = waveforms[labeled_mask]
     save_labels = labels[labeled_mask]
-    save_records = labeled_records
+    save_records = _as_pool_records([records[i] for i in labeled_idx])
 
     if append_existing and labels_path.exists():
         existing = np.load(labels_path, allow_pickle=False)
+        existing_records = _upgrade_records(
+            existing["records"], default_pool="naturalistic"
+        )
         save_waveforms = np.vstack([existing["waveforms"], save_waveforms])
         save_labels = np.concatenate([existing["labels"], save_labels])
-        save_records = np.concatenate([existing["records"], save_records])
+        save_records = np.concatenate([existing_records, save_records])
 
     np.savez_compressed(
         labels_path,
