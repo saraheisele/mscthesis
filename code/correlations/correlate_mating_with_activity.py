@@ -1,16 +1,15 @@
 """Correlate mating-related lab notes with pulse activity and half-width.
 
 Analysis part: mating correlation.
-Dependencies: data_paths, mating_notes_utils, correlate_activity_with_feeding helpers.
+Dependencies: data_paths, mating_notes_utils, session_notes_utils,
+correlate_activity_with_feeding (pulse loading / minute rates).
 """
 
 from __future__ import annotations
 
-import sys
 from datetime import timedelta
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from path_setup import setup_script_paths
 
 setup_script_paths(__file__)
@@ -21,20 +20,24 @@ import pandas as pd
 from scipy import stats
 
 from correlations.correlate_activity_with_feeding import (
+    load_pulses_by_type,
+    minute_pulse_rates,
+)
+from correlations.mating_notes_utils import extract_mating_events
+from correlations.session_notes_utils import (
     extract_eellogger_on_times,
     find_docx_for_session,
     infer_recording_start,
-    load_pulses_by_type,
-    minute_pulse_rates,
     session_name_from_h5,
 )
-from correlations.mating_notes_utils import extract_mating_events
 from data_paths import (
     HALF_WIDTH_DISTRIBUTIONS_DIR,
     H5_DIR,
     MATING_CORRELATION_DIR,
 )
+from h5_io import get_path_list
 from presentation_style import apply_presentation_style, pulse_shape_color
+from pulse_config import PULSE_TYPES as _ALL_PULSE_TYPES
 
 OUTPUT_DIR = MATING_CORRELATION_DIR
 HALF_WIDTH_OUTPUT_DIR = HALF_WIDTH_DISTRIBUTIONS_DIR
@@ -43,9 +46,8 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 MATING_WINDOW_DAYS = 2
 BASELINE_EXCLUDE_DAYS = 2
 PULSE_TYPES = {
-    "all": {"label": "All pulses", "array": None},
-    "double": {"label": "Double pulses", "array": "is_double_peak"},
-}
+    k: _ALL_PULSE_TYPES[k] for k in ("all", "double")
+}  # wide excluded: mating notes analysis focuses on overall + double rates
 
 
 def add_mating_flags(df: pd.DataFrame, mating_events: list[dict]) -> pd.DataFrame:
@@ -109,7 +111,7 @@ def correlate_mating_flag(minute_df: pd.DataFrame) -> dict:
 
 def collect_minute_records(mating_events: list[dict]) -> pd.DataFrame:
     rows = []
-    h5_files = sorted(H5_DIR.glob("*_pulses.h5"))
+    h5_files = [p for p in get_path_list(H5_DIR) if p.name.endswith("_pulses.h5")]
     for h5_path in h5_files:
         session_name = session_name_from_h5(h5_path)
         docx_path = find_docx_for_session(session_name)

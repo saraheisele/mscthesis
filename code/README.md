@@ -1,20 +1,21 @@
 # Berlin Eel Analysis Pipeline
 
-Python scripts for analyzing electric-organ-discharge (EOD) activity from the MfN Berlin tank recordings. Paths are configured in `data_paths.py`; presentation styling in `presentation_style.py`.
+Python scripts for electric-organ-discharge (EOD) activity from the MfN Berlin
+tank recordings. Paths: `data_paths.py`. Presentation styling:
+`presentation_style.py`.
 
 ## Quick start
 
 ```bash
-cd /home/eisele/wrk/mscthesis
+cd /path/to/mscthesis   # or a git worktree of this repo
 pip install -r requirements.txt
 cd code
 
-# Full analysis (classifier → histograms → thesis figures + processed dual-writes)
-./run_analysis.sh dummy   # development subset
-./run_analysis.sh full    # full Berlin tank dataset
+./run_analysis.sh dummy   # development subset → figures/, data/processed/dummy/
+./run_analysis.sh full    # full Berlin dataset → figures/full/, data/processed/
 ```
 
-Or run individual scripts interactively (from `code/` so local imports resolve):
+Or run individual scripts from `code/` (so local imports resolve):
 
 ```bash
 python activity_timescales/eel_data_preprocessing.py   # prompted: all|double|wide
@@ -30,9 +31,56 @@ python activity_timescales/pulse_analysis_plots.py
 
 Logs: `data/intermediate/pipeline_logs/pipeline_dummy.log` or `pipeline_full.log`.
 
+The runner resolves `ROOT` from its own location, so the same script works in
+the main checkout and in a parallel git worktree.
+
+## Pipeline overview
+
+```
+H5 pulses (+ optional labeling)
+        │
+        ▼
+[1] special_pulses/double_peaks_detection.py     ML markers (double / wide)
+        │
+        ▼
+[2] activity_timescales/eel_data_preprocessing   multi-timescale rate NPZs
+[3] activity_timescales/pulse_analysis_plots     circadian / timescale panels
+[4] correlations/correlate_pulse_shapes          special vs all-pulse rates
+        │
+        ▼
+[5] special_pulses/half_width_distributions      half-width hists (shared collector)
+[6] special_pulses/prototype_pulse_plots         mean/median prototypes (npz)
+[7] special_pulses/pulse_shape_distribution      shape prevalence
+[8] special_pulses/double_pulse_template_fit     Model A on prototype median
+[9] special_pulses/pca_space_plots               labeled PCA scatter
+[10] special_pulses/pulse_properties_over_time   temporal half-width / IPI
+[11] correlations/correlate_mating_with_activity mating notes ↔ rates
+        │
+        ▼
+[12] correlations/correlate_activity_with_environment
+        ├─ environment_correlation.py           temp / conductivity
+        ├─ volley_pulse_analysis.py             high-voltage volleys
+        └─ tank_area_pulse_analysis.py          bright vs dark areas
+[13] correlations/correlate_activity_with_feeding
+        │
+        ▼
+[14] position_estimation/position_data_preprocessing
+[15] position_estimation/position_analysis_plots
+        │
+        └── (optional) animate_eel_position.py  needs a wav path
+```
+
+Shared utilities (not numbered steps): `data_paths`, `h5_io`, `pulse_config`,
+`path_setup`, `plotting_utils`, `presentation_style`, `pulse_shape_metrics`,
+`pulse_property_collect`, `session_notes_utils`, `mating_notes_utils`,
+`position_utils`, `eelplotting`.
+
 ## Thesis figures layout
 
-Dummy runs write under `figures/`; full-dataset runs write the same relative paths under `figures/full/` (`EEL_USE_DUMMY_DATASET`). Thesis-relevant plots are dual-written: processed diagnostics under `data/processed/...`, and presentation copies via `save_thesis_figure()` / `copy_thesis_asset()`.
+Dummy runs write under `figures/`; full-dataset runs write the same relative
+paths under `figures/full/`. Thesis-relevant plots are dual-written: processed
+diagnostics under `data/processed/...`, presentation copies via
+`save_thesis_figure()` / `copy_thesis_asset()`.
 
 ```
 figures/                         # dummy (default); full → figures/full/
@@ -56,68 +104,52 @@ figures/                         # dummy (default); full → figures/full/
 ├── position_estimation/
 │   ├── overall_position_distribution_peak.png
 │   ├── position_panels_peak.png
-│   └── eel_position_animation.{mp4,gif}   # optional; needs wav (not in run_analysis.sh)
-├── workinprogress/
-│   ├── pulse_shape_distribution_mating_window.png
-│   └── half-width threshold panels from half_width_threshold_waveforms.py
-└── full/                        # same structure for the full Berlin dataset
+│   └── eel_position_animation.{mp4,gif}   # optional; not in run_analysis.sh
+└── workinprogress/
+    └── pulse_shape_distribution_mating_window.png
 ```
 
-**Produced by `./run_analysis.sh`:** everything above except `eel_position_animation.{mp4,gif}` (run `position_estimation/animate_eel_position.py` with a wav path). Double-pulse model-hierarchy / sample-fit panels are archived helpers in `double_pulse_template_fit.py` and are **not** written by the pipeline.
+**Produced by `./run_analysis.sh`:** everything above except
+`eel_position_animation.*`. Double-pulse model-hierarchy / sample-fit panels
+live under `archived/double_pulse_template_fit_exploratory.py` and are **not**
+written by the pipeline.
 
-Exploratory mating overlays (not thesis-canonical) also land under `figures/exploratory_mating_corr/` from `pulse_analysis_plots.py` and `pulse_properties_over_time.py`.
+Exploratory mating overlays also land under `figures/exploratory_mating_corr/`
+from `pulse_analysis_plots.py` and `pulse_properties_over_time.py`.
 
 ## Directory layout
 
 | Subdirectory | Topic | Scripts |
 |--------------|-------|---------|
-| *(root)* | Paths, style, shared I/O | `data_paths.py`, `presentation_style.py`, `pulse_config.py`, `h5_io.py`, `plotting_utils.py`, `path_setup.py`, `run_analysis.sh` |
+| *(root)* | Paths, style, shared I/O | `data_paths.py`, `presentation_style.py`, `pulse_config.py`, `h5_io.py`, `plotting_utils.py`, `path_setup.py`, `eelplotting.py`, `run_analysis.sh` |
 | `activity_timescales/` | Pulse-rate histograms | `eel_data_preprocessing.py`, `pulse_analysis_plots.py` |
-| `special_pulses/` | Classification & shapes | `double_peaks_detection.py`, `double_peaks_visualization.py`, `prototype_pulse_plots.py`, `pulse_shape_distribution.py`, `half_width_distributions.py`, `pulse_properties_over_time.py`, `double_pulse_template_fit.py`, `pca_space_plots.py`, `half_width_threshold_waveforms.py` |
-| `correlations/` | Environment, feeding, mating, shapes | `environment_correlation.py`, `volley_pulse_analysis.py`, `tank_area_pulse_analysis.py`, `correlate_activity_with_environment.py`, `correlate_activity_with_feeding.py`, `correlate_pulse_shapes.py`, `correlate_mating_with_activity.py`, `mating_notes_utils.py` |
-| `position_estimation/` | Location along electrode line | `position_utils.py`, `position_data_preprocessing.py`, `position_analysis_plots.py`, `animate_eel_position.py` |
-
-Legacy scripts are kept in `old_analysis_version/` for reference only.
+| `special_pulses/` | Classification & shapes | see script reference below |
+| `correlations/` | Environment, feeding, mating, shapes | orchestrators + helpers |
+| `position_estimation/` | Location along electrode line | preprocessing, plots, optional animation |
+| `archived/` | Legacy / WIP / exploratory | see [`archived/README.md`](archived/README.md) |
 
 ## Recommended run order
 
-Prefer `./run_analysis.sh {dummy|full}`, which runs the steps below in order. For manual iteration:
+Prefer `./run_analysis.sh {dummy|full}`. Manual iteration uses the same order
+as the pipeline overview above.
 
-### Part 1 — Pulse activity
+### Classifier first-time setup
 
-1. **`special_pulses/double_peaks_detection.py`**  
-   Applies the supervised PCA + random forest classifier (`is_double_peak`, `is_wide_pulse`, `special_pulse_class`).  
-   First run: `python special_pulses/double_peaks_detection.py --label --train`  
-   Later: `python special_pulses/double_peaks_detection.py` (reuses the saved model).
+```bash
+python special_pulses/double_peaks_detection.py --label --train
+python special_pulses/double_peaks_detection.py   # apply saved model (pipeline default)
+```
 
-2. **`activity_timescales/eel_data_preprocessing.py`** — multi-timescale pulse-rate `.npz` histograms (`all`, `double`, `wide`).
+### Double-pulse template fit — modelling choices
 
-3. **`activity_timescales/pulse_analysis_plots.py`** — circadian / timescale panels (thesis + processed).
-
-4. **`correlations/correlate_pulse_shapes.py`** — special-pulse vs all-pulses histogram correlations.
-
-### Part 2 — Pulse shapes
-
-5. **`special_pulses/half_width_distributions.py`**
-6. **`special_pulses/prototype_pulse_plots.py`** — builds prototype mean/median waveforms (npz); the **median** double is the canonical prototype used downstream
-7. **`special_pulses/pulse_shape_distribution.py`** — overall shape prevalence (+ mating-window WIP plot)
-8. **`special_pulses/double_pulse_template_fit.py`** — direct two-normal fit of the **prototype median** double (default **model A**); thesis figure `figures/pulse_shapes/double_pulse_template_fit_example.png`
-9. **`special_pulses/pca_space_plots.py`**
-10. **`special_pulses/pulse_properties_over_time.py`**
-11. **`correlations/correlate_mating_with_activity.py`**
-12. **`special_pulses/half_width_threshold_waveforms.py`** *(WIP)*
-
-#### Double-pulse template fit — modelling choices
-
-`double_pulse_template_fit.py` asks whether a double pulse can be produced as **two normal pulses in quick succession**.
+`double_pulse_template_fit.py` asks whether a double pulse can be produced as
+**two normal pulses in quick succession**.
 
 | Choice | Decision | Why |
 |--------|----------|-----|
-| Aggregate | **Direct fit** to the prototype waveform | Averaging per-pulse fit parameters (“mean-of-params”) is not the same as fitting the typical shape and answers the biological question less cleanly. |
-| Prototype summary | **Median** (not mean) | Peak separations / shapes are mildly right-skewed; the median is closer to a typical double and less pulled by rare outliers. Mean remains stored in the prototype `.npz` and in archived helpers. |
-| Model | **A** (`A_w1_free_t`) by default | Same native-width normal template, free times & amplitudes only — the most honest, least overfitting-prone statement of the two-normal hypothesis. Models B–F remain available via `--model` for sensitivity checks. |
-
-**Archived (code kept, not run by the pipeline):** sample direct mean/median fits (`run_direct_mean_target_fits` — used to compare mean-of-params vs direct fit), model-hierarchy A–F panels (`run_mean_model_hierarchy` — used to choose model A), mean-of-params example / parameter distributions, and prototype-**mean** fit figures. Manual re-runs can still call those helpers; they no longer write `figures/workinprogress/` thesis copies.
+| Aggregate | **Direct fit** to the prototype waveform | Averaging per-pulse parameters ≠ fitting the typical shape |
+| Prototype summary | **Median** (not mean) | Mild right-skew; median is more typical |
+| Model | **A** (`A_w1_free_t`) by default | Same native-width normal template; free times & amplitudes only |
 
 ```bash
 python special_pulses/double_pulse_template_fit.py
@@ -125,22 +157,7 @@ python special_pulses/double_pulse_template_fit.py --model E_free_shared_w
 python special_pulses/double_pulse_template_fit.py --prototype-stat mean   # non-default
 ```
 
-### Part 3 — Environment / context
-
-13. **`correlations/correlate_activity_with_environment.py`** — orchestrates:
-    - `environment_correlation.py` — temperature & conductivity
-    - `volley_pulse_analysis.py` — high-voltage volleys
-    - `tank_area_pulse_analysis.py` — bright vs dark tank areas
-
-### Part 4 — Feeding
-
-14. **`correlations/correlate_activity_with_feeding.py`**
-
-### Part 5 — Position
-
-15. **`position_estimation/position_data_preprocessing.py`**
-16. **`position_estimation/position_analysis_plots.py`**
-17. **`position_estimation/animate_eel_position.py`** — optional; needs a wav path (writes mp4 + gif thesis assets)
+### Optional position animation
 
 ```bash
 python position_estimation/animate_eel_position.py /path/to/eellogger.wav
@@ -149,7 +166,8 @@ python position_estimation/animate_eel_position.py --list-entry-recordings
 
 ## Data paths
 
-Controlled by `EEL_USE_DUMMY_DATASET` in `data_paths.py` (default `true`; the runner sets it explicitly):
+Controlled by `EEL_USE_DUMMY_DATASET` in `data_paths.py` (default `true`; the
+runner sets it explicitly):
 
 | | Dummy | Full |
 |--|-------|------|
@@ -158,31 +176,62 @@ Controlled by `EEL_USE_DUMMY_DATASET` in `data_paths.py` (default `true`; the ru
 | Processed | `data/processed/dummy/` | `data/processed/` |
 | Activity histograms | `data/intermediate/eels-mfn2021_dummy_activity_histograms/` | `.../eels-mfn2021_activity_histograms/` |
 
-`EXCEL_DIR` and `LAB_DATA_DIR` (session notes / electrode layout) are shared.
+`EXCEL_DIR` (leitwerte) and `LAB_DATA_DIR` (session notes / electrode layout)
+are **shared** across dummy and full modes.
+
+Histogram NPZ basenames still use the historical prefix `berlin_dummypulses_*`
+for both modes (name only; contents follow the active dataset).
 
 ## Script reference
 
-| Script | Purpose |
-|--------|---------|
-| `run_analysis.sh` | Unified pipeline runner (`dummy` \| `full`) |
-| `data_paths.py` | Central path configuration |
-| `presentation_style.py` | Thesis color palette, rcParams, `save_thesis_figure` |
-| `pulse_config.py` | Pulse-type labels, suffixes, h5 marker names |
-| `h5_io.py` | Recursive `.h5` discovery |
-| `plotting_utils.py` | Shared matplotlib axis formatting |
-| `path_setup.py` | Import bootstrap for subdirectory scripts |
-| `activity_timescales/eel_data_preprocessing.py` | Pulse-rate histogram `.npz` files |
-| `activity_timescales/pulse_analysis_plots.py` | Pulse-rate / circadian panels |
-| `special_pulses/double_peaks_detection.py` | RF special-pulse classifier |
-| `special_pulses/prototype_pulse_plots.py` | Prototype waveform overlays |
-| `special_pulses/pulse_shape_distribution.py` | Shape prevalence bar charts |
-| `special_pulses/half_width_distributions.py` | Half-width distributions by shape |
-| `special_pulses/double_pulse_template_fit.py` | Direct two-normal fit to prototype median double (model A default) |
-| `special_pulses/pca_space_plots.py` | Labeled-pulse PCA scatter |
-| `special_pulses/pulse_properties_over_time.py` | Half-width / property trends |
-| `correlations/correlate_pulse_shapes.py` | Cross-correlate shapes with all-pulses |
-| `correlations/correlate_activity_with_environment.py` | Environment / volley / tank orchestrator |
-| `correlations/correlate_activity_with_feeding.py` | Feeding-time correlation |
-| `correlations/correlate_mating_with_activity.py` | Mating-note correlation |
-| `position_estimation/position_analysis_plots.py` | Position and occupancy plots |
-| `position_estimation/animate_eel_position.py` | Movement animation for one wav chunk |
+| Script | Purpose | Pipeline |
+|--------|---------|----------|
+| `run_analysis.sh` | Unified runner (`dummy` \| `full`) | entry |
+| `data_paths.py` | Central path configuration | utility |
+| `presentation_style.py` | Thesis palette, `save_thesis_figure` | utility |
+| `pulse_config.py` | Pulse-type labels, suffixes, marker names | utility |
+| `h5_io.py` | Recursive `.h5` discovery / open / markers | utility |
+| `plotting_utils.py` | Shared timescale axis formatting | utility |
+| `path_setup.py` | Import bootstrap for subdirectory scripts | utility |
+| `eelplotting.py` | SVG eel drawing (animation only) | optional |
+| `activity_timescales/eel_data_preprocessing.py` | Pulse-rate histogram NPZs | [2] |
+| `activity_timescales/pulse_analysis_plots.py` | Circadian / timescale panels | [3] |
+| `special_pulses/double_peaks_detection.py` | RF special-pulse classifier (+ facade) | [1] |
+| `special_pulses/waveform_rule_metrics.py` | Rule-based width/shape metrics | utility (used by [1]/metrics) |
+| `special_pulses/special_pulse_labeling.py` | Interactive labeling UIs | train/label only |
+| `special_pulses/special_pulse_benchmark.py` | Classifier benchmark / decision tuning | train only |
+| `special_pulses/pulse_shape_metrics.py` | Shared waveform helpers | utility |
+| `special_pulses/pulse_property_collect.py` | Shared half-width / property H5 walk | utility ([5]/[10]) |
+| `special_pulses/half_width_distributions.py` | Half-width distributions by shape | [5] |
+| `special_pulses/prototype_pulse_plots.py` | Prototype mean/median waveforms | [6] |
+| `special_pulses/pulse_shape_distribution.py` | Shape prevalence bar charts | [7] |
+| `special_pulses/double_pulse_template_fit.py` | Direct two-normal fit (median, model A) | [8] |
+| `special_pulses/pca_space_plots.py` | Labeled-pulse PCA scatter | [9] |
+| `special_pulses/pulse_properties_over_time.py` | Half-width / property trends | [10] |
+| `correlations/correlate_pulse_shapes.py` | Cross-correlate shapes with all-pulses | [4] |
+| `correlations/correlate_mating_with_activity.py` | Mating notes ↔ rates (all + double) | [11] |
+| `correlations/correlate_activity_with_environment.py` | Env / volley / tank orchestrator | [12] |
+| `correlations/environment_correlation.py` | Temperature & conductivity | via [12] |
+| `correlations/volley_pulse_analysis.py` | High-voltage volleys | via [12] |
+| `correlations/tank_area_pulse_analysis.py` | Bright vs dark tank areas | via [12] |
+| `correlations/correlate_activity_with_feeding.py` | Feeding-time correlation | [13] |
+| `correlations/session_notes_utils.py` | Session docx / wav time alignment | utility |
+| `correlations/mating_notes_utils.py` | Mating-note extraction | utility |
+| `position_estimation/position_data_preprocessing.py` | Position histograms | [14] |
+| `position_estimation/position_analysis_plots.py` | Occupancy / mean position | [15] |
+| `position_estimation/position_utils.py` | Geometry / layout helpers | utility |
+| `position_estimation/animate_eel_position.py` | Movement animation for one wav | optional |
+
+## Cleanup notes (code-cleanup branch)
+
+- Unused / WIP scripts moved to `archived/` (see that README).
+- Half-width H5 walks unified in `pulse_property_collect.py`.
+- Waveform helpers (`baseline_correct`, …) live in `pulse_shape_metrics.py`.
+- Session-note parsing extracted to `session_notes_utils.py`.
+- Special-pulse monolith split: rule metrics / labeling / benchmark modules;
+  `double_peaks_detection.py` remains the production classifier + CLI facade.
+- Feeding/mating H5 discovery is recursive (`get_path_list`); mating still
+  analyses **all + double** only (wide intentionally omitted).
+- Position plots use shared `plotting_utils.format_x_axis`.
+- Template-fit exploratory runners moved to
+  `archived/double_pulse_template_fit_exploratory.py`.

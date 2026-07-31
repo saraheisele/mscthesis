@@ -1,4 +1,9 @@
-"""Bootstrap sys.path for scripts in code subpackages."""
+"""Bootstrap sys.path for scripts in code subpackages.
+
+Analysis part: infrastructure — call ``setup_script_paths(__file__)`` near the
+top of every runnable script under a code subdirectory so imports resolve when
+invoked as ``python package/script.py`` (as ``run_analysis.sh`` does).
+"""
 
 from __future__ import annotations
 

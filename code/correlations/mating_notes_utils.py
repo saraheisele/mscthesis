@@ -1,4 +1,9 @@
-"""Extract mating-related notes and timestamps from lab session metadata."""
+"""Extract mating-related notes and timestamps from lab session metadata.
+
+Analysis part: shared utility for mating correlation and temporal property plots.
+Dependencies: session Word docs under LAB_DATA_DIR; used by
+``correlate_mating_with_activity`` and mating overlays in pulse property scripts.
+"""
 
 from __future__ import annotations
 

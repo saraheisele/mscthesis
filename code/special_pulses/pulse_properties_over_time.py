@@ -1,7 +1,7 @@
 """Pulse property trends over time (KDE, half-width by day/hour, mating-note zoom).
 
 Analysis part: special-pulse temporal analysis.
-Dependencies: data_paths, h5_io, pulse_shape_metrics, prototype_pulse_plots.
+Dependencies: data_paths, pulse_property_collect, prototype_pulse_plots.
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ setup_script_paths(__file__)
 
 import matplotlib.pyplot as plt
 import numpy as np
-import nixio
 import pandas as pd
 from matplotlib.dates import DateFormatter
 from rich.console import Console
@@ -36,94 +35,14 @@ from presentation_style import (
     pulse_shape_color,
     save_thesis_figure,
 )
-from h5_io import get_path_list, get_pulse_block, load_marker_array, open_h5
-from special_pulses.double_peaks_detection import (
-    compute_half_max_width,
-    expand_marker_to_all_pulses,
-)
-from special_pulses.prototype_pulse_plots import (
-    PULSE_SHAPES,
-    baseline_correct,
-    get_biggest_unclipped_waveform,
-)
-from special_pulses.pulse_shape_metrics import double_pulse_metrics
+from special_pulses.prototype_pulse_plots import PULSE_SHAPES
+from special_pulses.pulse_property_collect import collect_pulse_property_records
 
 console = Console()
 HALF_WIDTH_OUTPUT_DIR = HALF_WIDTH_DISTRIBUTIONS_DIR
 MATING_OUTPUT_DIR = MATING_CORRELATION_DIR
 MATING_MARKER_COLOR = "crimson"
 MAX_IPI_S = 60.0  # ignore gaps longer than this when estimating instantaneous Hz
-
-def _full_marker(file_path, block, array_name, candidates, num_pulses):
-    raw = load_marker_array(file_path, array_name, block)
-    if raw is None:
-        return np.zeros(num_pulses, dtype=np.int64)
-    return expand_marker_to_all_pulses(raw, candidates, num_pulses, array_name)
-
-
-def collect_pulse_property_records(data_path) -> pd.DataFrame:
-    rows = []
-    for file_path in get_path_list(Path(data_path)):
-        file = open_h5(file_path, nixio.FileMode.ReadOnly)
-        if file is None:
-            continue
-        try:
-            block = get_pulse_block(file)
-            names = [da.name for da in block.data_arrays]
-            if "centers" not in names or "raw_pulses" not in names:
-                continue
-
-            fs = float(file.sections["pulses_metadata"]["metadata"]["samplerate"])
-            start_str = file.sections["pulses_metadata"]["metadata"]["metadata"]["INFO"][
-                "DateTimeOriginal"
-            ]
-            rec_start = datetime.strptime(start_str, "%Y-%m-%dT%H:%M:%S")
-            centers = block.data_arrays["centers"][:]
-            pred = block.data_arrays["predicted_labels"][:]
-            raw = block.data_arrays["raw_pulses"]
-            num_pulses = len(raw)
-            candidates = np.where(pred == 1)[0]
-
-            double_m = _full_marker(file_path, block, "is_double_peak", candidates, num_pulses)
-            wide_m = _full_marker(file_path, block, "is_wide_pulse", candidates, num_pulses)
-
-            for pulse_idx in candidates:
-                pulse_time = rec_start + timedelta(seconds=float(centers[pulse_idx]) / fs)
-                trace, _ = get_biggest_unclipped_waveform(raw[pulse_idx][:])
-                corrected = baseline_correct(trace)
-
-                if double_m[pulse_idx] == 1:
-                    shape = "double"
-                    dp = double_pulse_metrics(corrected, fs)
-                    half_ms = dp["half_width_ms"]
-                    peak_sep_ms = dp["peak_separation_ms"]
-                    trough_ratio = dp["trough_depth_ratio"]
-                elif wide_m[pulse_idx] == 1:
-                    shape = "wide"
-                    w, _ = compute_half_max_width(corrected, fs)
-                    half_ms, peak_sep_ms, trough_ratio = w * 1000, np.nan, np.nan
-                else:
-                    shape = "normal"
-                    w, _ = compute_half_max_width(corrected, fs)
-                    half_ms, peak_sep_ms, trough_ratio = w * 1000, np.nan, np.nan
-
-                rows.append(
-                    {
-                        "timestamp": pulse_time,
-                        "pulse_shape": shape,
-                        "half_width_ms": half_ms,
-                        "peak_separation_ms": peak_sep_ms,
-                        "trough_depth_ratio": trough_ratio,
-                        "session": file_path.stem.replace("_pulses", ""),
-                    }
-                )
-        finally:
-            file.close()
-
-    df = pd.DataFrame(rows)
-    if not df.empty:
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
-    return df
 
 
 def plot_half_width_trend(df: pd.DataFrame, output_dir: Path):

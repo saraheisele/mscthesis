@@ -9,8 +9,8 @@
 # + processed dual-writes). Only EEL_USE_DUMMY_DATASET and the log file change.
 set -euo pipefail
 
-ROOT="/home/eisele/wrk/mscthesis"
-CODE="$ROOT/code"
+CODE="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$CODE/.." && pwd)"
 LOGDIR="$ROOT/data/intermediate/pipeline_logs"
 mkdir -p "$LOGDIR"
 
@@ -103,9 +103,6 @@ run_step "pulse properties over time" \
 
 run_step "mating correlation" \
   python3 correlations/correlate_mating_with_activity.py
-
-run_step "half-width threshold WIP" \
-  python3 special_pulses/half_width_threshold_waveforms.py
 
 run_step "environment / volley / tank area" \
   python3 correlations/correlate_activity_with_environment.py

@@ -1,5 +1,12 @@
 """Split pulses at the half-width histogram valley and plot waveforms.
 
+Archived WIP — not part of ``run_analysis.sh``. Kept for exploratory
+thresholding of half-width modes. See ``archived/README.md``.
+
+Analysis part: exploratory special-pulse waveforms.
+Dependencies: data_paths, h5_io, pulse_shape_metrics, prototype helpers.
+"""
+
 Analysis part: exploratory WIP around the bimodal half-width distribution
 (figures/pulse_shapes/half_width_kde_all_shapes.png).
 
@@ -31,12 +38,12 @@ from data_paths import H5_DIR, active_thesis_figures_dir
 from h5_io import get_path_list, get_pulse_block, open_h5
 from presentation_style import apply_presentation_style
 from special_pulses.double_peaks_detection import compute_half_max_width
-from special_pulses.prototype_pulse_plots import (
+from special_pulses.prototype_pulse_plots import get_biggest_unclipped_waveform
+from special_pulses.pulse_shape_metrics import (
     baseline_correct,
-    get_biggest_unclipped_waveform,
     normalize_trace,
+    shift_waveform,
 )
-from special_pulses.pulse_shape_metrics import shift_waveform
 
 console = Console()
 

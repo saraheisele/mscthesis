@@ -1,7 +1,8 @@
 """Extract feeding times from session Word records and correlate with pulse activity.
 
 Analysis part: feeding correlation (Part 4 of Berlin activity analysis).
-Dependencies: data_paths; requires .h5 files and session .docx logs in LAB_DATA_DIR.
+Dependencies: data_paths, session_notes_utils, pulse_config; requires .h5 files and
+session .docx logs in LAB_DATA_DIR.
 
 Parses feeding timestamps from session Word documents, aligns them with predetected
 pulse recordings, and tests whether pulse rates differ around feeding events.
@@ -9,10 +10,8 @@ pulse recordings, and tests whether pulse rates differ around feeding events.
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from path_setup import setup_script_paths
 
 setup_script_paths(__file__)
@@ -20,33 +19,37 @@ setup_script_paths(__file__)
 import re
 import warnings
 from datetime import datetime, timedelta
-from pathlib import Path
 
 import matplotlib.pyplot as plt
-import nixio
 import numpy as np
 import pandas as pd
-from docx import Document
 from scipy import stats
 
 warnings.filterwarnings("ignore")
 
+from correlations.session_notes_utils import (
+    DATE_INLINE_RE,
+    FEEDING_FLAG_RADIUS_MIN,
+    TIME_RE,
+    docx_text,
+    extract_eellogger_on_times,
+    find_docx_for_session,
+    infer_recording_start,
+    parse_session_date,
+    parse_time_on_date,
+    session_name_from_h5,
+)
 from data_paths import (
     FEEDING_CORRELATION_DIR,
     H5_DIR,
     LAB_DATA_DIR,
 )
-from h5_io import get_pulse_block, load_marker_array, open_h5
+from h5_io import get_path_list, get_pulse_block, load_marker_array, open_h5
 from presentation_style import LEGEND_LOC, apply_presentation_style, pulse_shape_color, save_thesis_figure
+from pulse_config import PULSE_TYPES
 
 OUTPUT_DIR = FEEDING_CORRELATION_DIR
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-PULSE_TYPES = {
-    "all": {"label": "All pulses", "array": None},
-    "double": {"label": "Double pulses", "array": "is_double_peak"},
-    "wide": {"label": "Wide pulses", "array": "is_wide_pulse"},
-}
 
 FEEDING_LINE_RE = re.compile(
     r"(feed|food|strike|füt|fut|pr[äa]sent|present|fress)", re.IGNORECASE
@@ -58,76 +61,9 @@ NEGATIVE_CONTEXT_RE = re.compile(
     r"reference time|recording time|overnight|electrode|battery|synchron)",
     re.IGNORECASE,
 )
-TIME_RE = re.compile(r"\b(\d{1,2}:\d{2}(?::\d{2})?)\b")
-DATE_INLINE_RE = re.compile(r"\b(20\d{6})\b")
-SESSION_DATE_RE = re.compile(
-    r"recordings_(\d{4}-\d{2}-\d{2})(?:_(\d{2})-(\d{2})-(\d{2}))?"
-)
-WAV_TIME_RE = re.compile(r"(\d{8})T(\d{6})")
 
 PERI_WINDOW_MIN = 10
-FEEDING_FLAG_RADIUS_MIN = 5
 BASELINE_EXCLUDE_MIN = 5
-
-
-def parse_session_date(session_name: str) -> datetime | None:
-    match = SESSION_DATE_RE.match(session_name)
-    if not match:
-        return None
-    date_str = match.group(1)
-    if match.group(2):
-        return datetime.strptime(
-            f"{date_str} {match.group(2)}:{match.group(3)}:{match.group(4)}",
-            "%Y-%m-%d %H:%M:%S",
-        )
-    return datetime.strptime(date_str, "%Y-%m-%d")
-
-
-def parse_time_on_date(time_str: str, base_date: datetime) -> datetime | None:
-    parts = [int(x) for x in time_str.split(":")]
-    if len(parts) == 2:
-        hour, minute = parts
-        second = 0
-    else:
-        hour, minute, second = parts
-    if not (0 <= hour <= 23 and 0 <= minute <= 59 and 0 <= second <= 59):
-        return None
-    return base_date.replace(hour=hour, minute=minute, second=second, microsecond=0)
-
-
-def docx_text(docx_path: Path) -> str:
-    doc = Document(docx_path)
-    chunks = [para.text for para in doc.paragraphs if para.text.strip()]
-    for table in doc.tables:
-        for row in table.rows:
-            chunks.append(" | ".join(cell.text.strip() for cell in row.cells))
-    return "\n".join(chunks)
-
-
-def extract_eellogger_on_times(session_name: str, docx_path: Path) -> list[datetime]:
-    text = docx_text(docx_path)
-    default_date = parse_session_date(session_name)
-    if default_date is None:
-        return []
-
-    current_date = default_date.replace(hour=0, minute=0, second=0, microsecond=0)
-    on_times = []
-
-    for line in text.splitlines():
-        inline_date = DATE_INLINE_RE.search(line.replace(" ", ""))
-        if inline_date:
-            try:
-                current_date = datetime.strptime(inline_date.group(1), "%Y%m%d")
-            except ValueError:
-                pass
-
-        if not re.search(r"e+e?llogger\s+on", line, re.IGNORECASE):
-            continue
-        for time_str in TIME_RE.findall(line):
-            dt = parse_time_on_date(time_str, current_date)
-            if dt is not None:
-                on_times.append(dt)
-    return sorted(set(on_times))
 
 
 def extract_feeding_events(session_name: str, docx_path: Path) -> list[dict]:
@@ -184,99 +120,6 @@ def extract_feeding_events(session_name: str, docx_path: Path) -> list[dict]:
         key = (event["session"], event["event_time"], event["event_type"], event["source_line"])
         dedup[key] = event
     return sorted(dedup.values(), key=lambda e: e["event_time"])
-
-
-def find_docx_for_session(session_name: str) -> Path | None:
-    images_dir = LAB_DATA_DIR / session_name / "images"
-    if not images_dir.exists():
-        return None
-    docx_files = sorted(images_dir.glob("*.docx"))
-    return docx_files[0] if docx_files else None
-
-
-def session_name_from_h5(h5_path: Path) -> str:
-    return h5_path.stem.replace("_pulses", "")
-
-
-def get_wav_times(session_name: str) -> list[datetime]:
-    session_dir = LAB_DATA_DIR / session_name
-    if not session_dir.exists():
-        base_date = parse_session_date(session_name)
-        if base_date is None:
-            return []
-        session_dir = LAB_DATA_DIR / session_name.split("_")[0]
-        if not session_dir.exists():
-            parent = SESSION_DATE_RE.match(session_name)
-            if parent:
-                session_dir = LAB_DATA_DIR / f"recordings_{parent.group(1)}"
-    if not session_dir.exists():
-        return []
-
-    wav_times = []
-    for wav_path in session_dir.glob("eellogger*.wav"):
-        match = WAV_TIME_RE.search(wav_path.name)
-        if match:
-            wav_times.append(
-                datetime.strptime(match.group(1) + match.group(2), "%Y%m%d%H%M%S")
-            )
-    return sorted(wav_times)
-
-
-def infer_recording_start(
-    h5_path: Path,
-    feeding_events: list[dict] | None = None,
-    eellogger_on_times: list[datetime] | None = None,
-    *,
-    duration: float | None = None,
-    h5_start: datetime | None = None,
-) -> tuple[datetime, float, str]:
-    session_name = session_name_from_h5(h5_path)
-    filename_start = parse_session_date(session_name)
-
-    if duration is None or h5_start is None:
-        with nixio.File.open(str(h5_path)) as nix_file:
-            meta = nix_file.sections["pulses_metadata"]["metadata"]
-            duration = float(meta["duration"])
-            h5_start = datetime.strptime(
-                meta["metadata"]["INFO"]["DateTimeOriginal"], "%Y-%m-%dT%H:%M:%S"
-            )
-
-    if filename_start and SESSION_DATE_RE.match(session_name).group(2):
-        return filename_start, duration, "h5_filename"
-
-    wav_times = get_wav_times(session_name)
-    feeding_events = feeding_events or []
-    eellogger_on_times = eellogger_on_times or []
-
-    def score_candidate(candidate: datetime) -> tuple:
-        wav_diff = (
-            min(abs((w - candidate).total_seconds()) for w in wav_times)
-            if wav_times
-            else 99999.0
-        )
-        rec_end = candidate + timedelta(seconds=duration)
-        n_feeding = sum(
-            1
-            for event in feeding_events
-            if candidate - timedelta(minutes=FEEDING_FLAG_RADIUS_MIN)
-            <= event["event_time"]
-            <= rec_end + timedelta(minutes=FEEDING_FLAG_RADIUS_MIN)
-        )
-        eel_diff = (
-            min(abs((t - candidate).total_seconds()) for t in eellogger_on_times)
-            if eellogger_on_times
-            else 99999.0
-        )
-        return (wav_diff > 300, -n_feeding, wav_diff, eel_diff)
-
-    candidates = [h5_start, h5_start - timedelta(hours=12), h5_start + timedelta(hours=12)]
-    best = min(candidates, key=score_candidate)
-    wav_diff = (
-        min(abs((w - best).total_seconds()) for w in wav_times) if wav_times else float("inf")
-    )
-    if wav_diff <= 300:
-        return best, duration, "wav_aligned"
-    return h5_start, duration, "h5_metadata"
 
 
 def load_pulses_by_type(
@@ -471,6 +314,10 @@ def extract_all_feeding_events() -> pd.DataFrame:
     return df.sort_values(["session", "event_time"]).reset_index(drop=True)
 
 
+def _pulse_h5_files() -> list[Path]:
+    return [p for p in get_path_list(H5_DIR) if p.name.endswith("_pulses.h5")]
+
+
 def run_analysis():
     apply_presentation_style()
     print("Extracting feeding times from Word documents...")
@@ -493,7 +340,7 @@ def run_analysis():
             session_dir.name, docx_path
         )
 
-    h5_files = sorted(H5_DIR.glob("*_pulses.h5"))
+    h5_files = _pulse_h5_files()
     print(f"Processing {len(h5_files)} h5 files...")
 
     minute_rows = []
@@ -585,7 +432,7 @@ def run_analysis():
     pd.DataFrame(matched_events_df).to_csv(
         OUTPUT_DIR / "feeding_events_matched_to_h5.csv", index=False
     )
-    write_coverage_report(feeding_df, matched_events_df, h5_summary)
+    write_coverage_report(feeding_df, matched_events_df, h5_summary, h5_files)
 
     plot_peri_feeding_curves(peri_curves)
     plot_feeding_vs_nonfeeding_rates(corr_summary)
@@ -617,9 +464,14 @@ def write_session_feeding_summary(feeding_df: pd.DataFrame):
 
 
 def write_coverage_report(
-    feeding_df: pd.DataFrame, matched_events: list[dict], h5_summary: pd.DataFrame
+    feeding_df: pd.DataFrame,
+    matched_events: list[dict],
+    h5_summary: pd.DataFrame,
+    h5_files: list[Path] | None = None,
 ):
     matched_df = pd.DataFrame(matched_events)
+    if h5_files is None:
+        h5_files = _pulse_h5_files()
     rows = []
     for session in sorted(feeding_df["session"].unique()):
         n_events = int((feeding_df["session"] == session).sum())
@@ -631,7 +483,9 @@ def write_coverage_report(
                 "session": session,
                 "n_feeding_events_in_docx": n_events,
                 "n_feeding_events_in_h5_window": n_matched,
-                "n_h5_files_for_session": len(list(H5_DIR.glob(f"{session}*_pulses.h5"))),
+                "n_h5_files_for_session": sum(
+                    1 for p in h5_files if p.name.startswith(f"{session}")
+                ),
                 "feeding_covered_by_h5": n_matched > 0,
             }
         )

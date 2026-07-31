@@ -1,7 +1,7 @@
 """Shared waveform metrics for pulse shape analysis.
 
 Analysis part: special-pulse metrics (used by prototype plots and property analyses).
-Dependencies: double_peaks_detection.
+Dependencies: waveform_rule_metrics.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ import numpy as np
 from scipy import stats
 from scipy.signal import find_peaks
 
-from special_pulses.double_peaks_detection import (
+from special_pulses.waveform_rule_metrics import (
     compute_half_max_width,
     detect_double_pulse,
     get_representative_waveform,

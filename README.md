@@ -1,6 +1,7 @@
 # Masters Thesis — Sarah Eisele
 
-Electric eel (*Electrophorus electricus*) behaviour analysis using Berlin tank grid recordings.
+Electric eel (*Electrophorus electricus*) behaviour analysis using Berlin tank
+grid recordings.
 
 ## Installation
 
@@ -8,13 +9,20 @@ Electric eel (*Electrophorus electricus*) behaviour analysis using Berlin tank g
 pip install -r requirements.txt
 ```
 
-Some dependencies (`audian`, `audioio`, `thunderfish`, `thunderlab`) are installed from the bendalab GitHub repositories. A full install requires network access and git.
+Some dependencies (`audian`, `audioio`, `thunderfish`, `thunderlab`) are
+installed from the bendalab GitHub repositories. A full install requires
+network access and git.
 
 ## Project structure
 
 ```
 mscthesis/
 ├── code/                  Analysis pipeline (see code/README.md)
+│   ├── archived/          Legacy / WIP / exploratory (not in runner)
+│   ├── activity_timescales/
+│   ├── special_pulses/
+│   ├── correlations/
+│   └── position_estimation/
 ├── data/
 │   ├── raw/               Predetected pulses, environmental Excel files
 │   ├── intermediate/      Preprocessed histograms (.npz), classifier artifacts
@@ -26,7 +34,16 @@ mscthesis/
 
 ## Analysis pipeline
 
-All analysis scripts live in [`code/`](code/). See [`code/README.md`](code/README.md) for the full script reference, figure layout, and recommended run order.
+All analysis scripts live in [`code/`](code/). See [`code/README.md`](code/README.md)
+for the full script reference, figure layout, and recommended run order.
+
+**End-to-end flow**
+
+1. Classify special pulses (double / wide) on predetected H5 files  
+2. Build multi-timescale activity histograms and circadian panels  
+3. Pulse-shape metrics (half-width, prototypes, template fit, PCA, trends)  
+4. Correlate activity with mating notes, environment/volleys/tank area, feeding  
+5. Estimate and plot position along the electrode line  
 
 **Typical workflow** — run the unified pipeline from `code/`:
 
@@ -36,7 +53,21 @@ cd code
 ./run_analysis.sh full    # full Berlin dataset → figures/full/, data/processed/
 ```
 
-Paths are selected via `EEL_USE_DUMMY_DATASET` (set by the runner) in `code/data_paths.py`. Individual scripts can still be run interactively for iteration.
+Paths are selected via `EEL_USE_DUMMY_DATASET` (set by the runner) in
+`code/data_paths.py`. Individual scripts can still be run interactively for
+iteration.
+
+### Parallel worktrees
+
+To refactor or clean code without blocking thesis analysis on `master`:
+
+```bash
+git worktree add -b code-cleanup ../mscthesis-cleanup master
+# work in ../mscthesis-cleanup; keep editing ../mscthesis on master
+```
+
+`run_analysis.sh` resolves the project root from its own path, so either
+checkout works.
 
 ## External tools
 

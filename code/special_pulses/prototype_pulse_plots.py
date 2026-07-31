@@ -1,7 +1,7 @@
 """Plot prototype pulse waveforms for each pulse shape.
 
 Analysis part: special-pulse visualization (Part 2c of Berlin activity analysis).
-Dependencies: double_peaks_detection, data_paths, h5_io.
+Dependencies: double_peaks_detection, data_paths, h5_io, pulse_shape_metrics.
 
 Randomly samples up to MAX_WAVEFORMS_PER_CLASS pulses per shape for the mean,
 aligns at shape-specific reference points, and overlays SAMPLE_SIZE individual
@@ -40,8 +40,11 @@ from double_peaks_detection import (
 )
 from h5_io import get_path_list, get_pulse_block, load_marker_array, open_h5
 from pulse_shape_metrics import (
+    baseline_correct,
     double_pulse_metrics,
+    normalize_trace,
     paired_symmetry_test,
+    shift_waveform,
     symmetry_at_fraction,
 )
 
@@ -135,30 +138,6 @@ def get_biggest_unclipped_waveform(pulse_waveform):
     if abs(np.min(trace)) > np.max(trace):
         trace *= -1
     return trace, best_channel
-
-
-def baseline_correct(trace):
-    baseline_window = max(1, len(trace) // 5)
-    baseline = np.median(trace[:baseline_window])
-    return trace - baseline
-
-
-def normalize_trace(trace):
-    peak = np.max(trace)
-    if peak <= 0:
-        return trace
-    return trace / peak
-
-
-def shift_waveform(trace, shift):
-    shifted = np.zeros_like(trace)
-    if shift > 0:
-        shifted[shift:] = trace[:-shift]
-    elif shift < 0:
-        shifted[:shift] = trace[-shift:]
-    else:
-        shifted = trace.copy()
-    return shifted
 
 
 def double_peak_indices(trace, fs):

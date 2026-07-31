@@ -1,5 +1,8 @@
 # Eel Activity & Environmental Correlation Analysis
 
+> Note: processed outputs live under `data/processed/environment_correlation/` (full) or `data/processed/dummy/environment_correlation/` (dummy), selected by `EEL_USE_DUMMY_DATASET`. Absolute paths in older sections may refer to full mode only.
+
+
 ## Overview
 This analysis investigates correlations between eel pulse activity (measured in Hz) and water environmental parameters (temperature and conductivity) over the recording period.
 

@@ -1,7 +1,7 @@
 """Plot half-width distributions for all pulse shapes.
 
 Analysis part: pulse shape metrics (outputs isolated via data_paths).
-Dependencies: data_paths, h5_io, pulse_shape_metrics, prototype_pulse_plots.
+Dependencies: data_paths, pulse_property_collect, prototype_pulse_plots.
 """
 
 from __future__ import annotations
@@ -17,77 +17,18 @@ setup_script_paths(__file__)
 
 import matplotlib.pyplot as plt
 import numpy as np
-import nixio
 from rich.console import Console
 
 from data_paths import HALF_WIDTH_DISTRIBUTIONS_DIR, H5_DIR
-from presentation_style import LEGEND_LOC, apply_presentation_style, pulse_shape_color, save_thesis_figure
-from h5_io import get_path_list, get_pulse_block, load_marker_array, open_h5
-from special_pulses.double_peaks_detection import (
-    compute_half_max_width,
-    expand_marker_to_all_pulses,
+from presentation_style import LEGEND_LOC, apply_presentation_style, save_thesis_figure
+from special_pulses.prototype_pulse_plots import PULSE_SHAPES
+from special_pulses.pulse_property_collect import (
+    collect_pulse_property_records,
+    half_widths_by_shape,
 )
-from special_pulses.prototype_pulse_plots import (
-    PULSE_SHAPES,
-    baseline_correct,
-    get_biggest_unclipped_waveform,
-)
-from special_pulses.pulse_shape_metrics import double_pulse_metrics
 
 console = Console()
 OUTPUT_DIR = HALF_WIDTH_DISTRIBUTIONS_DIR
-
-
-def _full_marker(file_path, block, array_name, candidates, num_pulses):
-    raw = load_marker_array(file_path, array_name, block)
-    if raw is None:
-        return np.zeros(num_pulses, dtype=np.int64)
-    return expand_marker_to_all_pulses(raw, candidates, num_pulses, array_name)
-
-
-def collect_half_widths(data_path) -> dict[str, np.ndarray]:
-    """Collect half-width (ms) per pulse shape from all h5 files."""
-    results = {key: [] for key in PULSE_SHAPES}
-
-    for file_path in get_path_list(Path(data_path)):
-        file = open_h5(file_path, nixio.FileMode.ReadOnly)
-        if file is None:
-            continue
-        try:
-            block = get_pulse_block(file)
-            names = [da.name for da in block.data_arrays]
-            if "raw_pulses" not in names or "predicted_labels" not in names:
-                continue
-
-            fs = float(file.sections["pulses_metadata"]["metadata"]["samplerate"])
-            raw = block.data_arrays["raw_pulses"]
-            pred = block.data_arrays["predicted_labels"][:]
-            num_pulses = len(raw)
-            candidates = np.where(pred == 1)[0]
-            if len(candidates) == 0:
-                continue
-
-            double_m = _full_marker(file_path, block, "is_double_peak", candidates, num_pulses)
-            wide_m = _full_marker(file_path, block, "is_wide_pulse", candidates, num_pulses)
-
-            for pulse_idx in candidates:
-                trace, _ = get_biggest_unclipped_waveform(raw[pulse_idx][:])
-                corrected = baseline_correct(trace)
-
-                if double_m[pulse_idx] == 1:
-                    dp = double_pulse_metrics(corrected, fs)
-                    if not np.isnan(dp["half_width_ms"]):
-                        results["double"].append(dp["half_width_ms"])
-                elif wide_m[pulse_idx] == 1:
-                    w, _ = compute_half_max_width(corrected, fs)
-                    results["wide"].append(w * 1000)
-                else:
-                    w, _ = compute_half_max_width(corrected, fs)
-                    results["normal"].append(w * 1000)
-        finally:
-            file.close()
-
-    return {k: np.asarray(v, dtype=float) for k, v in results.items()}
 
 
 def plot_distributions(widths_by_shape: dict, output_dir: Path):
@@ -150,7 +91,8 @@ def plot_distributions(widths_by_shape: dict, output_dir: Path):
 def main(data_path=H5_DIR):
     apply_presentation_style()
     console.log("Collecting half-widths for all pulse shapes...")
-    widths = collect_half_widths(data_path)
+    df = collect_pulse_property_records(data_path)
+    widths = half_widths_by_shape(df)
     for key, values in widths.items():
         console.log(f"  {PULSE_SHAPES[key]['label']}: {values.size} pulses")
     plot_distributions(widths, OUTPUT_DIR)

@@ -56,8 +56,10 @@ if USE_DUMMY_DATASET:
 else:
     H5_DIR = FULL_H5_DIR
 
-H5_ROOT = H5_DIR
+H5_ROOT = H5_DIR  # alias used by some correlation scripts
 
+# Shared lab metadata (temperature / conductivity Excel). Same folder for dummy
+# and full modes — there is no separate full-dataset Excel tree in this repo.
 EXCEL_DIR = (
     PROJECT_ROOT
     / "data/raw/eels-mfn2021_dummy_pulses_redetected/leitwerte_metadaten"
