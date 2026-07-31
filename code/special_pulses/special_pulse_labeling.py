@@ -937,42 +937,62 @@ def load_enrichment_pulses_for_labeling(
 
     waveforms = []
     records = []
-    waveform_cache = {}
+    # Open each file once and fetch only selected pulse indices.
+    # Do NOT load raw_pulses[:] — full arrays can be multi-GB and thrash memory.
+    by_file = {}
     for record in selected:
-        file_path = record["file_path"]
-        if "all_channels" in record:
-            pulse_data = np.asarray(record["all_channels"], dtype=float)
-            if "best_channel" in record:
-                best_channel = int(record["best_channel"])
-                trace = pulse_data[:, best_channel].copy()
-                if abs(np.min(trace)) > np.max(trace):
-                    trace *= -1
-            else:
-                trace, best_channel = get_representative_waveform(pulse_data)
-        else:
-            if file_path not in waveform_cache:
-                file = open_h5(file_path, nixio.FileMode.ReadOnly)
-                if file is None:
-                    continue
-                try:
-                    block = get_pulse_block(file)
-                    waveform_cache[file_path] = block.data_arrays["raw_pulses"][:]
-                finally:
-                    file.close()
-            pulse_data = waveform_cache[file_path][record["pulse_idx"]]
-            trace, best_channel = get_representative_waveform(pulse_data)
+        by_file.setdefault(record["file_path"], []).append(record)
 
-        waveforms.append(trace)
-        records.append(
-            {
-                "file_path": record["file_path"],
-                "pulse_idx": record["pulse_idx"],
-                "fs": record["fs"],
-                "best_channel": int(best_channel),
-                "sampling_pool": record.get("sampling_pool", "enrichment"),
-                "all_channels": np.asarray(pulse_data, dtype=float),
-            }
-        )
+    for file_path, file_records in by_file.items():
+        # Prefer already-scored RF candidates (waveforms in memory).
+        need_load = [r for r in file_records if "all_channels" not in r]
+        raw_pulses = None
+        nix_file = None
+        if need_load:
+            nix_file = open_h5(file_path, nixio.FileMode.ReadOnly)
+            if nix_file is None:
+                con.log(f"  Skipping unreadable file during enrichment load: {file_path}")
+                continue
+            try:
+                raw_pulses = get_pulse_block(nix_file).data_arrays["raw_pulses"]
+            except Exception as exc:
+                con.log(f"  Skipping {Path(file_path).name}: {exc}")
+                nix_file.close()
+                continue
+
+        try:
+            for record in file_records:
+                if "all_channels" in record:
+                    pulse_data = np.asarray(record["all_channels"], dtype=float)
+                    if "best_channel" in record:
+                        best_channel = int(record["best_channel"])
+                        trace = pulse_data[:, best_channel].copy()
+                        if abs(np.min(trace)) > np.max(trace):
+                            trace *= -1
+                    else:
+                        trace, best_channel = get_representative_waveform(pulse_data)
+                else:
+                    if raw_pulses is None:
+                        continue
+                    pulse_data = np.asarray(
+                        raw_pulses[int(record["pulse_idx"])][:], dtype=float
+                    )
+                    trace, best_channel = get_representative_waveform(pulse_data)
+
+                waveforms.append(trace)
+                records.append(
+                    {
+                        "file_path": record["file_path"],
+                        "pulse_idx": record["pulse_idx"],
+                        "fs": record["fs"],
+                        "best_channel": int(best_channel),
+                        "sampling_pool": record.get("sampling_pool", "enrichment"),
+                        "all_channels": np.asarray(pulse_data, dtype=float),
+                    }
+                )
+        finally:
+            if nix_file is not None:
+                nix_file.close()
 
     pool_counts = {}
     for r in records:
