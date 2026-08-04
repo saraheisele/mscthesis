@@ -37,6 +37,7 @@ case "$MODE" in
 esac
 
 export MPLBACKEND=Agg
+export PYTHONPATH="$CODE${PYTHONPATH:+:$PYTHONPATH}"
 cd "$CODE"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOGFILE"; }

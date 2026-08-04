@@ -143,7 +143,7 @@ def build_normal_template(
     random_seed: int = RANDOM_SEED,
     required_fs: float | None = None,
 ) -> tuple[np.ndarray, float]:
-    entries = collect_classifier_pulse_indices(data_path, CLASS_IDS["normal"])
+    entries = collect_classifier_pulse_indices(data_path, CLASS_IDS["normal"])[0]
     total = len(entries)
     # Oversample when filtering by rate so we still reach template_sample_size.
     load_cap = None if required_fs is None else template_sample_size
@@ -224,7 +224,7 @@ def load_rf_double_sample(
     If ``required_fs`` is set, only pulses from files at that samplerate are used
     (dummy data mixes 24 kHz and 48 kHz recordings).
     """
-    entries = collect_classifier_pulse_indices(data_path, CLASS_IDS["double"])
+    entries = collect_classifier_pulse_indices(data_path, CLASS_IDS["double"])[0]
     rng = np.random.default_rng(random_seed)
     shuffled = list(entries)
     rng.shuffle(shuffled)

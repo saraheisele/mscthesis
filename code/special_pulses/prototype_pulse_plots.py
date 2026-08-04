@@ -3,12 +3,14 @@
 Analysis part: special-pulse visualization (Part 2c of Berlin activity analysis).
 Dependencies: double_peaks_detection, data_paths, h5_io, pulse_shape_metrics.
 
-Randomly samples up to MAX_WAVEFORMS_PER_CLASS pulses per shape for the mean,
-aligns at shape-specific reference points, and overlays SAMPLE_SIZE individual
-traces drawn from that capped set. Uses special_pulse_class for categorization.
+Randomly samples up to MAX_WAVEFORMS_PER_CLASS pulses per shape for the
+prototype median, aligns at shape-specific reference points, and overlays
+SAMPLE_SIZE individual traces drawn from that capped set. Uses existing
+``special_pulse_class`` labels (classifier apply is off by default).
 
 Aligned mean/median waveforms are saved under PULSE_SHAPE_PROTOTYPES_DIR as
-``prototype_<shape>_mean.npz`` for reuse by downstream analyses.
+``prototype_<shape>_mean.npz`` for reuse by downstream analyses. Displayed
+prototypes and companion panels use the median by default.
 """
 
 import sys
@@ -52,7 +54,8 @@ console = Console()
 
 OUTPUT_DIR = PULSE_SHAPE_PROTOTYPES_DIR
 SAMPLE_SIZE = 100  # gray overlay traces in prototype plots
-MAX_WAVEFORMS_PER_CLASS = 20_000  # cap for mean / median prototype
+MAX_WAVEFORMS_PER_CLASS = 20_000  # random-sample cap for prototype aggregates
+PROTOTYPE_STAT = "median"  # overlay / panel / double-alignment display default
 RANDOM_SEED = 42
 
 CLIP_RATIO = 0.995
@@ -254,10 +257,23 @@ def load_prototype_mean_waveforms(
     }
 
 
-def collect_classifier_pulse_indices(data_path, class_id):
-    """Collect pulse indices for one RF classifier class (special_pulse_class)."""
+def collect_classifier_pulse_indices(
+    data_path, class_id, max_entries=None, random_seed=None
+):
+    """Collect pulse indices for one RF classifier class (special_pulse_class).
+
+    Returns ``(entries, n_classified)``. If ``max_entries`` is set, files are
+    visited in random order and collection stops once enough matches are held
+    (``n_classified`` is then a lower bound: ``len(entries)``).
+    """
     entries = []
-    for file_path in get_path_list(Path(data_path)):
+    rng = np.random.default_rng(random_seed)
+    file_paths = list(get_path_list(Path(data_path)))
+    if max_entries is not None:
+        rng.shuffle(file_paths)
+
+    seen = 0
+    for file_path in file_paths:
         file = open_h5(file_path, nixio.FileMode.ReadOnly)
         if file is None:
             continue
@@ -280,13 +296,29 @@ def collect_classifier_pulse_indices(data_path, class_id):
             else:
                 candidate_indices = np.arange(num_pulses)
 
-            for pulse_idx in candidate_indices:
-                if classes[pulse_idx] == class_id:
-                    entries.append((file_path, int(pulse_idx)))
+            classes_arr = np.asarray(classes)
+            matching = candidate_indices[classes_arr[candidate_indices] == class_id]
+            if matching.size == 0:
+                continue
+
+            if max_entries is None:
+                entries.extend((file_path, int(i)) for i in matching)
+                seen += int(matching.size)
+            else:
+                need = max_entries - len(entries)
+                if need <= 0:
+                    break
+                if matching.size <= need:
+                    entries.extend((file_path, int(i)) for i in matching)
+                else:
+                    pick = rng.choice(matching.size, size=need, replace=False)
+                    entries.extend((file_path, int(matching[j])) for j in pick)
+                seen = len(entries)
+                if len(entries) >= max_entries:
+                    break
         finally:
             file.close()
-    return entries
-
+    return entries, seen if max_entries is None else seen
 
 def load_sampled_waveforms(entries, sample_size, random_seed, align_mode=None):
     if not entries:
@@ -481,18 +513,31 @@ def load_all_waveforms(
     random_seed=None,
     required_fs: float | None = None,
 ):
-    """Load waveforms for mean computation (optionally capped via random sample).
+    """Load waveforms for prototype aggregates (optionally capped via random sample).
 
     If ``required_fs`` is set, skip files whose metadata samplerate differs.
+    Entries are shuffled, then grouped by file in shuffle order so HDF5 reads
+    stay sequential without alphabetically biasing the capped sample.
     """
     entries = list(entries)
-    if max_waveforms is not None and len(entries) > max_waveforms:
+    if random_seed is not None:
         rng = np.random.default_rng(random_seed)
         rng.shuffle(entries)
+    # Preserve shuffle order of first file appearance; sequential within file.
+    grouped = {}
+    file_order = []
+    for file_path, pulse_idx in entries:
+        key = str(file_path)
+        if key not in grouped:
+            grouped[key] = []
+            file_order.append(file_path)
+        grouped[key].append((file_path, pulse_idx))
+    entries = [item for path in file_order for item in grouped[str(path)]]
 
     corrected_waveforms = []
     normalized_waveforms = []
     fs = None
+    target_len = None
     open_files = {}
 
     try:
@@ -520,7 +565,13 @@ def load_all_waveforms(
             pulse_data = block.data_arrays["raw_pulses"][pulse_idx][:]
             if fs is None:
                 fs = file_fs
+            elif abs(file_fs - fs) >= 1e-6:
+                continue
             trace, _ = get_biggest_unclipped_waveform(pulse_data)
+            if target_len is None:
+                target_len = len(trace)
+            elif len(trace) != target_len:
+                continue
             corrected = baseline_correct(trace)
             if align_mode == "valley" and double_peak_indices(corrected, fs) is None:
                 continue
@@ -541,26 +592,27 @@ def plot_prototype_pulse_shape(
     normalized_waveforms,
     fs,
     output_dir,
-    mean_trace_all=None,
-    n_in_mean=None,
+    median_trace_all=None,
+    n_in_median=None,
     total_count=None,
+    prototype_stat=PROTOTYPE_STAT,
 ):
-    """Plot sampled pulses with mean from the (possibly capped) waveform set."""
+    """Plot SAMPLE_SIZE gray traces with the colored median prototype overlay."""
     if not normalized_waveforms:
         console.log(f"[yellow]No pulses found for {pulse_shape['label']}. Skipping.")
         return None
+    if prototype_stat != "median":
+        raise ValueError("prototype plots display the median; got {!r}".format(prototype_stat))
 
     aligned_sample = align_waveforms(
         normalized_waveforms, corrected_waveforms, pulse_shape["align"], fs
     )
-    if mean_trace_all is not None:
-        mean_trace = mean_trace_all
-        mean_n = n_in_mean if n_in_mean is not None else total_count
-        mean_label = f"Mean (n={mean_n:,})"
+    pool_n = n_in_median if n_in_median is not None else len(aligned_sample)
+    if median_trace_all is not None:
+        median_trace = median_trace_all
     else:
-        mean_trace = np.mean(aligned_sample, axis=0)
-        mean_n = len(aligned_sample)
-        mean_label = f"Mean (n={mean_n})"
+        median_trace = np.median(aligned_sample, axis=0)
+    median_label = f"Median (n={pool_n:,})"
 
     time_ms = np.arange(aligned_sample.shape[1]) / fs * 1000
 
@@ -571,15 +623,15 @@ def plot_prototype_pulse_shape(
 
     ax.plot(
         time_ms,
-        mean_trace,
+        median_trace,
         color=pulse_shape["color"],
         linewidth=2.8,
-        label=mean_label,
+        label=median_label,
         zorder=5,
     )
 
-    add_detection_markers(ax, mean_trace, fs, pulse_shape, pulse_key=pulse_key)
-    add_half_max_markers(ax, mean_trace, fs, pulse_shape["color"])
+    add_detection_markers(ax, median_trace, fs, pulse_shape, pulse_key=pulse_key)
+    add_half_max_markers(ax, median_trace, fs, pulse_shape["color"])
 
     criteria_text = "\n".join(f"• {line}" for line in pulse_shape["criteria"])
     ax.text(
@@ -596,21 +648,20 @@ def plot_prototype_pulse_shape(
     ax.set_xlabel("Time (ms)")
     ax.set_ylabel("Normalized amplitude")
     ax.set_ylim(-0.2, 1.05)
-    title_pool = mean_n if mean_n is not None else len(aligned_sample)
-    if total_count is not None and total_count != title_pool:
-        title_suffix = (
-            f"(showing {len(aligned_sample)} of {title_pool:,}; "
+    if total_count is not None and total_count != pool_n:
+        title = (
+            f"Prototype {pulse_shape['label'].lower()}s "
+            f"(showing {len(aligned_sample)} of {pool_n:,}; "
             f"{total_count:,} classified)"
         )
     else:
-        title_suffix = f"(showing {len(aligned_sample)} of {title_pool:,})"
-    ax.set_title(
-        f"Prototype {pulse_shape['label'].lower()}s {title_suffix}",
-        fontsize=13,
-        fontweight="bold",
-    )
-    ax.grid(True, alpha=0.3)
+        title = (
+            f"Prototype {pulse_shape['label'].lower()}s "
+            f"(showing {len(aligned_sample)} of {pool_n:,})"
+        )
+    ax.set_title(title)
     ax.legend(loc="upper left", fontsize=9)
+    ax.grid(True, alpha=0.3)
     plt.tight_layout()
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -684,20 +735,27 @@ def plot_mean_pulse_shapes_panel(
     *,
     panel_order=("normal", "double", "wide"),
     save_name: str = "mean_pulse_shapes_panel.png",
+    prototype_stat: str = PROTOTYPE_STAT,
 ) -> Path | None:
-    """Three-panel talk figure: mean normal / double / wide waveforms side by side."""
+    """Three-panel talk figure: median normal / double / wide waveforms side by side.
+
+    Filename kept as ``mean_pulse_shapes_panel.png`` for thesis path stability;
+    the plotted aggregate is ``prototype_stat`` (default: median).
+    """
     output_dir = Path(output_dir) if output_dir is not None else OUTPUT_DIR
     apply_presentation_style()
+    if prototype_stat not in ("mean", "median"):
+        raise ValueError("prototype_stat must be 'mean' or 'median'")
 
-    means = {}
+    traces = {}
     for key in panel_order:
         loaded = load_prototype_mean_waveforms(key, output_dir)
         if loaded is None:
             console.log(f"[yellow]Missing prototype_{key}_mean.npz — skip panel figure.")
             return None
-        means[key] = loaded
+        traces[key] = loaded
 
-    fs_values = {means[k]["fs"] for k in panel_order}
+    fs_values = {traces[k]["fs"] for k in panel_order}
     if len(fs_values) != 1:
         console.log(f"[yellow]Inconsistent sample rates {fs_values}; plotting anyway.")
 
@@ -715,14 +773,14 @@ def plot_mean_pulse_shapes_panel(
     y_min = 0.0
     for ax, key in zip(axes, panel_order):
         shape = PULSE_SHAPES[key]
-        mean = np.asarray(means[key]["mean"], dtype=float)
-        n = int(means[key]["n_in_mean"])
-        time_ms = np.arange(len(mean)) / means[key]["fs"] * 1000
+        trace = np.asarray(traces[key][prototype_stat], dtype=float)
+        n = int(traces[key]["n_in_mean"])
+        time_ms = np.arange(len(trace)) / traces[key]["fs"] * 1000
         # Center time on the alignment sample so shapes line up visually.
-        time_ms = time_ms - time_ms[len(mean) // 2]
+        time_ms = time_ms - time_ms[len(trace) // 2]
 
         color = shape["color"]
-        ax.plot(time_ms, mean, color=color, linewidth=3.0, solid_capstyle="round")
+        ax.plot(time_ms, trace, color=color, linewidth=3.0, solid_capstyle="round")
         ax.axhline(0.0, color="#bbbbbb", linewidth=1.0, zorder=0)
         ax.axvline(0.0, color="#dddddd", linewidth=1.0, linestyle=":", zorder=0)
 
@@ -741,8 +799,8 @@ def plot_mean_pulse_shapes_panel(
             fontsize=11,
             color="#555555",
         )
-        y_max = max(y_max, float(np.nanmax(mean)))
-        y_min = min(y_min, float(np.nanmin(mean)))
+        y_max = max(y_max, float(np.nanmax(trace)))
+        y_min = min(y_min, float(np.nanmin(trace)))
 
     axes[0].set_ylabel("Normalized amplitude")
     pad = 0.08 * max(y_max - y_min, 1.0)
@@ -755,36 +813,38 @@ def plot_mean_pulse_shapes_panel(
     fig.savefig(output_path, dpi=300)
     thesis_path = save_thesis_figure(f"pulse_shapes/{save_name}", fig)
     plt.close(fig)
-    console.log(f"Saved {output_path}")
+    console.log(f"Saved {output_path} ({prototype_stat})")
     console.log(f"Saved thesis figure {thesis_path}")
     return output_path
 
 
 def plot_normal_double_overlay(
-    normal_mean,
-    double_mean,
+    normal_trace,
+    double_trace,
     fs,
     output_dir,
+    prototype_stat: str = PROTOTYPE_STAT,
 ):
-    """Overlay mean double pulse with two mean normal pulses (peak-aligned to each peak)."""
-    dp_peaks = double_peak_indices(double_mean, fs)
+    """Overlay median double pulse with two median normal pulses (peak-aligned)."""
+    dp_peaks = double_peak_indices(double_trace, fs)
     if dp_peaks is None:
         return
 
-    normal_peak = int(np.argmax(normal_mean))
+    normal_peak = int(np.argmax(normal_trace))
     p1, p2 = dp_peaks
 
-    norm1 = shift_waveform(normal_mean, p1 - normal_peak)
-    norm2 = shift_waveform(normal_mean, p2 - normal_peak)
+    norm1 = shift_waveform(normal_trace, p1 - normal_peak)
+    norm2 = shift_waveform(normal_trace, p2 - normal_peak)
+    stat_label = prototype_stat.capitalize()
 
-    time_ms = np.arange(len(double_mean)) / fs * 1000
+    time_ms = np.arange(len(double_trace)) / fs * 1000
     fig, ax = plt.subplots(figsize=(12, 6))
     ax.plot(
         time_ms,
-        double_mean,
+        double_trace,
         color=PULSE_SHAPES["double"]["color"],
         linewidth=2.5,
-        label="Mean double pulse",
+        label=f"{stat_label} double pulse",
         zorder=4,
     )
     ax.plot(
@@ -793,7 +853,7 @@ def plot_normal_double_overlay(
         color=PULSE_SHAPES["normal"]["color"],
         linewidth=2,
         linestyle="--",
-        label="Mean normal pulse (aligned to 1st peak)",
+        label=f"{stat_label} normal pulse (aligned to 1st peak)",
         zorder=3,
     )
     ax.plot(
@@ -802,12 +862,12 @@ def plot_normal_double_overlay(
         color=PULSE_SHAPES["normal"]["color"],
         linewidth=2,
         linestyle=":",
-        label="Mean normal pulse (aligned to 2nd peak)",
+        label=f"{stat_label} normal pulse (aligned to 2nd peak)",
         zorder=3,
     )
     ax.scatter(
         dp_peaks / fs * 1000,
-        double_mean[dp_peaks],
+        double_trace[dp_peaks],
         color=PULSE_SHAPES["double"]["color"],
         s=80,
         marker="*",
@@ -816,7 +876,9 @@ def plot_normal_double_overlay(
     )
     ax.set_xlabel("Time (ms)")
     ax.set_ylabel("Normalized amplitude")
-    ax.set_title("Mean double pulse vs two mean normal pulses (peak-aligned)")
+    ax.set_title(
+        f"{stat_label} double pulse vs two {prototype_stat} normal pulses (peak-aligned)"
+    )
     ax.legend(loc=LEGEND_LOC, fontsize=9)
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
@@ -861,7 +923,7 @@ def main(
     apply_presentation_style()
     console.log("Collecting and plotting prototype pulses for each pulse shape...")
     console.log(
-        f"Mean/median cap: {max_waveforms:,} pulses/class; "
+        f"Prototype {PROTOTYPE_STAT} cap: {max_waveforms:,} pulses/class; "
         f"plot overlay: {sample_size} traces"
     )
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -881,19 +943,36 @@ def main(
         )
 
     pulse_counts = {}
-    mean_traces = {}
+    proto_traces = {}
 
     for pulse_key, pulse_shape in PULSE_SHAPES.items():
         console.log(f"\n{pulse_shape['label']}:")
-        entries = collect_classifier_pulse_indices(
-            data_path, pulse_shape["class_id"]
-        )
-        total_count = len(entries)
-        pulse_counts[pulse_key] = total_count
-        console.log(f"  Found {total_count} RF-classified pulses")
-
-        # Per-class seed so shuffle/sample are independent but reproducible.
         class_seed = random_seed + int(pulse_shape["class_id"])
+        collect_cap = None
+        if max_waveforms is not None:
+            # Valley/fs/length filters reject many candidates; oversample.
+            oversample = 8.0 if pulse_shape["align"] == "valley" else 2.0
+            collect_cap = int(max_waveforms * oversample)
+        entries, sampled_count = collect_classifier_pulse_indices(
+            data_path,
+            pulse_shape["class_id"],
+            max_entries=collect_cap,
+            random_seed=class_seed,
+        )
+        # Prefer full class totals from a previous full scan when early-stopping.
+        prior_counts_path = OUTPUT_DIR / "pulse_shape_counts.json"
+        total_count = sampled_count
+        if collect_cap is not None and prior_counts_path.exists():
+            with open(prior_counts_path) as handle:
+                prior = json.load(handle)
+            if pulse_key in prior and int(prior[pulse_key]) >= sampled_count:
+                total_count = int(prior[pulse_key])
+        pulse_counts[pulse_key] = total_count
+        console.log(
+            f"  Class total {total_count:,} "
+            f"(holding {len(entries):,} for load)"
+        )
+
         all_corrected, all_normalized, fs = load_all_waveforms(
             entries,
             align_mode=pulse_shape["align"],
@@ -906,9 +985,9 @@ def main(
         all_aligned = align_waveforms(
             all_normalized, all_corrected, pulse_shape["align"], fs
         )
-        mean_all = np.mean(all_aligned, axis=0)
-        n_in_mean = len(all_aligned)
-        mean_traces[pulse_key] = (mean_all, fs, all_corrected)
+        median_all = np.median(all_aligned, axis=0)
+        n_in_median = len(all_aligned)
+        proto_traces[pulse_key] = (median_all, fs, all_corrected)
         save_prototype_mean_waveforms(
             pulse_key,
             all_aligned,
@@ -918,8 +997,9 @@ def main(
             align_mode=pulse_shape["align"],
         )
         console.log(
-            f"  Mean from {n_in_mean:,} morph-aligned waveforms "
-            f"(cap {max_waveforms:,}; {total_count:,} RF-classified)"
+            f"  Mean+median from {n_in_median:,} morph-aligned waveforms "
+            f"(display={PROTOTYPE_STAT}; cap {max_waveforms:,}; "
+            f"{total_count:,} RF-classified)"
         )
 
         rng = np.random.default_rng(class_seed)
@@ -938,8 +1018,8 @@ def main(
             sample_normalized,
             fs,
             OUTPUT_DIR,
-            mean_trace_all=mean_all,
-            n_in_mean=n_in_mean,
+            median_trace_all=median_all,
+            n_in_median=n_in_median,
             total_count=total_count,
         )
 
@@ -953,11 +1033,11 @@ def main(
     with open(OUTPUT_DIR / "pulse_shape_counts.json", "w") as handle:
         json.dump(pulse_counts, handle, indent=2)
 
-    if "normal" in mean_traces and "double" in mean_traces:
-        normal_mean, fs_n, _ = mean_traces["normal"]
-        double_mean, fs_d, _ = mean_traces["double"]
+    if "normal" in proto_traces and "double" in proto_traces:
+        normal_med, fs_n, _ = proto_traces["normal"]
+        double_med, fs_d, _ = proto_traces["double"]
         if fs_n == fs_d:
-            plot_normal_double_overlay(normal_mean, double_mean, fs_n, OUTPUT_DIR)
+            plot_normal_double_overlay(normal_med, double_med, fs_n, OUTPUT_DIR)
 
     plot_mean_pulse_shapes_panel(OUTPUT_DIR)
 

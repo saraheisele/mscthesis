@@ -1,12 +1,72 @@
 % !TeX root = ../main.tex
 \clearpage
 
-\section{Materials and Methods} 
+\section{Materials and Methods}
 
-%%%%%%%%%%%%%%%% FIELD DATA SECTION  %%%%%%%%%%%%%%%%%%%
+Field hardware was built and deployed for a four week expedition to Brazil in September 2025 (two weeks in Manaus at Reserva Ducke and INPA, two weeks near Macap{\'a} on the Rio Araguari and Rio Falsino in FLONA). The quantitative results in this thesis use continuous multi electrode recordings from captive \textit{Electrophorus} at the Museum f{\"u}r Naturkunde Berlin. The same logger stack underlies both settings.
 
-%%%%%%%%%%%%%%%% SPECTRAL ANALYSIS SECTION  %%%%%%%%%%%%%%%%%%%
+\subsection{Recording hardware}
 
-%%%%%%%%%%%%%%%% MODEL CELL SECTION  %%%%%%%%%%%%%%%%%%%
+Recordings used custom multi electrode loggers based on Teensy microcontrollers with 16 channel amplifier boards \notels{published hardware citation if any}. Firmware and board designs are available at \url{https://github.com/janscience/TeeGrid}, \url{https://github.com/janscience/TeeRec}, and \url{https://github.com/janscience/Teensy_Amp}. Each device digitizes 16 electrode channels continuously to disk as multi channel WAV files.
 
-%%%%%%%%%%%%%%%% JAR EXP SECTION  %%%%%%%%%%%%%%%%%%%
+Electrodes were wound by hand from stainless steel wire (three turns). Three array geometries were built: lines, square grids, and tetrahedra. Grid and tetrahedron frames were assembled from PVC tubing with glued joints and fold for transport. Details of frame carpentry are omitted here beyond the geometries below.
+
+\textbf{Grids.} Square frames with 180\,cm side length carried 16 electrodes in a $4 \times 4$ layout at 60\,cm spacing (three intervals of 60\,cm per side match the 180\,cm edge). PVC tubes form the edges. Straight segments use sleeved PVC joints. Corners use PVC cross pieces. The packed frame folds to about 40\,cm edge length.
+
+\textbf{Lines.} Flexible electrode lines use a cable bundle wrapped in spiral tubing. Total length is 15.6\,m. The first electrode sits 150\,cm from the housing end. The remaining electrodes follow at 80\,cm spacing (16 electrodes). Flexibility reduces mechanical damage in the field and simplifies packing relative to rigid frames.
+
+\textbf{Tetrahedra.} Four electrodes sit at the vertices of a regular tetrahedron with edge length 17\,cm \notels{tetrahedron edge length and how the four channels map onto the 16 channel logger: fill in. Current working phrase: edge length of one marshmallow}.
+
+\subsubsection{Assembly}
+
+For grids, tubes were laid out in the target configuration, electrodes slipped onto the tubes, and cable runs cut with slack for joints plus about 150\,cm from grid to housing. Rubber bands (four on inner bars, two on cross bars) tension the frame. Cables were soldered to the matching electrodes, sealed with waterproof heat shrink, and routed under spiral tubing along cable bearing tubes.
+
+For lines, 16 cables were cut to length, bundled, and wrapped in spiral tubing with electrode positions marked. At each site the matching cable was pulled out of the wrap, the electrode wound onto tubing and cable, then soldered. Waterproof heat shrink (pre threaded onto the cable) sealed each joint. Spiral wrap was applied in inter electrode segments with about 20\,cm overlap at electrodes. Tube diameter stepped down toward the free end as fewer cables remained.
+
+The cable to housing transition used a threaded gland: heat shrink over the 16 cable bundle, then the gland volume filled with epoxy, avoiding air bubbles and epoxy flow that would stiffen the free cables or foul the housing seat.
+
+\subsubsection{Waterproofing and power}
+
+Solder joints were sealed with waterproof heat shrink. Electronics sat in PVC housings. The outside to inside cable interface was potted in epoxy as above.
+
+Battery packs were built from seven Li ion cells wired in parallel via nickel sheet on like poles (positive to positive, negative to negative), with a protection circuit soldered on after corrosion protection spray. Contacts were kept from overheating during soldering. Each pack was heat shrunk, capped with cut PVC plates, heat shrunk again, and labeled. Packs were stored at about 3.4\,V rest charge. Capacity is 24.5\,Ah per pack, within typical hand luggage flight limits, for about 60\,h of logger runtime (2.5 days).
+
+\subsection{Berlin captive recordings}
+
+Berlin data were recorded in a dual pool tank (two pools of about 3\,m diameter joined by an opening of about 2\,m). A 16 electrode line with 25\,cm spacing (3.75\,m total) spanned bright and dark regions of the tank. Channel 0 lay in the bright area. The bright versus dark boundary used for occupancy analyses sits at 2.5\,m along that line unless noted otherwise. Dual line recordings from 25 November 2025 onward enter rate analyses with pulse counts weighted by 0.5. Partial calendar years 2023 and 2026 are coverage corrected in yearly rate summaries.
+
+\subsection{Video and audio synchronization}
+
+Where video was available, logger time and camera time were aligned with the open source tool at \url{https://github.com/weygoldt/videosync}. An LED on the logger blinks with a known schedule. Blink timing is recovered from a video ROI and from logger metadata, then cross correlated to estimate the offset. Logger audio (band passed roughly 100 to 3000\,Hz) is stitched across overlapping WAV segments and muxed onto the video for later behavioral scoring.
+
+\subsection{Data analysis}
+
+Berlin WAV recordings were processed from peak detection through the analyses used in the Results. Video sync (above) is optional for behavioral scoring and is not required for the pulse rate pipeline.
+
+\subsubsection{Peak detection and EOD labeling}
+
+Continuous WAVs were processed with eeltracker (\url{https://github.com/weygoldt/eeltracker}). Peaks are detected at low threshold on each channel (\texttt{scipy.signal.find\_peaks}, typical prominence and refractory settings on the order of a few digital units and a few milliseconds), grouped into multi channel pulse events with short waveform cutouts, and written to NIX/H5. A diverse seed set is labeled by hand as EOD versus noise. An InceptionTime ensemble classifier is trained on those labels and applied to the full recording, storing \texttt{predicted\_labels} (0 = noise, 1 = EOD) with pulse centers and raw snippets. Downstream analyses keep only events with \texttt{predicted\_labels} $= 1$.
+
+\subsubsection{Special pulse classification}
+
+On the predetected H5 pulses, a supervised classifier marks two special shapes used throughout the Results: double pulses and wide pulses. Waveforms are projected with RobustPCA (at most 20 components) and classified with a random forest trained on manually labeled examples. Rare classes (wide, double) are accepted only if their predicted probability is at least 0.40. Markers \texttt{is\_double\_peak}, \texttt{is\_wide\_pulse}, and \texttt{special\_pulse\_class} are written back beside each H5 file. Rule based width and double peak metrics remain available for diagnostics but are not the production decision.
+
+\subsubsection{Activity rates}
+
+Pulse times are binned at minute, hour, day, month, month since recording start, and year. Rates are counts divided by recording effort in each bin, separately for all EODs, double pulses, and wide pulses. Circadian and multi timescale panels are drawn from these histograms.
+
+\subsubsection{Pulse shape characterization}
+
+Half maximum widths are collected by shape class. Mean and median prototype waveforms are formed for normal, double, and wide pulses. Shape prevalence is summarized over the dataset. The median double pulse prototype is fit as two normal pulse templates in quick succession (model A: shared native width of the normal prototype, free peak times and amplitudes). Labeled pulses are also shown in PCA space, and half width, inter pulse interval, and double pulse rate are tracked over calendar time.
+
+\subsubsection{Behavioral and environmental correlations}
+
+Special pulse rates are cross correlated with overall EOD rate. Mating related notes from session logs are aligned to recording time and compared with all pulse and double pulse rates (wide pulses omitted from that comparison). Temperature and conductivity from tank water logs are correlated with daily and monthly rates. High voltage volleys are scored as rapid trains: primary rule $\geq 5$ waveform sub peaks with inter event interval $\leq 2$\,ms, with a fallback of $\geq 3$ pulse centers at $\leq 5$\,ms. Bright versus dark tank regions tagged in filenames are compared for shape fractions. Feeding windows from session notes are contrasted with non feeding periods and with peri feeding rate trajectories.
+
+\subsubsection{Position along the electrode line}
+
+For each accepted pulse, head position along the Berlin line is taken as the electrode with the largest positive peak amplitude in the multi channel snippet (25\,cm bins). Occupancy histograms and mean position are computed on the same timescales as the activity rates, including bright versus dark occupancy relative to the 2.5\,m boundary.
+
+\subsubsection{Code availability}
+
+Hardware repositories are linked above. Peak detection and video sync live in eeltracker and videosync. The Berlin analysis pipeline used for this thesis (special pulse classification through position plots, matching \texttt{run\_analysis.sh}) is at \url{https://github.com/saraheisele/mscthesis}.

@@ -35,7 +35,6 @@ from position_utils import (
     DEFAULT_BRIGHT_DARK_BOUNDARY_M,
     N_ELECTRODES,
     default_electrode_positions_m,
-    head_position_from_pulse,
     tank_zone,
 )
 
@@ -43,10 +42,27 @@ con = Console()
 
 POSITION_METHOD = "peak_positive"
 POSITION_BIN_EDGES_M = np.linspace(0.0, 3.75, N_ELECTRODES + 1)
+# Chunked reads: largest full H5s are ~20–25 GB if loaded whole (OOM on 32 GB hosts).
+RAW_PULSE_CHUNK = 2000
+
+
+def _head_positions_m(raw_chunk: np.ndarray, electrode_positions_m: np.ndarray) -> np.ndarray:
+    """Vectorized peak-positive head positions for a (n, samples, channels) chunk."""
+    if raw_chunk.size == 0:
+        return np.empty(0, dtype=float)
+    amps = np.max(np.asarray(raw_chunk, dtype=np.float32), axis=1)
+    n_ch = min(amps.shape[1], len(electrode_positions_m))
+    head_ch = np.argmax(amps[:, :n_ch], axis=1)
+    return np.asarray(electrode_positions_m[:n_ch], dtype=float)[head_ch]
 
 
 def load_positions(file_paths):
-    """Load per-pulse positions and timing metadata from h5 files."""
+    """Load per-pulse positions and timing metadata from h5 files.
+
+    Reads ``raw_pulses`` in chunks so large recordings do not exhaust RAM.
+    """
+    from datetime import datetime
+
     electrode_positions_m = default_electrode_positions_m()
     position_lists = []
     time_sec_lists = []
@@ -54,7 +70,7 @@ def load_positions(file_paths):
     start_times = []
     end_times = []
 
-    for fp in file_paths:
+    for fp in tqdm.tqdm(file_paths, desc="Load positions"):
         handle = open_h5(fp, "r")
         if handle is None:
             continue
@@ -66,32 +82,40 @@ def load_positions(file_paths):
                 con.log(f"Skipping {fp.name}: no centers array.")
                 continue
 
-            centers = block.data_arrays["centers"][:]
-            labels = block.data_arrays["predicted_labels"][:]
-            raw_pulses = block.data_arrays["raw_pulses"][:]
-            mask = labels == 1
+            centers = np.asarray(block.data_arrays["centers"][:], dtype=float)
+            labels = np.asarray(block.data_arrays["predicted_labels"][:])
+            raw_pulses = block.data_arrays["raw_pulses"]
 
             section = handle.sections["pulses_metadata"]
             fs = float(section["metadata"]["samplerate"])
             starttime_str = section["metadata"]["metadata"]["INFO"]["DateTimeOriginal"]
             duration = float(section["metadata"]["duration"])
+
+            n_pulses = int(raw_pulses.shape[0])
+            positions = []
+            pulse_times_sec = []
+            for start in range(0, n_pulses, RAW_PULSE_CHUNK):
+                end = min(start + RAW_PULSE_CHUNK, n_pulses)
+                chunk_mask = labels[start:end] == 1
+                if not np.any(chunk_mask):
+                    continue
+                chunk = np.asarray(raw_pulses[start:end])
+                head_m = _head_positions_m(chunk[chunk_mask], electrode_positions_m)
+                centers_chunk = centers[start:end][chunk_mask]
+                positions.append(head_m)
+                pulse_times_sec.append(centers_chunk / fs)
+                del chunk
         finally:
             handle.close()
 
-        from datetime import datetime
+        if not positions:
+            continue
 
         dt_start = datetime.strptime(starttime_str, "%Y-%m-%dT%H:%M:%S")
         dt_end = dt_start + timedelta(seconds=duration)
 
-        positions = []
-        pulse_times_sec = []
-        for center_idx, pulse in zip(centers[mask], raw_pulses[mask]):
-            head_m, _ = head_position_from_pulse(pulse, electrode_positions_m)
-            positions.append(head_m)
-            pulse_times_sec.append(float(center_idx) / fs)
-
-        position_lists.append(np.asarray(positions, dtype=float))
-        time_sec_lists.append(np.asarray(pulse_times_sec, dtype=float))
+        position_lists.append(np.concatenate(positions).astype(float, copy=False))
+        time_sec_lists.append(np.concatenate(pulse_times_sec).astype(float, copy=False))
         fs_list.append(fs)
         start_times.append(dt_start)
         end_times.append(dt_end)

@@ -1,0 +1,29 @@
+{
+  "pulse_source": "prototype_double_npz",
+  "prototype_stat": "median",
+  "model": "A_w1_free_t",
+  "n_pulses": 20000,
+  "sample_rate_hz": 24000.0,
+  "fit": {
+    "model": "free_fixed_width",
+    "a1": NaN,
+    "a2": NaN,
+    "t1_samples": NaN,
+    "t2_samples": NaN,
+    "delay_samples": NaN,
+    "delay_ms": NaN,
+    "amplitude_ratio": NaN,
+    "width_scale": NaN,
+    "r2": NaN,
+    "rmse": NaN,
+    "success": false,
+    "width_scale_2": NaN,
+    "t1_ms": NaN,
+    "t2_ms": NaN
+  },
+  "notes": {
+    "why_direct_fit": "Direct fit to the prototype waveform; not mean-of-params.",
+    "why_median": "Median prototype preferred over mean (right-skewed separations / outliers).",
+    "why_model_A": "Native-width normals with free times/amplitudes; most honest two-normal hypothesis without extra width freedom."
+  }
+}
