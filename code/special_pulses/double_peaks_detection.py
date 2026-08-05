@@ -944,9 +944,10 @@ def _scatter_labeled_pca_pairs(
         if not np.any(mask):
             continue
         class_name = SPECIAL_PULSE_CLASSES.get(int(label_id), f"class {label_id}")
-        legend_label = f"{class_name} (n={int(np.sum(mask))})"
+        display_name = class_name.capitalize() if class_name == class_name.lower() else class_name
+        legend_label = f"{display_name} (n={int(np.sum(mask))})"
         if split_name is not None:
-            legend_label = f"{class_name} ({split_name}, n={int(np.sum(mask))})"
+            legend_label = f"{display_name} ({split_name}, n={int(np.sum(mask))})"
 
         ax.scatter(
             projected[mask, pc_x],
@@ -1187,7 +1188,6 @@ def plot_labeled_pulses_pca_space(
         axes[row_idx, col_idx].set_axis_off()
 
     fig.suptitle(title, y=1.02)
-    fig.tight_layout()
 
     if output_path is not None:
         output_path = Path(output_path)
@@ -1197,7 +1197,7 @@ def plot_labeled_pulses_pca_space(
 
     if show:
         plt.show()
-    else:
+    elif output_path is not None:
         plt.close(fig)
 
     return fig, axes

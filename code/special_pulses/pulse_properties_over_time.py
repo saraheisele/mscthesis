@@ -256,6 +256,7 @@ def plot_double_pulse_frequency_monthly(
 
 def plot_half_width_distribution(df: pd.DataFrame, output_dir: Path):
     """Overall half-width distribution (histogram + KDE), all pulse shapes pooled."""
+    apply_presentation_style()
     values = df["half_width_ms"].dropna().values
     if values.size == 0:
         return
@@ -269,14 +270,13 @@ def plot_half_width_distribution(df: pd.DataFrame, output_dir: Path):
         sample = values if values.size <= 50_000 else np.random.default_rng(0).choice(values, size=50_000, replace=False)
         kde_x = np.linspace(sample.min(), sample.max(), 300)
         kde_y = stats.gaussian_kde(sample)(kde_x)
-        ax.plot(kde_x, kde_y, color=kde_color, linewidth=2, label="KDE")
+        ax.plot(kde_x, kde_y, color=kde_color, label="KDE")
         ax.legend(loc=LEGEND_LOC)
     ax.set_xlabel("Half width (ms)")
     ax.set_ylabel("Density")
     ax.set_title("Half-width across all pulse shapes")
     ax.grid(True, alpha=0.3)
 
-    plt.tight_layout()
     fig.savefig(output_dir / "half_width_kde_all_shapes.png", dpi=300)
     save_thesis_figure("pulse_shapes/half_width_kde_all_shapes.png", fig)
     plt.close(fig)

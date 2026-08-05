@@ -32,6 +32,7 @@ OUTPUT_DIR = HALF_WIDTH_DISTRIBUTIONS_DIR
 
 
 def plot_distributions(widths_by_shape: dict, output_dir: Path):
+    apply_presentation_style()
     output_dir.mkdir(parents=True, exist_ok=True)
     counts = {k: int(v.size) for k, v in widths_by_shape.items()}
     with open(output_dir / "half_width_pulse_counts.json", "w") as handle:
@@ -56,17 +57,16 @@ def plot_distributions(widths_by_shape: dict, output_dir: Path):
             np.median(values),
             color="black",
             linestyle="--",
-            label=f"median={np.median(values):.2f} ms",
+            label=f"Median={np.median(values):.2f} ms",
         )
         ax.set_xlabel("Half width (ms)")
         ax.set_ylabel("Count")
         ax.set_title(f"{shape['label']} (n={values.size:,})")
         ax.set_xlim(shared_xlim)
-        ax.legend(fontsize=8, loc=LEGEND_LOC)
+        ax.legend(loc=LEGEND_LOC)
         ax.grid(True, alpha=0.3)
 
-    fig.suptitle("Half-width distributions by pulse shape", fontsize=14, fontweight="bold")
-    plt.tight_layout()
+    fig.suptitle("Half-width distributions by pulse shape")
     fig.savefig(output_dir / "half_width_distributions_all_shapes.png", dpi=300)
     save_thesis_figure("pulse_shapes/half_width_distributions_all_shapes.png", fig)
     plt.close(fig)
@@ -89,7 +89,6 @@ def plot_distributions(widths_by_shape: dict, output_dir: Path):
     ax.set_title("Overlaid half-width distributions (all pulse shapes)")
     ax.legend(loc=LEGEND_LOC)
     ax.grid(True, alpha=0.3)
-    plt.tight_layout()
     fig.savefig(output_dir / "half_width_distributions_overlay.png", dpi=300)
     save_thesis_figure("pulse_shapes/half_width_distributions_overlay.png", fig)
     plt.close(fig)

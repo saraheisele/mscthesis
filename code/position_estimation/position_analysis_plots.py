@@ -234,6 +234,7 @@ def plot_session_mean_position_summary(timescale, arr, save_path, suffix, meta):
 
 def plot_overall_position_distribution(occurrence_hour, save_path, suffix):
     """Bar chart of pulse rate (Hz) per electrode collapsed over all hours."""
+    apply_presentation_style()
     counts = occurrence_hour.sum(axis=0)
     if counts.sum() == 0:
         return
@@ -251,23 +252,23 @@ def plot_overall_position_distribution(occurrence_hour, save_path, suffix):
         y_min=0,
         y_max=ymax,
     )
-    add_dark_electrode_boundary(ax, DARK_ELECTRODE_START, label="Bright/dark boundary")
+    add_dark_electrode_boundary(ax, DARK_ELECTRODE_START)
     ax.bar(electrode_indices, rates_hz, width=0.7, color=POSITION_SCATTER_COLOR, linewidth=0, zorder=3)
     ax.set_xticks(electrode_indices)
     ax.set_xlabel("Electrode")
     ax.set_ylabel("Pulse rate (Hz)")
     ax.set_title("Overall position distribution")
-    ax.legend(loc=LEGEND_LOC, fontsize=10)
+    ax.legend(loc=LEGEND_LOC)
     ax.set_xlim(-0.5, len(electrode_indices) - 0.5)
-    plt.tight_layout()
     filename = f"overall_position_distribution{suffix}.png"
-    plt.savefig(save_path / filename, dpi=300)
-    save_thesis_figure(f"position_estimation/{filename}")
-    plt.close()
+    fig.savefig(save_path / filename, dpi=300)
+    save_thesis_figure(f"position_estimation/{filename}", fig)
+    plt.close(fig)
 
 
 def plot_position_panel_figure(session_data, save_path, suffix, meta):
     """Four-panel session-wise median position overview."""
+    apply_presentation_style()
     fig, axes = plt.subplots(2, 2, figsize=(18, 12))
     first_month_year, first_month_month, first_year = meta
     for ax, (timescale, title) in zip(axes.ravel(), POSITION_PANEL_TIMESCALES):
@@ -292,7 +293,7 @@ def plot_position_panel_figure(session_data, save_path, suffix, meta):
             p_lo[j] = np.percentile(values, 16)
             p_hi[j] = np.percentile(values, 84)
 
-        ax.plot(x, np.ma.masked_invalid(median), color=POSITION_MEDIAN_COLOR, linewidth=2.5, label="Median")
+        ax.plot(x, np.ma.masked_invalid(median), color=POSITION_MEDIAN_COLOR, label="Median")
         ax.fill_between(
             x,
             np.ma.masked_invalid(p_lo),
@@ -309,25 +310,19 @@ def plot_position_panel_figure(session_data, save_path, suffix, meta):
             first_month_year=first_month_year,
             first_month_month=first_month_month,
         )
-        xlabel = ax.get_xlabel()
-        if xlabel:
-            ax.set_xlabel(xlabel[:1].upper() + xlabel[1:])
         ax.set_ylim(0, LINE_LENGTH_M)
         shade_dark_region_above(ax, DEFAULT_BRIGHT_DARK_BOUNDARY_M, y_max=LINE_LENGTH_M)
-        add_bright_dark_boundary_horizontal(
-            ax, DEFAULT_BRIGHT_DARK_BOUNDARY_M, label="Bright/dark boundary"
-        )
+        add_bright_dark_boundary_horizontal(ax, DEFAULT_BRIGHT_DARK_BOUNDARY_M)
         ax.set_ylabel("Median head position (m)")
         ax.set_title(title)
-        ax.legend(loc=LEGEND_LOC, fontsize=10)
+        ax.legend(loc=LEGEND_LOC)
         ax.grid(True, alpha=0.25)
 
     fig.suptitle("Spatial usage over time (session-wise median + percentiles)")
-    plt.tight_layout()
     filename = f"position_panels{suffix}.png"
-    plt.savefig(save_path / filename, dpi=300)
-    save_thesis_figure(f"position_estimation/{filename}")
-    plt.close()
+    fig.savefig(save_path / filename, dpi=300)
+    save_thesis_figure(f"position_estimation/{filename}", fig)
+    plt.close(fig)
 
 
 def main():

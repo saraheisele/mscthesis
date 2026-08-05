@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import matplotlib.pyplot as plt
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from path_setup import setup_script_paths
@@ -26,7 +27,7 @@ setup_script_paths(__file__)
 from rich.console import Console
 
 from data_paths import H5_DIR, PCA_SPACE_DIR
-from presentation_style import apply_presentation_style, copy_thesis_asset
+from presentation_style import apply_presentation_style, save_thesis_figure
 from special_pulses.double_peaks_detection import (
     LABELING_PULSE_CLASSES,
     SPECIAL_PULSE_CLASSES,
@@ -176,17 +177,22 @@ def save_pca_space_plots(output_dir: Path | None = None) -> Path | None:
 
     waveforms = normalize_waveforms_for_pca(waveforms)
     output_path = output_dir / "labeled_pulses_pca_space.png"
-    plot_labeled_pulses_pca_space(
+    fig, _axes = plot_labeled_pulses_pca_space(
         waveforms,
         labels,
-        output_path=output_path,
+        output_path=None,
         show=False,
         class_names=SPECIAL_PULSE_CLASSES,
         legend_title="RF class",
         title="Robust PCA space of RF-classified pulses",
     )
-    copy_thesis_asset(output_path, "pulse_shapes/labeled_pulses_pca_space.png")
+    if fig is None:
+        return None
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=300, bbox_inches="tight")
+    save_thesis_figure("pulse_shapes/labeled_pulses_pca_space.png", fig)
     console.log(f"Saved PCA space plot to {output_path}")
+    plt.close(fig)
     return output_path
 
 

@@ -875,7 +875,6 @@ def plot_prototype_template_fit_example(
         time_ms,
         y,
         color=DOUBLE_COLOR,
-        linewidth=2.4,
         label=f"Prototype {prototype_stat} double",
         zorder=4,
     )
@@ -883,7 +882,6 @@ def plot_prototype_template_fit_example(
         time_ms,
         yhat,
         color=REFERENCE_COLOR,
-        linewidth=2.0,
         label=(
             f"Model {result.model} fit "
             f"($\\Delta t$={result.delay_ms:.2f} ms, "
@@ -928,10 +926,9 @@ def plot_prototype_template_fit_example(
         f"Two-normal template fit to prototype {prototype_stat} double "
         f"(n={n_pulses} in prototype; model {result.model})"
     )
-    ax.legend(loc=LEGEND_LOC, fontsize=8)
+    ax.legend(loc=LEGEND_LOC)
     ax.set_ylim(-0.12, 1.12)
     ax.grid(True, alpha=0.3)
-    plt.tight_layout()
     out = output_dir / "double_pulse_template_fit_example.png"
     fig.savefig(out, dpi=300)
     save_thesis_figure("pulse_shapes/double_pulse_template_fit_example.png", fig)
@@ -1147,7 +1144,7 @@ def plot_model_hierarchy_panel(
     fig, axes = plt.subplots(2, 3, figsize=(15, 8), sharex=True, sharey=True)
     for ax, key in zip(axes.ravel(), MODEL_KEYS):
         result = results[key]
-        ax.plot(time_ms, y, color=DOUBLE_COLOR, lw=2, label="Observed", zorder=4)
+        ax.plot(time_ms, y, color=DOUBLE_COLOR, label="Observed", zorder=4)
         if result.success:
             yhat, c1, c2 = reconstruct_fit(result, template)
             w2 = (
@@ -1159,7 +1156,6 @@ def plot_model_hierarchy_panel(
                 time_ms,
                 yhat,
                 color=REFERENCE_COLOR,
-                lw=1.8,
                 label=f"Fit $R^2$={result.r2:.3f}",
                 zorder=5,
             )
@@ -1182,7 +1178,7 @@ def plot_model_hierarchy_panel(
         )
         ax.grid(True, alpha=0.3)
         ax.set_ylim(-0.15, 1.15)
-        ax.legend(loc=LEGEND_LOC, fontsize=7)
+        ax.legend(loc=LEGEND_LOC)
 
     for ax in axes[1, :]:
         ax.set_xlabel("Time (ms)")
@@ -1192,7 +1188,6 @@ def plot_model_hierarchy_panel(
         f"Model hierarchy on prototype {prototype_stat} double "
         f"(n={n_pulses}; observed $\\Delta t$={observed_dt_ms:.2f} ms)"
     )
-    plt.tight_layout()
     out = output_dir / f"double_pulse_model_hierarchy_{prototype_stat}.png"
     output_dir.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=300)

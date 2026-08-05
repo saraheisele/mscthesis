@@ -42,29 +42,29 @@ def format_x_axis(
     if timescale == "minute":
         tick_positions = np.arange(0, n_bins, 60)
         tick_labels = [f"{h:02d}:00" for h in range(len(tick_positions))]
-        xlabel = "time of day"
+        xlabel = "Time of day"
     elif timescale == "hour":
         tick_positions = x
         tick_labels = [f"{h:02d}:00" for h in x]
-        xlabel = "time of day"
+        xlabel = "Time of day"
     elif timescale == "month":
         tick_positions = x
         tick_labels = [datetime(2000, m, 1).strftime("%b") for m in range(1, 13)]
-        xlabel = "month"
+        xlabel = "Month"
     elif timescale == "month_since_start":
         tick_step = max(1, n_bins // 18)
         tick_positions = x[::tick_step]
         all_labels = month_since_start_labels(n_bins, first_month_year, first_month_month)
         tick_labels = [all_labels[i] for i in tick_positions]
-        xlabel = "month since recording start"
+        xlabel = "Month since recording start"
     elif timescale == "year":
         tick_positions = x
         tick_labels = [str(y) for y in range(first_year, first_year + n_bins)]
-        xlabel = "year"
+        xlabel = "Year"
     else:
         tick_positions = x
         tick_labels = [str(i) for i in x]
-        xlabel = "bin index"
+        xlabel = "Bin index"
 
     axis.set_xticks(tick_positions)
     axis.set_xticklabels(tick_labels, rotation=45, ha="right")

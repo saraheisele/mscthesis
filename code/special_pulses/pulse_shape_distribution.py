@@ -171,7 +171,6 @@ def plot_pulse_shape_distribution(
             f"{value:,} ({pct:.1f}%)",
             ha="center",
             va="bottom",
-            fontsize=12,
             clip_on=True,
         )
 
@@ -184,11 +183,8 @@ def plot_pulse_shape_distribution(
             transform=ax.transAxes,
             ha="right",
             va="top",
-            fontsize=12,
             clip_on=True,
         )
-
-    fig.tight_layout()
 
     output_dir.mkdir(parents=True, exist_ok=True)
     out = output_dir / Path(filename).name

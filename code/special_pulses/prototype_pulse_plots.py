@@ -642,6 +642,7 @@ def plot_prototype_pulse_shape(
     prototype_stat=PROTOTYPE_STAT,
 ):
     """Plot SAMPLE_SIZE gray traces with the colored median prototype overlay."""
+    apply_presentation_style()
     if not normalized_waveforms:
         console.log(f"[yellow]No pulses found for {pulse_shape['label']}. Skipping.")
         return None
@@ -669,7 +670,6 @@ def plot_prototype_pulse_shape(
         time_ms,
         median_trace,
         color=pulse_shape["color"],
-        linewidth=2.8,
         label=median_label,
         zorder=5,
     )
@@ -683,7 +683,6 @@ def plot_prototype_pulse_shape(
         0.97,
         criteria_text,
         transform=ax.transAxes,
-        fontsize=9,
         verticalalignment="top",
         horizontalalignment="right",
         bbox=dict(boxstyle="round", facecolor="white", alpha=0.9, edgecolor="#cccccc"),
@@ -704,9 +703,8 @@ def plot_prototype_pulse_shape(
             f"(showing {len(aligned_sample)} of {pool_n:,})"
         )
     ax.set_title(title)
-    ax.legend(loc="upper left", fontsize=9)
+    ax.legend(loc=LEGEND_LOC)
     ax.grid(True, alpha=0.3)
-    plt.tight_layout()
 
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"prototype_{pulse_key}_pulse.png"
@@ -828,7 +826,7 @@ def plot_mean_pulse_shapes_panel(
         time_ms = time_ms - time_ms[len(trace) // 2]
 
         color = shape["color"]
-        ax.plot(time_ms, trace, color=color, linewidth=3.0, solid_capstyle="round")
+        ax.plot(time_ms, trace, color=color, solid_capstyle="round")
         ax.axhline(0.0, color="#bbbbbb", linewidth=1.0, zorder=0)
         ax.axvline(0.0, color="#dddddd", linewidth=1.0, linestyle=":", zorder=0)
 
@@ -844,7 +842,6 @@ def plot_mean_pulse_shapes_panel(
             transform=ax.transAxes,
             ha="right",
             va="top",
-            fontsize=11,
             color="#555555",
         )
         y_max = max(y_max, float(np.nanmax(trace)))
@@ -874,6 +871,7 @@ def plot_normal_double_overlay(
     prototype_stat: str = PROTOTYPE_STAT,
 ):
     """Overlay median double pulse with two median normal pulses (peak-aligned)."""
+    apply_presentation_style()
     dp_peaks = double_peak_indices(double_trace, fs)
     if dp_peaks is None:
         console.log(
@@ -895,7 +893,6 @@ def plot_normal_double_overlay(
         time_ms,
         double_trace,
         color=PULSE_SHAPES["double"]["color"],
-        linewidth=2.5,
         label=f"{stat_label} double pulse",
         zorder=4,
     )
@@ -903,7 +900,6 @@ def plot_normal_double_overlay(
         time_ms,
         norm1,
         color=PULSE_SHAPES["normal"]["color"],
-        linewidth=2,
         linestyle="--",
         label=f"{stat_label} normal pulse (aligned to 1st peak)",
         zorder=3,
@@ -912,7 +908,6 @@ def plot_normal_double_overlay(
         time_ms,
         norm2,
         color=PULSE_SHAPES["normal"]["color"],
-        linewidth=2,
         linestyle=":",
         label=f"{stat_label} normal pulse (aligned to 2nd peak)",
         zorder=3,
@@ -931,9 +926,8 @@ def plot_normal_double_overlay(
     ax.set_title(
         f"{stat_label} double pulse vs two {prototype_stat} normal pulses (peak-aligned)"
     )
-    ax.legend(loc=LEGEND_LOC, fontsize=9)
+    ax.legend(loc=LEGEND_LOC)
     ax.grid(True, alpha=0.3)
-    plt.tight_layout()
     out = output_dir / "normal_pulses_aligned_to_double.png"
     fig.savefig(out, dpi=300)
     save_thesis_figure("pulse_shapes/normal_pulses_aligned_to_double.png", fig)
