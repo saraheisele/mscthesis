@@ -75,6 +75,22 @@ Shared utilities (not numbered steps): `data_paths`, `h5_io`, `pulse_config`,
 `pulse_property_collect`, `session_notes_utils`, `mating_notes_utils`,
 `position_utils`, `eelplotting`.
 
+## Sample rates (`WAVEFORM_FS`)
+
+Berlin H5 files report either **24 kHz** or **48 kHz** in metadata. Predetection
+/ storage interpolates 24 kHz `raw_pulses` snippets onto the same array length as
+48 kHz snippets, so every waveform lives on a **48 kHz-equivalent** sample grid.
+
+Active analysis scripts therefore use `pulse_config.WAVEFORM_FS = 48000` for all
+snippet sample↔time conversions (half-width, peak separation, plot time axes,
+ms windows on waveforms). File metadata `samplerate` is kept only for
+recording-timeline quantities (`centers` → wall-clock time, ISI between centers,
+recording duration). Real audio in `animate_eel_position.py` still uses the wav
+rate. Archived scripts under `code/archived/` were not updated (2026-08-05).
+
+Re-run shape metrics / prototype / template-fit steps after this fix; thesis
+half-width and Δt numbers in ms may change.
+
 ## Thesis figures layout
 
 Dummy runs write under `figures/`; full-dataset runs write the same relative
@@ -160,9 +176,12 @@ python special_pulses/double_pulse_template_fit.py --prototype-stat mean   # non
 ### Optional position animation
 
 ```bash
+python position_estimation/animate_eel_position.py          # prompts: keep default chunk or choose
 python position_estimation/animate_eel_position.py /path/to/eellogger.wav
 python position_estimation/animate_eel_position.py --list-entry-recordings
 ```
+
+Default chunk (Enter to accept): `recordings_2026-01-28_darkarea/eellogger02-20260128T163148.wav`.
 
 ## Data paths
 
@@ -235,3 +254,5 @@ for both modes (name only; contents follow the active dataset).
 - Position plots use shared `plotting_utils.format_x_axis`.
 - Template-fit exploratory runners moved to
   `archived/double_pulse_template_fit_exploratory.py`.
+- 2026-08-05: fixed mixed 24/48 kHz waveform timebase — always treat
+  `raw_pulses` as `WAVEFORM_FS=48000` (see Sample rates section above).

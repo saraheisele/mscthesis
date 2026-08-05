@@ -22,6 +22,7 @@ from scipy.signal import find_peaks
 
 from data_paths import H5_ROOT
 from h5_io import PULSE_BLOCK_NAMES, get_pulse_block, load_marker_array
+from pulse_config import WAVEFORM_FS
 
 VOLLEY_MIN_PULSES = 5
 VOLLEY_MAX_ISI_MS = 2.0
@@ -143,8 +144,12 @@ def _cluster_waveform_event_times(
     """
     Build a max-amplitude envelope across overlapping snippets in a short-ISI cluster,
     then detect sub-peaks on that envelope.
+
+    Snippet samples live on ``WAVEFORM_FS``; ``centers`` / the returned event times
+    are in the recording's native sample index domain (``sampling_rate``).
     """
-    half_width = len(raw_pulses[int(positive_indices[0])][:]) // 2
+    half_width_wf = len(raw_pulses[int(positive_indices[0])][:]) // 2
+    sample_scale = float(sampling_rate) / float(WAVEFORM_FS)
     min_distance = max(1, int(sampling_rate * 0.0005))
     envelope = {}
 
@@ -154,9 +159,9 @@ def _cluster_waveform_event_times(
             signal = np.abs(_get_representative_waveform(raw_pulses[pulse_idx][:]))
         except KeyError:
             continue
-        base_sample = int(all_centers[pulse_idx]) - half_width
+        base_sample = float(all_centers[pulse_idx]) - half_width_wf * sample_scale
         for offset, amplitude in enumerate(signal):
-            sample = base_sample + offset
+            sample = int(round(base_sample + offset * sample_scale))
             envelope[sample] = max(envelope.get(sample, 0.0), amplitude)
 
     if not envelope:

@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 
 from h5_io import get_path_list, get_pulse_block, load_marker_array, open_h5
+from pulse_config import WAVEFORM_FS
 from special_pulses.double_peaks_detection import (
     compute_half_max_width,
     expand_marker_to_all_pulses,
@@ -50,7 +51,9 @@ def collect_pulse_property_records(data_path) -> pd.DataFrame:
             if "centers" not in names or "raw_pulses" not in names:
                 continue
 
-            fs = float(file.sections["pulses_metadata"]["metadata"]["samplerate"])
+            recording_fs = float(
+                file.sections["pulses_metadata"]["metadata"]["samplerate"]
+            )
             start_str = file.sections["pulses_metadata"]["metadata"]["metadata"]["INFO"][
                 "DateTimeOriginal"
             ]
@@ -65,23 +68,25 @@ def collect_pulse_property_records(data_path) -> pd.DataFrame:
             wide_m = _full_marker(file_path, block, "is_wide_pulse", candidates, num_pulses)
 
             for pulse_idx in candidates:
-                pulse_time = rec_start + timedelta(seconds=float(centers[pulse_idx]) / fs)
+                pulse_time = rec_start + timedelta(
+                    seconds=float(centers[pulse_idx]) / recording_fs
+                )
                 trace, _ = get_biggest_unclipped_waveform(raw[pulse_idx][:])
                 corrected = baseline_correct(trace)
 
                 if double_m[pulse_idx] == 1:
                     shape = "double"
-                    dp = double_pulse_metrics(corrected, fs)
+                    dp = double_pulse_metrics(corrected, WAVEFORM_FS)
                     half_ms = dp["half_width_ms"]
                     peak_sep_ms = dp["peak_separation_ms"]
                     trough_ratio = dp["trough_depth_ratio"]
                 elif wide_m[pulse_idx] == 1:
                     shape = "wide"
-                    w, _ = compute_half_max_width(corrected, fs)
+                    w, _ = compute_half_max_width(corrected, WAVEFORM_FS)
                     half_ms, peak_sep_ms, trough_ratio = w * 1000, np.nan, np.nan
                 else:
                     shape = "normal"
-                    w, _ = compute_half_max_width(corrected, fs)
+                    w, _ = compute_half_max_width(corrected, WAVEFORM_FS)
                     half_ms, peak_sep_ms, trough_ratio = w * 1000, np.nan, np.nan
 
                 rows.append(

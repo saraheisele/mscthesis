@@ -16,6 +16,7 @@ import numpy as np
 from rich.console import Console
 
 from h5_io import get_path_list, get_pulse_block, open_h5
+from pulse_config import WAVEFORM_FS
 from waveform_rule_metrics import get_representative_waveform
 
 con = Console()
@@ -47,7 +48,8 @@ normalize_waveforms_for_pca = _dpd.normalize_waveforms_for_pca
 prepare_classifier_waveforms = _dpd.prepare_classifier_waveforms
 
 
-LABEL_REF_FS = 24000.0
+# Snippets are on the shared WAVEFORM_FS grid; keep the name for labeling APIs.
+LABEL_REF_FS = WAVEFORM_FS
 
 
 def normalize_channels_for_label_plot(pulse_data):
@@ -77,11 +79,10 @@ def normalize_channels_for_label_plot(pulse_data):
 
 def apply_label_ref_timebase(records, waveforms=None, ref_fs=LABEL_REF_FS):
     """
-    Reinterpret each pulse on a common reference sample rate for labeling/RF.
+    Assign the shared ``WAVEFORM_FS`` timebase for labeling / RF display.
 
-    Sample values are unchanged; native_fs is kept for provenance. Display and
-    saved training features then use ref_fs so 48 kHz and 24 kHz snippets share
-    the same plotted duration (×2 stretch for 48 kHz).
+    Sample values are unchanged (24 kHz files were already interpolated to the
+    48 kHz-equivalent grid upstream). ``native_fs`` is kept for provenance.
     """
     ref_fs = float(ref_fs)
     for record in records:
@@ -296,7 +297,9 @@ def load_naturalistic_pulses_for_labeling(
                 candidate_indices = np.arange(num_pulses)
             if len(candidate_indices) == 0:
                 continue
-            fs = float(file.sections["pulses_metadata"]["metadata"]["samplerate"])
+            native_fs = float(
+                file.sections["pulses_metadata"]["metadata"]["samplerate"]
+            )
             pool = []
             for pulse_idx in candidate_indices:
                 key = _pulse_record_key(file_path, pulse_idx)
@@ -307,7 +310,8 @@ def load_naturalistic_pulses_for_labeling(
                     {
                         "file_path": str(file_path),
                         "pulse_idx": int(pulse_idx),
-                        "fs": float(fs),
+                        "fs": float(WAVEFORM_FS),
+                        "native_fs": native_fs,
                         "sampling_pool": "naturalistic",
                     }
                 )
@@ -458,15 +462,15 @@ def interactive_label_pulses(
         records, waveforms = apply_label_ref_timebase(
             records, waveforms, ref_fs=LABEL_REF_FS
         )
-        n_stretched = sum(
+        n_native_other = sum(
             1
             for r in records
             if abs(float(r.get("native_fs", r["fs"])) - LABEL_REF_FS) > 1
         )
         con.log(
-            f"  Timebase normalized to {LABEL_REF_FS/1000:.0f} kHz for labeling/"
-            f"features ({n_stretched}/{len(records)} pulses were higher-rate and "
-            "are shown time-stretched × fs/ref_fs)."
+            f"  Timebase set to WAVEFORM_FS={LABEL_REF_FS/1000:.0f} kHz for labeling/"
+            f"features ({n_native_other}/{len(records)} pulses have a different "
+            "native metadata rate; snippet arrays already share the 48 kHz grid)."
         )
 
     waveforms = normalize_waveforms_for_pca(waveforms)
@@ -482,7 +486,7 @@ def interactive_label_pulses(
     if use_ref_timebase:
         con.log(
             f"  Common plot/feature timebase: {LABEL_REF_FS/1000:.0f} kHz "
-            "(48 kHz snippets stretched ×2 so all traces share the x-axis)"
+            "(WAVEFORM_FS; 24 kHz files were interpolated upstream)"
         )
     con.log("  0 = normal/non-special pulse")
     con.log("  1 = wide pulse")
@@ -830,7 +834,9 @@ def load_enrichment_pulses_for_labeling(
             if len(candidate_indices) == 0:
                 continue
 
-            fs = float(file.sections["pulses_metadata"]["metadata"]["samplerate"])
+            native_fs = float(
+                file.sections["pulses_metadata"]["metadata"]["samplerate"]
+            )
 
             wide_marker = None
             double_marker = None
@@ -857,7 +863,8 @@ def load_enrichment_pulses_for_labeling(
                 rec = {
                     "file_path": str(file_path),
                     "pulse_idx": int(pulse_idx),
-                    "fs": float(fs),
+                    "fs": float(WAVEFORM_FS),
+                    "native_fs": native_fs,
                     "sampling_pool": "enrichment",
                 }
                 if double_marker is not None and double_marker[pulse_idx] == 1:
@@ -881,7 +888,8 @@ def load_enrichment_pulses_for_labeling(
                     {
                         "file_path": str(file_path),
                         "pulse_idx": int(pulse_idx),
-                        "fs": float(fs),
+                        "fs": float(WAVEFORM_FS),
+                        "native_fs": native_fs,
                         "best_channel": int(best_channel),
                         "all_channels": pulse_data,
                     }
@@ -902,6 +910,7 @@ def load_enrichment_pulses_for_labeling(
                     "file_path": meta[i]["file_path"],
                     "pulse_idx": meta[i]["pulse_idx"],
                     "fs": meta[i]["fs"],
+                    "native_fs": meta[i].get("native_fs", meta[i]["fs"]),
                     "best_channel": meta[i]["best_channel"],
                     "all_channels": meta[i]["all_channels"],
                     "rf_max_proba": max_p,

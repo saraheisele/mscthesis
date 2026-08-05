@@ -54,6 +54,7 @@ from h5_io import (
     save_marker_sidecar,
 )
 from presentation_style import LEGEND_LOC, apply_presentation_style, classifier_label_colors
+from pulse_config import WAVEFORM_FS
 from waveform_rule_metrics import (
     MIN_AMPLITUDE_THRESHOLD,
     check_pulse_shape_gaussian_exponential,
@@ -263,8 +264,8 @@ def detect_special_pulses_in_file(file_path):
         raw_pulses = block.data_arrays["raw_pulses"]
         predicted_labels = block.data_arrays["predicted_labels"]
 
-        # Get sample rate from metadata
-        fs = file.sections["pulses_metadata"]["metadata"]["samplerate"]
+        # Waveform snippets share WAVEFORM_FS (24 kHz files interpolated upstream).
+        fs = float(WAVEFORM_FS)
         ### TODO: CURRENTLY AT STEP 8 OF CHATS IMPLEMENTATION
         num_pulses = len(raw_pulses)
         con.log(f"  Found {num_pulses} pulses.")
@@ -414,6 +415,12 @@ def get_default_ml_paths():
 
     Dummy and full keep fully separate train/test/model files so a full-domain
     retrain cannot overwrite the dummy-domain artifacts (or vice versa).
+
+    Current hand-label sets used for RF train/test are
+    ``naturalistic_{train,test}_labels[_full].npz``. The ``labels`` key is the
+    legacy interactive pool name (``labeled_special_pulses*.npz``); training and
+    PCA prefer the naturalistic train file when it exists.
+    ``special_pulse_rf_pca[_full].pkl`` is the fitted classifier, not labels.
     """
     from data_paths import USE_DUMMY_DATASET
 
@@ -533,7 +540,10 @@ def load_balanced_detector_labeled_pulses(
             wide_marker = detector_markers[1]
             double_marker = detector_markers[2]
 
-            fs = file.sections["pulses_metadata"]["metadata"]["samplerate"]
+            # Provenance only; labeling timebase uses WAVEFORM_FS on the record.
+            native_fs = float(
+                file.sections["pulses_metadata"]["metadata"]["samplerate"]
+            )
 
             candidate_mask = np.zeros(num_pulses, dtype=bool)
             candidate_mask[candidate_indices] = True
@@ -549,7 +559,8 @@ def load_balanced_detector_labeled_pulses(
                         {
                             "file_path": str(file_path),
                             "pulse_idx": int(pulse_idx),
-                            "fs": float(fs),
+                            "fs": float(WAVEFORM_FS),
+                            "native_fs": native_fs,
                             "sampling_pool": LABELING_PULSE_CLASSES[label_id],
                         }
                     )
@@ -1114,9 +1125,12 @@ def plot_labeled_pulses_pca_space(
     output_path=None,
     show=True,
     class_names=None,
+    *,
+    legend_title: str = "RF class",
+    title: str = "Robust PCA space of RF-classified pulses",
 ):
     """
-    Plot robust-PCA projections of manually labeled pulse waveforms.
+    Plot robust-PCA projections of labeled pulse waveforms.
 
     Computes up to PCA_MAX_PLOT_COMPONENTS components and renders the most
     informative PC pairs (PC1/PC2 plus additional high-variance axes).
@@ -1166,16 +1180,13 @@ def plot_labeled_pulses_pca_space(
             colors,
         )
         if panel_idx == 0:
-            ax.legend(title="Manual label", frameon=True, loc=LEGEND_LOC)
+            ax.legend(title=legend_title, frameon=True, loc=LEGEND_LOC)
 
     for panel_idx in range(n_panels, n_rows * n_cols):
         row_idx, col_idx = divmod(panel_idx, n_cols)
         axes[row_idx, col_idx].set_axis_off()
 
-    fig.suptitle(
-        "Robust PCA Space of Manually Labeled Pulses",
-        y=1.02,
-    )
+    fig.suptitle(title, y=1.02)
     fig.tight_layout()
 
     if output_path is not None:
@@ -1476,7 +1487,7 @@ def predict_special_pulses_in_file(
 
         raw_pulses = block.data_arrays["raw_pulses"]
         num_pulses = len(raw_pulses)
-        fs = float(file.sections["pulses_metadata"]["metadata"]["samplerate"])
+        fs = float(WAVEFORM_FS)
 
         if "predicted_labels" in data_array_names:
             predicted_labels = block.data_arrays["predicted_labels"][:]

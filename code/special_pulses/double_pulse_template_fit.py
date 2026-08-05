@@ -137,56 +137,142 @@ def scaled_shifted_template(
     return np.interp(x, source_x, template, left=0.0, right=0.0)
 
 
+def load_prototype_normal_template(
+    *,
+    prototype_stat: str = PROTOTYPE_STAT,
+    target_fs: float | None = None,
+    target_len: int,
+) -> tuple[np.ndarray, float, int]:
+    """Load the prototype normal waveform (default: median) as the fit template.
+
+    Snippets already live on ``WAVEFORM_FS``; only length is matched to the
+    double prototype via center pad/crop.
+    """
+    from pulse_config import WAVEFORM_FS
+    from special_pulses.prototype_pulse_plots import (
+        load_prototype_mean_waveforms,
+        match_trace_length,
+    )
+
+    if prototype_stat not in ("mean", "median"):
+        raise ValueError("prototype_stat must be 'mean' or 'median'")
+    proto = load_prototype_mean_waveforms("normal")
+    if proto is None:
+        raise RuntimeError(
+            "Prototype normal mean/median npz not found. "
+            "Run special_pulses/prototype_pulse_plots.py first."
+        )
+    trace = np.asarray(proto[prototype_stat], dtype=float)
+    unified = match_trace_length(trace, int(target_len))
+    fs = float(WAVEFORM_FS)
+    if target_fs is not None and abs(float(target_fs) - fs) >= 1e-6:
+        console.log(
+            f"[yellow]Ignoring requested target_fs={target_fs:.0f}; "
+            f"using WAVEFORM_FS={fs:.0f}"
+        )
+    peak = float(np.max(np.abs(unified)))
+    if peak > 0:
+        unified = unified / peak
+    n_pulses = int(proto["n_in_mean"])
+    console.log(
+        f"Normal template = prototype {prototype_stat} "
+        f"(n={n_pulses:,}, fs={fs:.0f} Hz, len={len(unified)})"
+    )
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    np.savez(
+        OUTPUT_DIR / "normal_template.npz",
+        template=unified,
+        fs=float(fs),
+        prototype_stat=str(prototype_stat),
+        n_in_prototype=n_pulses,
+    )
+    return unified, float(fs), n_pulses
+
+
 def build_normal_template(
     data_path,
     template_sample_size: int = TEMPLATE_SAMPLE_SIZE,
     random_seed: int = RANDOM_SEED,
     required_fs: float | None = None,
+    prototype_stat: str = PROTOTYPE_STAT,
 ) -> tuple[np.ndarray, float]:
+    """Build a normal-pulse template on ``WAVEFORM_FS``.
+
+    Prefers the saved prototype aggregate (``prototype_stat``, default median).
+    Falls back to a fresh sample aggregate only if the prototype NPZ is missing.
+    """
+    from pulse_config import WAVEFORM_FS
+    from special_pulses.prototype_pulse_plots import load_prototype_mean_waveforms
+
+    _ = required_fs  # native-rate filter unused; snippets share WAVEFORM_FS
+    proto = load_prototype_mean_waveforms("normal")
+    if proto is not None:
+        target_len = len(np.asarray(proto[prototype_stat], dtype=float))
+        template, fs, _n = load_prototype_normal_template(
+            prototype_stat=prototype_stat,
+            target_fs=WAVEFORM_FS,
+            target_len=target_len,
+        )
+        return template, fs
+
+    console.log(
+        "[yellow]Prototype normal NPZ missing; building fallback "
+        f"{prototype_stat} template from RF normals..."
+    )
     entries = collect_classifier_pulse_indices(data_path, CLASS_IDS["normal"])[0]
     total = len(entries)
-    # Oversample when filtering by rate so we still reach template_sample_size.
-    load_cap = None if required_fs is None else template_sample_size
-    if total > template_sample_size and required_fs is None:
-        rng = np.random.default_rng(random_seed)
-        pick = rng.choice(total, size=template_sample_size, replace=False)
-        entries = [entries[i] for i in pick]
-        console.log(
-            f"Template built from {template_sample_size:,} / {total:,} sampled normal pulses"
-        )
+    load_cap = template_sample_size
     corrected, normalized, fs = load_all_waveforms(
         entries,
         align_mode="maximum",
         max_waveforms=load_cap,
         random_seed=random_seed,
-        required_fs=required_fs,
+        required_fs=None,
+        target_fs=WAVEFORM_FS,
     )
     if not normalized:
         raise RuntimeError("No normal pulses found for template construction.")
-    if required_fs is not None and len(normalized) < template_sample_size:
-        console.log(
-            f"[yellow]Template used {len(normalized):,} normals at {fs:.0f} Hz "
-            f"(requested {template_sample_size:,})"
-        )
-    elif required_fs is not None:
-        console.log(
-            f"Template built from {len(normalized):,} / {total:,} normal pulses "
-            f"at {fs:.0f} Hz"
-        )
     aligned = align_waveforms(normalized, corrected, "maximum", fs)
-    console.log(f"Normal template: n={len(aligned):,}, length={len(aligned[0])} samples")
-    template = np.mean(aligned, axis=0)
+    reducer = np.median if prototype_stat == "median" else np.mean
+    template = reducer(aligned, axis=0)
+    console.log(
+        f"Normal template ({prototype_stat} fallback): n={len(aligned):,}, "
+        f"length={len(template)} samples, fs={fs:.0f}"
+    )
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    np.savez(OUTPUT_DIR / "normal_template.npz", template=template, fs=fs)
+    np.savez(
+        OUTPUT_DIR / "normal_template.npz",
+        template=template,
+        fs=fs,
+        prototype_stat=str(prototype_stat),
+        n_in_prototype=len(aligned),
+    )
     return template, fs
 
 
-def load_cached_template() -> tuple[np.ndarray, float] | None:
+def load_cached_template(
+    *,
+    prototype_stat: str = PROTOTYPE_STAT,
+    required_fs: float | None = None,
+) -> tuple[np.ndarray, float] | None:
+    """Load cached normal template only if it matches ``prototype_stat`` / fs."""
     cache = OUTPUT_DIR / "normal_template.npz"
     if not cache.exists():
         return None
-    data = np.load(cache)
-    return data["template"], float(data["fs"])
+    data = np.load(cache, allow_pickle=False)
+    cached_stat = (
+        str(data["prototype_stat"]) if "prototype_stat" in data.files else "mean"
+    )
+    if cached_stat != prototype_stat:
+        console.log(
+            f"[yellow]Cached normal template is {cached_stat!r}, "
+            f"need {prototype_stat!r}; rebuilding"
+        )
+        return None
+    fs = float(data["fs"])
+    if required_fs is not None and abs(fs - float(required_fs)) >= 1e-6:
+        return None
+    return data["template"], fs
 
 
 def prepare_rf_double_pulse(
@@ -221,16 +307,18 @@ def load_rf_double_sample(
 ) -> tuple[list[PulseData], float]:
     """Random sample of RF doubles that also show two-peak morphology.
 
-    If ``required_fs`` is set, only pulses from files at that samplerate are used
-    (dummy data mixes 24 kHz and 48 kHz recordings).
+    Waveform timebase is always ``WAVEFORM_FS``. If ``required_fs`` is set, only
+    pulses from files whose *native* metadata rate matches are used.
     """
+    from pulse_config import WAVEFORM_FS
+
     entries = collect_classifier_pulse_indices(data_path, CLASS_IDS["double"])[0]
     rng = np.random.default_rng(random_seed)
     shuffled = list(entries)
     rng.shuffle(shuffled)
 
     pulses: list[PulseData] = []
-    fs = None
+    fs = float(WAVEFORM_FS)
     open_files: dict = {}
     n_seen = 0
     n_skipped_morphology = 0
@@ -260,10 +348,8 @@ def load_rf_double_sample(
             if cached is None:
                 n_skipped_rate += 1
                 continue
-            file, block, file_fs = cached
+            file, block, _file_fs = cached
             pulse_data = block.data_arrays["raw_pulses"][pulse_idx][:]
-            if fs is None:
-                fs = file_fs
 
             n_seen += 1
             trace, _ = get_biggest_unclipped_waveform(pulse_data)
@@ -284,7 +370,7 @@ def load_rf_double_sample(
             "No RF-classified doubles with detectable two-peak morphology found."
         )
     rate_note = (
-        f", skipped {n_skipped_rate} at other sample rates"
+        f", skipped {n_skipped_rate} at other native sample rates"
         if required_fs is not None
         else ""
     )
@@ -639,6 +725,9 @@ def fit_all_pulses(
 def reconstruct_components(
     result: FitResult, template: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
+    if not result.success or not np.isfinite(result.a1):
+        nan_trace = np.full(len(template), np.nan, dtype=float)
+        return nan_trace, nan_trace.copy()
     w1 = 1.0 if not np.isfinite(result.width_scale) else result.width_scale
     w2 = w1 if not np.isfinite(result.width_scale_2) else result.width_scale_2
     comp1 = result.a1 * scaled_shifted_template(template, result.t1_samples, w1)
@@ -799,6 +888,8 @@ def plot_prototype_template_fit_example(
             f"Model {result.model} fit "
             f"($\\Delta t$={result.delay_ms:.2f} ms, "
             f"$w$=({result.width_scale:.2f},{w2:.2f}), $R^2$={result.r2:.3f})"
+            if result.success
+            else f"Model {result.model} fit (FAILED)"
         ),
         zorder=5,
     )
@@ -859,6 +950,7 @@ def save_prototype_fit_params(
 ) -> Path:
     payload = {
         "pulse_source": "prototype_double_npz",
+        "normal_template_source": f"prototype_normal_{prototype_stat}",
         "prototype_stat": prototype_stat,
         "model": model_key,
         "n_pulses": n_pulses,
@@ -944,38 +1036,41 @@ def main(
             f"(pipeline default is {DEFAULT_MODEL!r})"
         )
 
-    required_fs = float(proto["fs"])
+    y = np.asarray(proto[prototype_stat], dtype=float)
+    from pulse_config import WAVEFORM_FS
+
+    fs_target = float(WAVEFORM_FS)
     console.log(
-        f"Restricting normal template to {required_fs:.0f} Hz "
-        f"(matching prototype double)"
+        f"Normal + double templates both use prototype {prototype_stat}; "
+        f"WAVEFORM_FS={fs_target:.0f} Hz / {len(y)} samples"
     )
 
-    cached = load_cached_template()
-    if cached is not None and abs(cached[1] - required_fs) < 1e-6:
+    cached = load_cached_template(
+        prototype_stat=prototype_stat, required_fs=fs_target
+    )
+    if cached is not None and len(cached[0]) == len(y):
         template, fs = cached
         console.log(
-            f"Loaded cached normal template ({len(template)} samples, fs={fs:.0f})"
+            f"Loaded cached prototype-{prototype_stat} normal template "
+            f"({len(template)} samples, fs={fs:.0f})"
         )
     else:
-        if cached is not None:
-            console.log(
-                f"[yellow]Cached template fs={cached[1]:.0f} mismatches "
-                f"required {required_fs:.0f}; rebuilding"
-            )
-        console.log("Collecting normal pulses for template...")
-        template, fs = build_normal_template(
-            data_path, required_fs=required_fs, random_seed=random_seed
+        template, fs, _n_norm = load_prototype_normal_template(
+            prototype_stat=prototype_stat,
+            target_fs=fs_target,
+            target_len=len(y),
         )
 
-    y = np.asarray(proto[prototype_stat], dtype=float)
     if len(y) != len(template):
         raise RuntimeError(
             f"Prototype length {len(y)} != template length {len(template)}"
         )
-    if abs(proto["fs"] - fs) >= 1e-6:
-        raise RuntimeError(
-            f"Prototype fs={proto['fs']} mismatches template fs={fs}"
+    if abs(fs - WAVEFORM_FS) >= 1e-6:
+        console.log(
+            f"[yellow]Template fs={fs:.0f} ≠ WAVEFORM_FS; reinterpreting as "
+            f"{WAVEFORM_FS:.0f} Hz"
         )
+        fs = float(WAVEFORM_FS)
 
     result = fit_two_normals_model(y, template, fs, model_key=model_key)
     console.log(
@@ -983,6 +1078,11 @@ def main(
         f"R²={result.r2:.3f}, Δt={result.delay_ms:.3f} ms, "
         f"w={result.width_scale:.3f}, a1={result.a1:.3f}, a2={result.a2:.3f}"
     )
+    if not result.success:
+        console.log(
+            "[yellow]WARNING: template fit failed (params will be NaN); "
+            "example figure still written for diagnosis."
+        )
     plot_prototype_template_fit_example(
         y,
         result,
@@ -1004,6 +1104,118 @@ def main(
         "Archived exploratory runners: archived/double_pulse_template_fit_exploratory.py"
     )
     console.log(f"Done. Outputs under {OUTPUT_DIR} and figures/pulse_shapes/")
+    return result, template, fs, y, proto
+
+
+def plot_model_hierarchy_panel(
+    y: np.ndarray,
+    template: np.ndarray,
+    fs: float,
+    output_dir: Path,
+    *,
+    n_pulses: int,
+    prototype_stat: str = PROTOTYPE_STAT,
+) -> dict[str, FitResult]:
+    """Fit models A–F to one prototype double and save a 2×3 panel figure."""
+    peaks = double_peak_indices(y, fs)
+    if peaks is None:
+        console.log(
+            "[yellow]WARNING: skipped double_pulse_model_hierarchy panel — "
+            "no two peaks on prototype double."
+        )
+        return {}
+    t1, t2 = float(peaks[0]), float(peaks[1])
+    observed_dt_ms = (t2 - t1) / fs * 1000
+
+    results = {key: fit_two_normals_model(y, template, fs, key) for key in MODEL_KEYS}
+    for key, result in results.items():
+        w2 = (
+            result.width_scale_2
+            if np.isfinite(result.width_scale_2)
+            else result.width_scale
+        )
+        console.log(
+            f"{key}: success={result.success}, R²={result.r2:.3f}, "
+            f"Δt={result.delay_ms:.3f} ms, w1={result.width_scale:.3f}, "
+            f"w2={w2:.3f}, a1={result.a1:.3f}, a2={result.a2:.3f}"
+        )
+        if not result.success:
+            console.log(f"[yellow]WARNING: model {key} fit failed.")
+
+    apply_presentation_style()
+    time_ms = np.arange(len(y)) / fs * 1000
+    fig, axes = plt.subplots(2, 3, figsize=(15, 8), sharex=True, sharey=True)
+    for ax, key in zip(axes.ravel(), MODEL_KEYS):
+        result = results[key]
+        ax.plot(time_ms, y, color=DOUBLE_COLOR, lw=2, label="Observed", zorder=4)
+        if result.success:
+            yhat, c1, c2 = reconstruct_fit(result, template)
+            w2 = (
+                result.width_scale_2
+                if np.isfinite(result.width_scale_2)
+                else result.width_scale
+            )
+            ax.plot(
+                time_ms,
+                yhat,
+                color=REFERENCE_COLOR,
+                lw=1.8,
+                label=f"Fit $R^2$={result.r2:.3f}",
+                zorder=5,
+            )
+            ax.plot(time_ms, c1, color=NORMAL_COLOR, ls="--", alpha=0.85, label="C1")
+            ax.plot(time_ms, c2, color=NORMAL_COLOR, ls=":", alpha=0.85, label="C2")
+            ax.set_title(
+                f"{key}\n"
+                f"$\\Delta t$={result.delay_ms:.2f} ms, "
+                f"$w$=({result.width_scale:.2f},{w2:.2f})"
+            )
+        else:
+            ax.set_title(f"{key}\n(failed)")
+        ax.scatter(
+            [t1 / fs * 1000, t2 / fs * 1000],
+            [y[int(round(t1))], y[int(round(t2))]],
+            color=DOUBLE_COLOR,
+            s=40,
+            marker="*",
+            zorder=6,
+        )
+        ax.grid(True, alpha=0.3)
+        ax.set_ylim(-0.15, 1.15)
+        ax.legend(loc=LEGEND_LOC, fontsize=7)
+
+    for ax in axes[1, :]:
+        ax.set_xlabel("Time (ms)")
+    for ax in axes[:, 0]:
+        ax.set_ylabel("Normalized amplitude")
+    fig.suptitle(
+        f"Model hierarchy on prototype {prototype_stat} double "
+        f"(n={n_pulses}; observed $\\Delta t$={observed_dt_ms:.2f} ms)"
+    )
+    plt.tight_layout()
+    out = output_dir / f"double_pulse_model_hierarchy_{prototype_stat}.png"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, dpi=300)
+    save_thesis_figure(
+        f"pulse_shapes/double_pulse_model_hierarchy_{prototype_stat}.png", fig
+    )
+    plt.close(fig)
+    console.log(f"Saved {out}")
+
+    payload = {
+        "target": prototype_stat,
+        "n_pulses": n_pulses,
+        "observed_delta_t_ms": observed_dt_ms,
+        "sample_rate_hz": fs,
+        "models": {k: asdict(v) for k, v in results.items()},
+    }
+    params_out = output_dir / f"double_pulse_model_hierarchy_{prototype_stat}.json"
+    with open(params_out, "w") as handle:
+        json.dump(payload, handle, indent=2, default=_json_default)
+    save_thesis_json(
+        f"pulse_shapes/double_pulse_model_hierarchy_{prototype_stat}.json", payload
+    )
+    return results
 
 
 def parse_args(argv=None):
@@ -1026,6 +1238,11 @@ def parse_args(argv=None):
         help="Which prototype aggregate to fit (default: median).",
     )
     parser.add_argument(
+        "--all-models",
+        action="store_true",
+        help="Also fit models A–F and write a hierarchy panel figure.",
+    )
+    parser.add_argument(
         "--apply-classifier",
         action="store_true",
         help="Re-apply RF labels before fitting (default: use existing labels).",
@@ -1035,8 +1252,23 @@ def parse_args(argv=None):
 
 if __name__ == "__main__":
     args = parse_args()
-    main(
+    fit_out = main(
         apply_classifier=args.apply_classifier,
         model_key=args.model,
         prototype_stat=args.prototype_stat,
     )
+    if args.all_models:
+        if fit_out is None:
+            console.log(
+                "[yellow]WARNING: skipped model hierarchy panel — main fit returned nothing."
+            )
+        else:
+            _result, template, fs, y, proto = fit_out
+            plot_model_hierarchy_panel(
+                y,
+                template,
+                fs,
+                OUTPUT_DIR,
+                n_pulses=int(proto["n_in_mean"]),
+                prototype_stat=args.prototype_stat,
+            )

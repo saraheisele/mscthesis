@@ -38,11 +38,18 @@ def plot_distributions(widths_by_shape: dict, output_dir: Path):
         json.dump(counts, handle, indent=2)
 
     n_shapes = len(PULSE_SHAPES)
-    fig, axes = plt.subplots(1, n_shapes, figsize=(4.5 * n_shapes, 5))
+    fig, axes = plt.subplots(1, n_shapes, figsize=(4.5 * n_shapes, 5), sharex=True)
+    xmax = 0.0
+    for values in widths_by_shape.values():
+        if values.size:
+            xmax = max(xmax, float(np.max(values)))
+    shared_xlim = (0.0, xmax * 1.02 if xmax > 0 else 1.0)
+
     for ax, (key, shape) in zip(np.atleast_1d(axes), PULSE_SHAPES.items()):
         values = widths_by_shape[key]
         if values.size == 0:
             ax.set_title(f"{shape['label']} (n=0)")
+            ax.set_xlim(shared_xlim)
             continue
         ax.hist(values, bins=50, color=shape["color"], alpha=0.75, edgecolor="white")
         ax.axvline(
@@ -54,6 +61,7 @@ def plot_distributions(widths_by_shape: dict, output_dir: Path):
         ax.set_xlabel("Half width (ms)")
         ax.set_ylabel("Count")
         ax.set_title(f"{shape['label']} (n={values.size:,})")
+        ax.set_xlim(shared_xlim)
         ax.legend(fontsize=8, loc=LEGEND_LOC)
         ax.grid(True, alpha=0.3)
 

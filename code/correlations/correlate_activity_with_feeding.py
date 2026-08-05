@@ -496,6 +496,8 @@ def plot_peri_feeding_curves(peri_curves: dict[str, list[np.ndarray]]):
     if not any(peri_curves.values()):
         return
 
+    from matplotlib.patches import Patch
+
     fig, ax = plt.subplots(figsize=(10, 6))
     x = np.arange(-PERI_WINDOW_MIN, PERI_WINDOW_MIN)
 
@@ -504,17 +506,36 @@ def plot_peri_feeding_curves(peri_curves: dict[str, list[np.ndarray]]):
         if not curves:
             continue
         color = pulse_shape_color(pulse_type)
-        mean_curve = np.mean(np.vstack(curves), axis=0)
-        sem = stats.sem(np.vstack(curves), axis=0) if len(curves) > 1 else np.zeros_like(mean_curve)
-        ax.plot(x, mean_curve, label=cfg["label"], color=color)
-        ax.fill_between(x, mean_curve - sem, mean_curve + sem, alpha=0.2, color=color)
+        stacked = np.vstack(curves)
+        mean_curve = np.mean(stacked, axis=0)
+        # SEM across feeding-event trajectories (one curve per matched feeding event).
+        sem = stats.sem(stacked, axis=0) if len(curves) > 1 else np.zeros_like(mean_curve)
+        ax.plot(x, mean_curve, label=f'{cfg["label"]} (mean)', color=color)
+        ax.fill_between(
+            x,
+            mean_curve - sem,
+            mean_curve + sem,
+            alpha=0.2,
+            color=color,
+            linewidth=0,
+        )
 
     ax.axvline(0, color="black", linestyle="--", linewidth=1, alpha=0.7)
     ax.set_xlabel("Minutes relative to feeding event")
     ax.set_ylabel("Mean pulse rate (Hz)")
     ax.set_title("Average pulse activity around feeding events")
     ax.grid(True, alpha=0.3)
-    ax.legend(loc=LEGEND_LOC)
+    handles, labels = ax.get_legend_handles_labels()
+    handles.append(
+        Patch(
+            facecolor="0.5",
+            alpha=0.25,
+            edgecolor="none",
+            label=r"shaded band: $\pm$ SEM across feeding events",
+        )
+    )
+    labels.append(r"shaded band: $\pm$ SEM across feeding events")
+    ax.legend(handles, labels, loc=LEGEND_LOC)
     plt.tight_layout()
     plt.savefig(OUTPUT_DIR / "peri_feeding_pulse_rate_trajectories.png", dpi=300)
     save_thesis_figure("correlations/peri_feeding_pulse_rate_trajectories.png")

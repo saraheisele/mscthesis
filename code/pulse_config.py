@@ -4,6 +4,14 @@ Analysis part: configuration (used by preprocessing, plotting, and correlation s
 Dependencies: none.
 """
 
+# Predetected ``raw_pulses`` snippets are stored on a common sample grid: 24 kHz
+# recordings were interpolated up to the 48 kHz window length. Use this rate for
+# every waveform sample↔time conversion (half-width, peak separation, plot axes,
+# ms windows on snippets). Keep the file metadata ``samplerate`` only for
+# recording-timeline quantities (``centers`` → wall-clock time, ISI between
+# centers, recording duration).
+WAVEFORM_FS = 48_000.0
+
 PULSE_TYPES = {
     "all": {
         "label": "all pulses",

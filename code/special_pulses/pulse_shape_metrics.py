@@ -2,6 +2,8 @@
 
 Analysis part: special-pulse metrics (used by prototype plots and property analyses).
 Dependencies: waveform_rule_metrics.
+
+Pass ``WAVEFORM_FS`` from ``pulse_config`` for snippet sample↔time conversions.
 """
 
 from __future__ import annotations

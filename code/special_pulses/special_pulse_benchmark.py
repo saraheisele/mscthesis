@@ -24,6 +24,7 @@ from sklearn.svm import SVC
 
 from data_paths import H5_DIR, PCA_SPACE_DIR
 from h5_io import get_path_list, get_pulse_block, open_h5
+from pulse_config import WAVEFORM_FS
 from waveform_rule_metrics import (
     detect_double_pulse,
     detect_wide_pulse,
@@ -270,7 +271,7 @@ def plot_benchmark_waveform_sanity(
             for example_idx in picked:
                 waveform = X_test[example_idx]
                 record = test_records[example_idx]
-                fs = float(record["fs"]) if record is not None else 1.0
+                fs = float(record["fs"]) if record is not None else float(WAVEFORM_FS)
                 time_axis = np.arange(len(waveform)) / fs * 1000
                 pred_name = SPECIAL_PULSE_CLASSES.get(
                     int(y_pred[example_idx]), f"class {y_pred[example_idx]}"
@@ -616,7 +617,7 @@ def sample_naturalistic_pulses(
                 candidate_indices = np.where(block.data_arrays["predicted_labels"][:] == 1)[0]
             else:
                 candidate_indices = np.arange(num_pulses)
-            fs = float(file.sections["pulses_metadata"]["metadata"]["samplerate"])
+            fs = float(WAVEFORM_FS)
             for pulse_idx in candidate_indices:
                 pool.append((str(file_path), int(pulse_idx), fs))
         finally:

@@ -41,6 +41,7 @@ from double_peaks_detection import (
     get_default_ml_paths,
 )
 from h5_io import get_path_list, get_pulse_block, load_marker_array, open_h5
+from pulse_config import WAVEFORM_FS
 from pulse_shape_metrics import (
     baseline_correct,
     double_pulse_metrics,
@@ -57,6 +58,9 @@ SAMPLE_SIZE = 100  # gray overlay traces in prototype plots
 MAX_WAVEFORMS_PER_CLASS = 20_000  # random-sample cap for prototype aggregates
 PROTOTYPE_STAT = "median"  # overlay / panel / double-alignment display default
 RANDOM_SEED = 42
+# raw_pulses are already on a common 48 kHz-equivalent grid (24 kHz files were
+# interpolated upstream). Always use WAVEFORM_FS for snippet sample↔time.
+TARGET_FS = WAVEFORM_FS  # alias kept for callers / cached APIs
 
 CLIP_RATIO = 0.995
 CLIP_MIN_CONSECUTIVE = 8
@@ -349,7 +353,7 @@ def load_sampled_waveforms(entries, sample_size, random_seed, align_mode=None):
             file, block = open_files[file_key]
             pulse_data = block.data_arrays["raw_pulses"][pulse_idx][:]
             if fs is None:
-                fs = float(file.sections["pulses_metadata"]["metadata"]["samplerate"])
+                fs = float(WAVEFORM_FS)
 
             trace, _ = get_biggest_unclipped_waveform(pulse_data)
             corrected = baseline_correct(trace)
@@ -506,16 +510,39 @@ def add_detection_markers(ax, mean_trace, fs, pulse_shape, pulse_key=None):
         )
 
 
+def match_trace_length(trace, target_len: int):
+    """Center-crop or zero-pad a 1D trace to ``target_len`` samples."""
+    trace = np.asarray(trace, dtype=float)
+    n = len(trace)
+    if n == target_len:
+        return trace
+    if n > target_len:
+        start = (n - target_len) // 2
+        return trace[start : start + target_len]
+    out = np.zeros(target_len, dtype=float)
+    start = (target_len - n) // 2
+    out[start : start + n] = trace
+    return out
+
+
 def load_all_waveforms(
     entries,
     align_mode=None,
     max_waveforms=None,
     random_seed=None,
     required_fs: float | None = None,
+    target_fs: float = WAVEFORM_FS,
+    target_len: int | None = None,
 ):
     """Load waveforms for prototype aggregates (optionally capped via random sample).
 
-    If ``required_fs`` is set, skip files whose metadata samplerate differs.
+    Snippet arrays are already on the shared ``WAVEFORM_FS`` grid (24 kHz files
+    were interpolated upstream). ``target_fs`` is ignored except as the returned
+    timebase (always ``WAVEFORM_FS``). Length is matched to ``target_len`` (or
+    the first accepted pulse) via center crop/pad.
+
+    If ``required_fs`` is set, only files whose *native* metadata rate matches
+    are used (provenance filter; does not change the waveform timebase).
     Entries are shuffled, then grouped by file in shuffle order so HDF5 reads
     stay sequential without alphabetically biasing the capped sample.
     """
@@ -536,9 +563,12 @@ def load_all_waveforms(
 
     corrected_waveforms = []
     normalized_waveforms = []
-    fs = None
-    target_len = None
+    fs = float(WAVEFORM_FS)
     open_files = {}
+    n_skipped_rate = 0
+    n_skipped_len = 0
+    n_skipped_morphology = 0
+    _ = target_fs  # callers may still pass it; timebase is always WAVEFORM_FS
 
     try:
         for file_path, pulse_idx in entries:
@@ -560,20 +590,26 @@ def load_all_waveforms(
 
             cached = open_files[file_key]
             if cached is None:
+                n_skipped_rate += 1
                 continue
-            file, block, file_fs = cached
+            file, block, _file_fs = cached
             pulse_data = block.data_arrays["raw_pulses"][pulse_idx][:]
-            if fs is None:
-                fs = file_fs
-            elif abs(file_fs - fs) >= 1e-6:
-                continue
             trace, _ = get_biggest_unclipped_waveform(pulse_data)
+
             if target_len is None:
                 target_len = len(trace)
             elif len(trace) != target_len:
-                continue
+                # Prefer exact match; fall back to pad/crop for rare mismatches.
+                if abs(len(trace) - target_len) > max(8, target_len // 20):
+                    n_skipped_len += 1
+                    continue
+                trace = match_trace_length(trace, int(target_len))
+            else:
+                trace = np.asarray(trace, dtype=float)
+
             corrected = baseline_correct(trace)
             if align_mode == "valley" and double_peak_indices(corrected, fs) is None:
+                n_skipped_morphology += 1
                 continue
             corrected_waveforms.append(corrected)
             normalized_waveforms.append(normalize_trace(corrected))
@@ -581,6 +617,14 @@ def load_all_waveforms(
         for cached in open_files.values():
             if cached is not None:
                 cached[0].close()
+
+    if n_skipped_rate or n_skipped_len or n_skipped_morphology:
+        console.log(
+            f"  Waveform load @ {fs:.0f} Hz: kept {len(normalized_waveforms):,}, "
+            f"skipped native-rate filter={n_skipped_rate:,}, "
+            f"skipped length={n_skipped_len:,}, "
+            f"skipped no-valley={n_skipped_morphology:,}"
+        )
 
     return corrected_waveforms, normalized_waveforms, fs
 
@@ -755,9 +799,13 @@ def plot_mean_pulse_shapes_panel(
             return None
         traces[key] = loaded
 
-    fs_values = {traces[k]["fs"] for k in panel_order}
-    if len(fs_values) != 1:
-        console.log(f"[yellow]Inconsistent sample rates {fs_values}; plotting anyway.")
+    for k in panel_order:
+        stored = float(traces[k]["fs"])
+        if abs(stored - WAVEFORM_FS) >= 1e-6:
+            console.log(
+                f"[yellow]prototype_{k}: cached fs={stored:.0f} Hz → "
+                f"plotting as WAVEFORM_FS={WAVEFORM_FS:.0f} Hz"
+            )
 
     fig, axes = plt.subplots(
         1,
@@ -775,7 +823,7 @@ def plot_mean_pulse_shapes_panel(
         shape = PULSE_SHAPES[key]
         trace = np.asarray(traces[key][prototype_stat], dtype=float)
         n = int(traces[key]["n_in_mean"])
-        time_ms = np.arange(len(trace)) / traces[key]["fs"] * 1000
+        time_ms = np.arange(len(trace)) / WAVEFORM_FS * 1000
         # Center time on the alignment sample so shapes line up visually.
         time_ms = time_ms - time_ms[len(trace) // 2]
 
@@ -828,7 +876,11 @@ def plot_normal_double_overlay(
     """Overlay median double pulse with two median normal pulses (peak-aligned)."""
     dp_peaks = double_peak_indices(double_trace, fs)
     if dp_peaks is None:
-        return
+        console.log(
+            "[yellow]Skipping normal_pulses_aligned_to_double.png: "
+            "no two peaks detected on double prototype."
+        )
+        return None
 
     normal_peak = int(np.argmax(normal_trace))
     p1, p2 = dp_peaks
@@ -887,6 +939,7 @@ def plot_normal_double_overlay(
     save_thesis_figure("pulse_shapes/normal_pulses_aligned_to_double.png", fig)
     plt.close(fig)
     console.log(f"Saved {out}")
+    return out
 
 
 def save_double_peak_separation_stats(corrected_waveforms, fs, output_dir):
@@ -911,6 +964,27 @@ def save_double_peak_separation_stats(corrected_waveforms, fs, output_dir):
         f"  Double peak separation: mean={stats_dict['mean_ms']:.3f} ms "
         f"(n={stats_dict['n']:,})"
     )
+
+
+def refresh_aligned_overlay_from_npz(output_dir: Path | None = None) -> Path | None:
+    """Rebuild aligned-to-double plot from saved prototypes on WAVEFORM_FS."""
+    output_dir = Path(output_dir) if output_dir is not None else OUTPUT_DIR
+    apply_presentation_style()
+    normal = load_prototype_mean_waveforms("normal", output_dir)
+    double = load_prototype_mean_waveforms("double", output_dir)
+    if normal is None or double is None:
+        console.log(
+            "[yellow]WARNING: skipped normal_pulses_aligned_to_double.png — "
+            "missing prototype_normal/double_mean.npz."
+        )
+        return None
+
+    normal_u = np.asarray(normal[PROTOTYPE_STAT], dtype=float)
+    double_u = np.asarray(double[PROTOTYPE_STAT], dtype=float)
+    target_len = max(len(normal_u), len(double_u))
+    normal_u = match_trace_length(normal_u, target_len)
+    double_u = match_trace_length(double_u, target_len)
+    return plot_normal_double_overlay(normal_u, double_u, float(WAVEFORM_FS), output_dir)
 
 
 def main(
@@ -1036,10 +1110,26 @@ def main(
     if "normal" in proto_traces and "double" in proto_traces:
         normal_med, fs_n, _ = proto_traces["normal"]
         double_med, fs_d, _ = proto_traces["double"]
-        if fs_n == fs_d:
+        if abs(float(fs_n) - float(fs_d)) < 1e-6:
             plot_normal_double_overlay(normal_med, double_med, fs_n, OUTPUT_DIR)
+        else:
+            console.log(
+                "[yellow]WARNING: in-memory sample-rate mismatch "
+                f"normal={fs_n:.0f} Hz vs double={fs_d:.0f} Hz; "
+                "rebuilding overlay from NPZs on WAVEFORM_FS."
+            )
+            refresh_aligned_overlay_from_npz(OUTPUT_DIR)
+    else:
+        missing = [k for k in ("normal", "double") if k not in proto_traces]
+        console.log(
+            "[yellow]WARNING: skipped normal_pulses_aligned_to_double.png — "
+            f"missing prototype traces for {missing}."
+        )
 
-    plot_mean_pulse_shapes_panel(OUTPUT_DIR)
+    if plot_mean_pulse_shapes_panel(OUTPUT_DIR) is None:
+        console.log(
+            "[yellow]WARNING: mean_pulse_shapes_panel.png was not produced."
+        )
 
 
 if __name__ == "__main__":

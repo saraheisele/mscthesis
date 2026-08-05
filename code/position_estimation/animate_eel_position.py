@@ -25,7 +25,7 @@ from matplotlib.patches import Circle, PathPatch
 from matplotlib.path import Path as MplPath
 from scipy.io import wavfile
 
-from data_paths import EEL_SVG, POSITION_FIGURES_DIR
+from data_paths import EEL_SVG, LAB_DATA_DIR, POSITION_FIGURES_DIR
 from eelplotting import get_eel_shape, plot_eel
 from position_utils import (
     BRIGHT_POOL_CENTER,
@@ -56,6 +56,12 @@ TITLE_PAD = 8
 FIXED_BODY_LENGTH_M = 2.0
 RAW_Y_MARGIN = 1.08
 POOL_FRAME_PAD_M = 0.04
+
+# Thesis default: dark-area chunk used for eel_position_animation.{mp4,gif}.
+DEFAULT_WAV_RELATIVE = Path(
+    "recordings_2026-01-28_darkarea/eellogger02-20260128T163148.wav"
+)
+DEFAULT_WAV_PATH = LAB_DATA_DIR / DEFAULT_WAV_RELATIVE
 
 
 def draw_electrode_ticks(ax, electrode_positions: np.ndarray):
@@ -401,6 +407,57 @@ def save_animation(
     plt.close(fig)
 
 
+def _print_entry_candidates(limit: int = 20) -> list[dict]:
+    """List entry-recording candidates and return the full candidate list."""
+    candidates = find_entry_recordings()
+    if not candidates:
+        print("No entry recordings found.")
+        return []
+    print(f"Found {len(candidates)} candidate chunks:\n")
+    for item in candidates[:limit]:
+        print(
+            f"  {item['session']} / {item['wav_name']} — "
+            f"entry from {item['entry_from']}, "
+            f"{item['early_mean_m']:.2f} m → {item['late_mean_m']:.2f} m "
+            f"({item['n_pulses']} pulses)"
+        )
+        print(f"    {item['wav_path']}")
+    return candidates
+
+
+def prompt_for_wav_path(default: Path = DEFAULT_WAV_PATH) -> Path:
+    """Ask whether to keep the default chunk or choose another wav."""
+    print("Default animation chunk:")
+    print(f"  {DEFAULT_WAV_RELATIVE}")
+    print(f"  {default}")
+    if not default.exists():
+        print("  (warning: default wav file not found on disk)")
+
+    answer = input("Continue with this default chunk? [Y/n]: ").strip().lower()
+    if answer in ("", "y", "yes"):
+        return default
+
+    while True:
+        choice = input(
+            "Enter a wav path, or 'list' to show entry candidates: "
+        ).strip()
+        if not choice:
+            print("No path entered; using default chunk.")
+            return default
+        if choice.lower() in ("list", "l"):
+            candidates = _print_entry_candidates()
+            if not candidates:
+                continue
+            print(
+                "\nPaste one of the wav paths above, or enter another path."
+            )
+            continue
+        path = Path(choice).expanduser()
+        if path.exists():
+            return path
+        print(f"File not found: {path}")
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Animate eel position along the Berlin line logger for one wav chunk."
@@ -408,7 +465,10 @@ def parse_args():
     parser.add_argument(
         "wav_path",
         nargs="?",
-        help="Path to an eellogger wav file (5-min chunk).",
+        help=(
+            "Path to an eellogger wav file (5-min chunk). "
+            "If omitted, prompts to keep the default chunk or choose another."
+        ),
     )
     parser.add_argument(
         "--h5",
@@ -468,25 +528,10 @@ def main():
     args = parse_args()
 
     if args.list_entry_recordings:
-        candidates = find_entry_recordings()
-        if not candidates:
-            print("No entry recordings found.")
-            return
-        print(f"Found {len(candidates)} candidate chunks:\n")
-        for item in candidates[:20]:
-            print(
-                f"  {item['session']} / {item['wav_name']} — "
-                f"entry from {item['entry_from']}, "
-                f"{item['early_mean_m']:.2f} m → {item['late_mean_m']:.2f} m "
-                f"({item['n_pulses']} pulses)"
-            )
-            print(f"    {item['wav_path']}")
+        _print_entry_candidates()
         return
 
-    if not args.wav_path:
-        raise SystemExit("Provide a wav_path or use --list-entry-recordings.")
-
-    wav_path = Path(args.wav_path)
+    wav_path = Path(args.wav_path) if args.wav_path else prompt_for_wav_path()
     pulse_positions, meta = load_pulses_for_wav(wav_path, h5_path=args.h5)
     print(
         f"Loaded {len(pulse_positions)} pulses from {meta['h5_path']} "

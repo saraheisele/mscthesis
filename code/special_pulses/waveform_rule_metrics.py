@@ -2,6 +2,10 @@
 
 The ML classifier is the production shape decision. These helpers remain for
 metrics, tuning, and legacy rule-based paths.
+
+Callers must pass ``WAVEFORM_FS`` (see ``pulse_config``) as ``sample_rate`` for
+predetected ``raw_pulses`` snippets. Those arrays share a 48 kHz-equivalent grid
+even when the recording metadata says 24 kHz.
 """
 
 from __future__ import annotations
