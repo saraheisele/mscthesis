@@ -40,6 +40,7 @@ from correlations.session_notes_utils import (
     session_name_from_h5,
 )
 from data_paths import (
+    DUAL_LINE_START_DATE,
     FEEDING_CORRELATION_DIR,
     H5_DIR,
     LAB_DATA_DIR,
@@ -64,6 +65,18 @@ NEGATIVE_CONTEXT_RE = re.compile(
 
 PERI_WINDOW_MIN = 10
 BASELINE_EXCLUDE_MIN = 5
+DAY_MINUTES = 24 * 60
+CLOCK_TIME_BOOTSTRAP_ITERATIONS = 10000
+CLOCK_TIME_CI_LEVEL = 95
+CLOCK_TIME_BOOTSTRAP_SEED = 0
+
+
+def pulse_count_weight(dt_start: datetime) -> float:
+    """Halve pulse counts from 25 Nov 2025, matching activity histogram dual-line weighting."""
+    dual_line_start = datetime.strptime(DUAL_LINE_START_DATE, "%Y-%m-%d")
+    if dt_start.date() >= dual_line_start.date():
+        return 0.5
+    return 1.0
 
 
 def extract_feeding_events(session_name: str, docx_path: Path) -> list[dict]:
@@ -185,6 +198,7 @@ def minute_pulse_rates(
         bin_idx = bin_idx[(bin_idx >= 0) & (bin_idx < n_bins)]
         if len(bin_idx) > 0:
             counts += np.bincount(bin_idx, minlength=n_bins)[:n_bins]
+    counts *= pulse_count_weight(rec_start)
 
     timestamps = [rec_start + timedelta(minutes=i) for i in range(n_bins)]
     return pd.DataFrame(
@@ -240,26 +254,50 @@ def peri_event_trajectory(
         offset_s = (event["event_time"] - rec_start).total_seconds()
         rel_seconds = pulse_samples / fs - offset_s
         hist, _ = np.histogram(rel_seconds, bins=bin_edges)
-        trajectories.append(hist / 60.0)
+        trajectories.append(hist.astype(float) * pulse_count_weight(rec_start) / 60.0)
 
     if not trajectories:
         return None
     return np.mean(np.vstack(trajectories), axis=0)
 
 
+def sig_stars(p: float) -> str:
+    if p is None or np.isnan(p):
+        return "n.s."
+    if p < 0.001:
+        return "***"
+    if p < 0.01:
+        return "**"
+    if p < 0.05:
+        return "*"
+    return "n.s."
+
+
+def _empty_feeding_corr() -> dict:
+    return {
+        "n_minutes": 0,
+        "n_feeding_minutes": 0,
+        "n_nonfeeding_minutes": 0,
+        "pearson_r": np.nan,
+        "pearson_p": np.nan,
+        "spearman_r": np.nan,
+        "spearman_p": np.nan,
+        "mean_rate_feeding_hz": np.nan,
+        "mean_rate_nonfeeding_hz": np.nan,
+        "rate_ratio_feeding_over_nonfeeding": np.nan,
+        "mannwhitney_u": np.nan,
+        "mannwhitney_p": np.nan,
+    }
+
+
 def correlate_feeding_flag(minute_records: pd.DataFrame) -> dict:
     if minute_records.empty or minute_records["feeding_flag"].nunique() < 2:
-        return {
-            "n_minutes": len(minute_records),
-            "n_feeding_minutes": int(minute_records["feeding_flag"].sum()),
-            "pearson_r": np.nan,
-            "pearson_p": np.nan,
-            "spearman_r": np.nan,
-            "spearman_p": np.nan,
-            "mean_rate_feeding_hz": np.nan,
-            "mean_rate_nonfeeding_hz": np.nan,
-            "rate_ratio_feeding_over_nonfeeding": np.nan,
-        }
+        out = _empty_feeding_corr()
+        out["n_minutes"] = len(minute_records)
+        out["n_feeding_minutes"] = (
+            int(minute_records["feeding_flag"].sum()) if not minute_records.empty else 0
+        )
+        return out
 
     feeding = minute_records["feeding_flag"].astype(float)
     rate = minute_records["pulse_rate_hz"].astype(float)
@@ -280,9 +318,20 @@ def correlate_feeding_flag(minute_records: pd.DataFrame) -> dict:
     mean_non = nonfeeding_rates.mean() if len(nonfeeding_rates) else np.nan
     ratio = mean_feed / mean_non if mean_non and not np.isnan(mean_non) else np.nan
 
+    if len(feeding_rates) > 0 and len(nonfeeding_rates) > 0:
+        # Two-sided Mann–Whitney U on minute-level rates (feeding window vs baseline).
+        mannwhitney_u, mannwhitney_p = stats.mannwhitneyu(
+            feeding_rates.to_numpy(dtype=float),
+            nonfeeding_rates.to_numpy(dtype=float),
+            alternative="two-sided",
+        )
+    else:
+        mannwhitney_u, mannwhitney_p = np.nan, np.nan
+
     return {
         "n_minutes": len(minute_records),
-        "n_feeding_minutes": int(minute_records["feeding_flag"].sum()),
+        "n_feeding_minutes": int(len(feeding_rates)),
+        "n_nonfeeding_minutes": int(len(nonfeeding_rates)),
         "pearson_r": pearson_r,
         "pearson_p": pearson_p,
         "spearman_r": spearman_r,
@@ -290,6 +339,8 @@ def correlate_feeding_flag(minute_records: pd.DataFrame) -> dict:
         "mean_rate_feeding_hz": mean_feed,
         "mean_rate_nonfeeding_hz": mean_non,
         "rate_ratio_feeding_over_nonfeeding": ratio,
+        "mannwhitney_u": float(mannwhitney_u),
+        "mannwhitney_p": float(mannwhitney_p),
     }
 
 
@@ -314,6 +365,107 @@ def extract_all_feeding_events() -> pd.DataFrame:
     return df.sort_values(["session", "event_time"]).reset_index(drop=True)
 
 
+def minutes_of_day(times: pd.Series) -> np.ndarray:
+    t = pd.to_datetime(times)
+    return (t.dt.hour * 60 + t.dt.minute + t.dt.second / 60.0).to_numpy(dtype=float)
+
+
+def circular_mean_minutes(mins: np.ndarray) -> float:
+    return float(stats.circmean(np.asarray(mins, dtype=float), high=DAY_MINUTES, low=0.0))
+
+
+def format_clock(mins: float) -> str:
+    m = float(mins) % DAY_MINUTES
+    hour = int(m // 60)
+    minute = int(round(m - hour * 60))
+    if minute == 60:
+        hour = (hour + 1) % 24
+        minute = 0
+    return f"{hour:02d}:{minute:02d}"
+
+
+def bootstrap_circular_mean_ci(
+    mins: np.ndarray,
+    n_bootstrap: int = CLOCK_TIME_BOOTSTRAP_ITERATIONS,
+    ci_level: int = CLOCK_TIME_CI_LEVEL,
+    seed: int = CLOCK_TIME_BOOTSTRAP_SEED,
+) -> tuple[float, float, float]:
+    """Circular mean of clock minutes with a percentile CI, unwrapped around the point estimate."""
+    rng = np.random.default_rng(seed)
+    mins = np.asarray(mins, dtype=float)
+    point = circular_mean_minutes(mins)
+    n = len(mins)
+    boots = np.empty(n_bootstrap)
+    for i in range(n_bootstrap):
+        boots[i] = circular_mean_minutes(rng.choice(mins, size=n, replace=True))
+    wrapped = (boots - point + DAY_MINUTES / 2.0) % DAY_MINUTES - DAY_MINUTES / 2.0
+    alpha = (100 - ci_level) / 2.0
+    lo = (point + np.percentile(wrapped, alpha)) % DAY_MINUTES
+    hi = (point + np.percentile(wrapped, 100.0 - alpha)) % DAY_MINUTES
+    return point, lo, hi
+
+
+def first_feeding_event_per_session(feeding_df: pd.DataFrame) -> pd.DataFrame:
+    if feeding_df.empty:
+        return feeding_df
+    return (
+        feeding_df.sort_values("event_time")
+        .groupby("session", as_index=False)
+        .first()
+        .reset_index(drop=True)
+    )
+
+
+def feeding_clock_time_stats(feeding_df: pd.DataFrame) -> dict:
+    """Circular mean clock time of the first logged feeding-related event per session."""
+    first = first_feeding_event_per_session(feeding_df)
+    if first.empty:
+        return {
+            "n_sessions": 0,
+            "n_events": 0,
+            "mean_minutes": np.nan,
+            "ci_lo_minutes": np.nan,
+            "ci_hi_minutes": np.nan,
+            "mean_clock": "",
+            "ci_lo_clock": "",
+            "ci_hi_clock": "",
+            "ci_level": CLOCK_TIME_CI_LEVEL,
+            "selection": "first_event_per_session",
+        }
+    mins = minutes_of_day(first["event_time"])
+    point, lo, hi = bootstrap_circular_mean_ci(mins)
+    return {
+        "n_sessions": int(len(first)),
+        "n_events": int(len(feeding_df)),
+        "mean_minutes": point,
+        "ci_lo_minutes": lo,
+        "ci_hi_minutes": hi,
+        "mean_clock": format_clock(point),
+        "ci_lo_clock": format_clock(lo),
+        "ci_hi_clock": format_clock(hi),
+        "ci_level": CLOCK_TIME_CI_LEVEL,
+        "selection": "first_event_per_session",
+    }
+
+
+def write_feeding_clock_time_summary(stats: dict) -> Path:
+    out = OUTPUT_DIR / "feeding_clock_time_summary.csv"
+    pd.DataFrame([stats]).to_csv(out, index=False)
+    return out
+
+
+def print_feeding_clock_time(stats: dict) -> None:
+    print("\n=== Feeding clock time (circular mean, first event per session) ===")
+    if not stats["n_sessions"]:
+        print("No feeding events extracted.")
+        return
+    print(
+        f"mean={stats['mean_clock']}  "
+        f"bootstrap {stats['ci_level']}% CI {stats['ci_lo_clock']}–{stats['ci_hi_clock']}  "
+        f"(n={stats['n_sessions']} sessions, {stats['n_events']} extracted events)"
+    )
+
+
 def _pulse_h5_files() -> list[Path]:
     return [p for p in get_path_list(H5_DIR) if p.name.endswith("_pulses.h5")]
 
@@ -324,6 +476,8 @@ def run_analysis():
     feeding_df = extract_all_feeding_events()
     feeding_df.to_csv(OUTPUT_DIR / "feeding_events_extracted.csv", index=False)
     write_session_feeding_summary(feeding_df)
+    clock_stats = feeding_clock_time_stats(feeding_df)
+    write_feeding_clock_time_summary(clock_stats)
     n_sessions = feeding_df["session"].nunique() if not feeding_df.empty else 0
     print(f"Extracted {len(feeding_df)} feeding-related events from {n_sessions} sessions")
 
@@ -434,10 +588,74 @@ def run_analysis():
     )
     write_coverage_report(feeding_df, matched_events_df, h5_summary, h5_files)
 
+    save_peri_curves(peri_curves)
     plot_peri_feeding_curves(peri_curves)
     plot_feeding_vs_nonfeeding_rates(corr_summary)
     print_summary(feeding_df, h5_summary, corr_summary)
+    print_feeding_clock_time(clock_stats)
     print(f"Results saved to {OUTPUT_DIR}")
+
+
+def rebuild_peri_curves_from_minute_csv(
+    minute_csv: Path | None = None,
+    matched_csv: Path | None = None,
+) -> dict[str, list[np.ndarray]]:
+    """Approximate event-aligned peri curves from minute-binned rates (no H5 rescan).
+
+    Each matched feeding event contributes one trajectory of length
+    ``2 * PERI_WINDOW_MIN`` by reading the nearest minute bin to
+    ``event_time + relative_minute``.
+    """
+    minute_csv = minute_csv or (OUTPUT_DIR / "minute_pulse_rates_with_feeding_flags.csv")
+    matched_csv = matched_csv or (OUTPUT_DIR / "feeding_events_matched_to_h5.csv")
+    minute = pd.read_csv(minute_csv, parse_dates=["timestamp"])
+    matched = pd.read_csv(matched_csv, parse_dates=["event_time"])
+    if matched.empty or minute.empty:
+        return {key: [] for key in PULSE_TYPES}
+
+    x = np.arange(-PERI_WINDOW_MIN, PERI_WINDOW_MIN)
+    peri_curves = {key: [] for key in PULSE_TYPES}
+    max_offset_s = 45.0
+
+    for event in matched.itertuples(index=False):
+        h5_name = event.h5_file
+        event_time = pd.Timestamp(event.event_time)
+        for pulse_type in PULSE_TYPES:
+            sub = minute[
+                (minute["h5_file"] == h5_name) & (minute["pulse_type"] == pulse_type)
+            ]
+            if sub.empty:
+                continue
+            timestamps = sub["timestamp"].to_numpy()
+            rates = sub["pulse_rate_hz"].to_numpy(dtype=float)
+            curve = np.zeros(len(x), dtype=float)
+            n_hit = 0
+            for i, rel in enumerate(x):
+                target = np.datetime64(event_time + pd.Timedelta(minutes=int(rel)))
+                diffs_s = np.abs(
+                    timestamps.astype("datetime64[s]") - target
+                ).astype("timedelta64[s]").astype(float)
+                j = int(np.argmin(diffs_s))
+                if diffs_s[j] <= max_offset_s:
+                    curve[i] = rates[j]
+                    n_hit += 1
+            if n_hit > 0:
+                peri_curves[pulse_type].append(curve)
+    return peri_curves
+
+
+def replot_peri_feeding_from_saved() -> None:
+    """Rebuild the peri-feeding panel figure from NPZ, else from minute CSV."""
+    apply_presentation_style()
+    peri_curves = load_peri_curves()
+    if not any(peri_curves.values()):
+        print("No NPZ peri stacks found; rebuilding from minute CSV...")
+        peri_curves = rebuild_peri_curves_from_minute_csv()
+        save_peri_curves(peri_curves)
+    if not any(peri_curves.values()):
+        raise FileNotFoundError(f"Could not build peri curves from {OUTPUT_DIR}")
+    plot_peri_feeding_curves(peri_curves)
+    print(f"Replotted peri-feeding trajectories to {OUTPUT_DIR}")
 
 
 def write_session_feeding_summary(feeding_df: pd.DataFrame):
@@ -492,25 +710,64 @@ def write_coverage_report(
     pd.DataFrame(rows).to_csv(OUTPUT_DIR / "feeding_h5_coverage_report.csv", index=False)
 
 
+def _peri_mean_sem(curves: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
+    stacked = np.vstack(curves)
+    mean_curve = np.mean(stacked, axis=0)
+    # SEM across feeding-event trajectories (one curve per matched feeding event).
+    sem = stats.sem(stacked, axis=0) if len(curves) > 1 else np.zeros_like(mean_curve)
+    return mean_curve, sem
+
+
+def save_peri_curves(peri_curves: dict[str, list[np.ndarray]]) -> Path | None:
+    """Persist peri-event stacks so trajectories can be replotted without rescanning H5."""
+    payload = {}
+    for pulse_type, curves in peri_curves.items():
+        if not curves:
+            continue
+        payload[pulse_type] = np.vstack(curves)
+    if not payload:
+        return None
+    out = OUTPUT_DIR / "peri_feeding_pulse_rate_trajectories.npz"
+    np.savez_compressed(out, **payload)
+    return out
+
+
+def load_peri_curves(path: Path | None = None) -> dict[str, list[np.ndarray]]:
+    path = path or (OUTPUT_DIR / "peri_feeding_pulse_rate_trajectories.npz")
+    if not path.exists():
+        return {key: [] for key in PULSE_TYPES}
+    with np.load(path) as data:
+        return {
+            key: [row for row in data[key]] if key in data.files else []
+            for key in PULSE_TYPES
+        }
+
+
 def plot_peri_feeding_curves(peri_curves: dict[str, list[np.ndarray]]):
-    if not any(peri_curves.values()):
+    """Plot all / wide / double peri-feeding means in separate panels (own y-scales)."""
+    pulse_order = [key for key in PULSE_TYPES if peri_curves.get(key)]
+    if not pulse_order:
         return
 
     from matplotlib.patches import Patch
 
-    fig, ax = plt.subplots(figsize=(10, 6))
+    n = len(pulse_order)
+    fig, axes = plt.subplots(n, 1, figsize=(10, 3.0 * n), sharex=True)
+    if n == 1:
+        axes = [axes]
     x = np.arange(-PERI_WINDOW_MIN, PERI_WINDOW_MIN)
+    sem_patch = Patch(
+        facecolor="0.5",
+        alpha=0.25,
+        edgecolor="none",
+        label=r"shaded band: $\pm$ SEM across feeding events",
+    )
 
-    for pulse_type, cfg in PULSE_TYPES.items():
-        curves = peri_curves[pulse_type]
-        if not curves:
-            continue
+    for ax, pulse_type in zip(axes, pulse_order):
+        cfg = PULSE_TYPES[pulse_type]
         color = pulse_shape_color(pulse_type)
-        stacked = np.vstack(curves)
-        mean_curve = np.mean(stacked, axis=0)
-        # SEM across feeding-event trajectories (one curve per matched feeding event).
-        sem = stats.sem(stacked, axis=0) if len(curves) > 1 else np.zeros_like(mean_curve)
-        ax.plot(x, mean_curve, label=f'{cfg["label"]} (mean)', color=color)
+        mean_curve, sem = _peri_mean_sem(peri_curves[pulse_type])
+        (line,) = ax.plot(x, mean_curve, color=color, label=f'{cfg["label"]} (mean)')
         ax.fill_between(
             x,
             mean_curve - sem,
@@ -519,23 +776,14 @@ def plot_peri_feeding_curves(peri_curves: dict[str, list[np.ndarray]]):
             color=color,
             linewidth=0,
         )
+        ax.axvline(0, color="black", linestyle="--", linewidth=1, alpha=0.7)
+        ax.set_ylabel("Mean pulse rate (Hz)")
+        ax.set_title(cfg["label"])
+        ax.grid(True, alpha=0.3)
+        ax.legend(handles=[line, sem_patch], loc=LEGEND_LOC)
 
-    ax.axvline(0, color="black", linestyle="--", linewidth=1, alpha=0.7)
-    ax.set_xlabel("Minutes relative to feeding event")
-    ax.set_ylabel("Mean pulse rate (Hz)")
-    ax.set_title("Average pulse activity around feeding events")
-    ax.grid(True, alpha=0.3)
-    handles, labels = ax.get_legend_handles_labels()
-    handles.append(
-        Patch(
-            facecolor="0.5",
-            alpha=0.25,
-            edgecolor="none",
-            label=r"shaded band: $\pm$ SEM across feeding events",
-        )
-    )
-    labels.append(r"shaded band: $\pm$ SEM across feeding events")
-    ax.legend(handles, labels, loc=LEGEND_LOC)
+    axes[-1].set_xlabel("Minutes relative to feeding event")
+    fig.suptitle("Average pulse activity around feeding events", y=1.01)
     plt.tight_layout()
     plt.savefig(OUTPUT_DIR / "peri_feeding_pulse_rate_trajectories.png", dpi=300)
     save_thesis_figure("correlations/peri_feeding_pulse_rate_trajectories.png")
@@ -549,10 +797,13 @@ def plot_feeding_vs_nonfeeding_rates(corr_summary: pd.DataFrame):
     labels = [PULSE_TYPES[row["pulse_type"]]["label"] for _, row in corr_summary.iterrows()]
     feeding = corr_summary["mean_rate_feeding_hz"].values
     nonfeeding = corr_summary["mean_rate_nonfeeding_hz"].values
+    p_values = corr_summary.get(
+        "mannwhitney_p", pd.Series([np.nan] * len(corr_summary))
+    ).values
 
     x = np.arange(len(labels))
     width = 0.35
-    fig, ax = plt.subplots(figsize=(9, 5))
+    fig, ax = plt.subplots(figsize=(9, 5.5))
     pulse_types = corr_summary["pulse_type"].tolist()
     for i, pulse_type in enumerate(pulse_types):
         color = pulse_shape_color(pulse_type)
@@ -571,16 +822,93 @@ def plot_feeding_vs_nonfeeding_rates(corr_summary: pd.DataFrame):
             color=color,
             label=f"Feeding (±{FEEDING_FLAG_RADIUS_MIN} min)" if i == 0 else None,
         )
+
+    y_max = float(np.nanmax(np.concatenate([feeding, nonfeeding])))
+    for i, p in enumerate(p_values):
+        bar_top = max(feeding[i], nonfeeding[i])
+        # Keep all / wide / double annotations readable despite different bar heights.
+        y = bar_top + 0.04 * max(y_max, 1.0)
+        ax.plot(
+            [x[i] - width / 2, x[i] - width / 2, x[i] + width / 2, x[i] + width / 2],
+            [y - 0.015 * y_max, y, y, y - 0.015 * y_max],
+            color="black",
+            linewidth=1.2,
+        )
+        ax.text(
+            x[i],
+            y + 0.01 * max(y_max, 1.0),
+            sig_stars(float(p)),
+            ha="center",
+            va="bottom",
+            fontsize=14,
+            fontweight="bold",
+        )
+
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=15)
     ax.set_ylabel("Mean pulse rate (Hz)")
     ax.set_title("Pulse rate during feeding windows vs baseline")
+    ax.set_ylim(0, y_max * 1.22)
     ax.legend(loc=LEGEND_LOC)
     ax.grid(True, axis="y", alpha=0.3)
+    ax.text(
+        0.02,
+        0.98,
+        "Mann–Whitney U (two-sided):\n*** $p<0.001$, ** $p<0.01$, * $p<0.05$",
+        transform=ax.transAxes,
+        va="top",
+        ha="left",
+        fontsize=10,
+        bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.85, "edgecolor": "0.8"},
+    )
     plt.tight_layout()
     plt.savefig(OUTPUT_DIR / "feeding_vs_nonfeeding_pulse_rates.png", dpi=300)
     save_thesis_figure("correlations/feeding_vs_nonfeeding_pulse_rates.png")
     plt.close()
+
+
+def recompute_feeding_summary_from_minute_csv(
+    minute_csv: Path | None = None,
+) -> pd.DataFrame:
+    """Rebuild global feeding-vs-baseline summary (incl. MWU) from saved minute rates."""
+    minute_csv = minute_csv or (OUTPUT_DIR / "minute_pulse_rates_with_feeding_flags.csv")
+    minute_records = pd.read_csv(minute_csv)
+    corr_rows = []
+    for pulse_type in PULSE_TYPES:
+        subset = minute_records[minute_records["pulse_type"] == pulse_type]
+        corr = correlate_feeding_flag(subset)
+        corr_rows.append({"pulse_type": pulse_type, **corr})
+    corr_summary = pd.DataFrame(corr_rows)
+    corr_summary.to_csv(OUTPUT_DIR / "global_feeding_correlation_by_pulse_type.csv", index=False)
+    return corr_summary
+
+
+def replot_feeding_bars_from_saved() -> None:
+    """Recompute MWU summary from minute CSV and redraw the feeding-vs-baseline bars."""
+    apply_presentation_style()
+    corr_summary = recompute_feeding_summary_from_minute_csv()
+    plot_feeding_vs_nonfeeding_rates(corr_summary)
+    print("\n=== Feeding vs baseline (Mann–Whitney U) ===")
+    for _, row in corr_summary.iterrows():
+        label = PULSE_TYPES[row["pulse_type"]]["label"]
+        print(
+            f"{label:16s}  feeding={row['mean_rate_feeding_hz']:.3f} Hz, "
+            f"non-feeding={row['mean_rate_nonfeeding_hz']:.3f} Hz, "
+            f"ratio={row['rate_ratio_feeding_over_nonfeeding']:.2f}, "
+            f"MWU p={row['mannwhitney_p']:.4g} {sig_stars(row['mannwhitney_p'])}"
+        )
+    print(f"Replotted feeding bars to {OUTPUT_DIR}")
+
+
+def summarize_feeding_clock_time_from_saved(events_csv: Path | None = None) -> dict:
+    """Recompute circular mean feeding clock time from the extracted-events CSV."""
+    events_csv = events_csv or (OUTPUT_DIR / "feeding_events_extracted.csv")
+    feeding_df = pd.read_csv(events_csv, parse_dates=["event_time"])
+    stats = feeding_clock_time_stats(feeding_df)
+    write_feeding_clock_time_summary(stats)
+    print_feeding_clock_time(stats)
+    print(f"Wrote {OUTPUT_DIR / 'feeding_clock_time_summary.csv'}")
+    return stats
 
 
 def print_summary(feeding_df: pd.DataFrame, h5_summary: pd.DataFrame, corr_summary: pd.DataFrame):
@@ -603,13 +931,41 @@ def print_summary(feeding_df: pd.DataFrame, h5_summary: pd.DataFrame, corr_summa
     if not corr_summary.empty:
         for _, row in corr_summary.iterrows():
             label = PULSE_TYPES[row["pulse_type"]]["label"]
+            mwu_p = row.get("mannwhitney_p", np.nan)
             print(
                 f"{label:16s}  r={row['pearson_r']:+.3f} (p={row['pearson_p']:.4g}), "
                 f"feeding={row['mean_rate_feeding_hz']:.3f} Hz, "
                 f"non-feeding={row['mean_rate_nonfeeding_hz']:.3f} Hz, "
-                f"ratio={row['rate_ratio_feeding_over_nonfeeding']:.2f}"
+                f"ratio={row['rate_ratio_feeding_over_nonfeeding']:.2f}, "
+                f"MWU p={mwu_p:.4g} {sig_stars(mwu_p)}"
             )
 
 
 if __name__ == "__main__":
-    run_analysis()
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--replot-peri",
+        action="store_true",
+        help="Only rebuild peri-feeding panels from saved NPZ (or minute CSV fallback).",
+    )
+    parser.add_argument(
+        "--replot-bars",
+        action="store_true",
+        help="Recompute feeding-vs-baseline MWU from minute CSV and redraw bar plot.",
+    )
+    parser.add_argument(
+        "--clock-time",
+        action="store_true",
+        help="Recompute mean feeding clock time ± bootstrap CI from extracted events CSV.",
+    )
+    args = parser.parse_args()
+    if args.replot_peri:
+        replot_peri_feeding_from_saved()
+    elif args.replot_bars:
+        replot_feeding_bars_from_saved()
+    elif args.clock_time:
+        summarize_feeding_clock_time_from_saved()
+    else:
+        run_analysis()

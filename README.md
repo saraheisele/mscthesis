@@ -74,6 +74,13 @@ checkout works.
 - **Video/audio sync:** `/home/wrk/videosync/src/sync_video_2.py`
 - **Raw lab data:** `/data2/labdata/eels-mfn2021/berlin_tank_site/`
 
+**Known H5 gap:** 26 predetected `*_pulses.h5` files are missing under
+`/home/efish/eelsmfn2021_eods/berlin_tank_site/` relative to the recording
+folders in `/data2/labdata/eels-mfn2021/berlin_tank_site/` (mostly Feb–Mar 2025,
+plus a few other sessions). This is known; the reason is not (likely detection
+hiccups). It was not discussed in the master's thesis and was ignored there
+because the remaining dataset is still large.
+
 ## Timeline
 
 | Month | Focus |

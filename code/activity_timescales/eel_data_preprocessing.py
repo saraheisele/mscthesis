@@ -27,6 +27,7 @@ from data_paths import (
     H5_DIR,
     PARTIAL_RECORDING_YEARS,
     activity_hist_dir,
+    activity_hist_npz,
 )
 from h5_io import get_path_list, get_pulse_block, load_marker_array, open_h5
 from pulse_config import PULSE_TYPES, select_pulse_type
@@ -220,7 +221,7 @@ def make_histogram(pulse_centers, sampling_rates, start_times, end_times):
     Generate activity histograms at multiple timescales.
 
     Creates histograms binning pulse counts at different temporal resolutions
-    (minute, hour, day, month, year). Also converts pulse indices to Unix timestamps.
+    (minute, hour, day, month, year).
 
     Args:
         pulse_centers (list): List of pulse index arrays (one per recording file)
@@ -229,14 +230,11 @@ def make_histogram(pulse_centers, sampling_rates, start_times, end_times):
         end_times (list): Recording end times (datetime) for each file
 
     Returns:
-        tuple: (hist, rec_hist, timestamp_list, session_counts)
+        tuple: (hist, rec_hist, session_counts)
                - hist: Dict of histograms (pulse counts per bin at each timescale)
                - rec_hist: Dict of counts (number of recordings contributing to each bin)
-               - timestamp_list: List of Unix timestamps for all pulses
                - session_counts: Per-session histograms
     """
-    # create list to store unix timestamps of each pulse for later storage in hdf5 file
-    timestamp_list = []  # TODO: make seperate function to store timestamps??
     time_bounds = histogram_time_bounds(start_times, end_times)
 
     # create histograms in a dict
@@ -293,10 +291,6 @@ def make_histogram(pulse_centers, sampling_rates, start_times, end_times):
             hist_i["month_since_start"][month_since_start] += pulse_weight
             hist_i["year"][year] += pulse_weight
 
-            # store Unix timestamp for this pulse
-            pulse_time_abs_unix = pulse_time_abs.timestamp()
-            timestamp_list.append(pulse_time_abs_unix)
-
         ## accumulate global counters and track which recordings contributed to each bin
         for item in hist:
             hist[item] += hist_i[item]
@@ -304,7 +298,7 @@ def make_histogram(pulse_centers, sampling_rates, start_times, end_times):
         session_counts.append(hist_i)
 
     con.log("Finished calculating histogram.")
-    return hist, rec_hist, timestamp_list, session_counts
+    return hist, rec_hist, session_counts
 
 
 def rec_time_per_bin(start_times, end_times):
@@ -443,13 +437,9 @@ def save_histograms(count_hist, rec_hist, rec_time_hist, output_path: Path):
     parent_dir = output_path if output_path.is_dir() else output_path.parent
     parent_dir.mkdir(parents=True, exist_ok=True)
 
-    filename_count = "berlin_dummypulses_count_hist_dict.npz"
-    filename_rec = "berlin_dummypulses_rec_hist_dict.npz"
-    filename_time = "berlin_dummypulses_rec_time_hist_dict.npz"
-
-    save_count = parent_dir / filename_count
-    save_rec = parent_dir / filename_rec
-    save_time = parent_dir / filename_time
+    save_count = activity_hist_npz(parent_dir, "count_hist_dict")
+    save_rec = activity_hist_npz(parent_dir, "rec_hist_dict")
+    save_time = activity_hist_npz(parent_dir, "rec_time_hist_dict")
 
     np.savez_compressed(save_count, **clean_count_hist)
     np.savez_compressed(save_rec, **clean_rec_hist)
@@ -469,7 +459,7 @@ def save_pulse_rate_histograms(pulse_rate_hist, output_path: Path):
     parent_dir = output_path if output_path.is_dir() else output_path.parent
     parent_dir.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
-        parent_dir / "berlin_dummypulses_pulse_rate_hz_hist_dict.npz",
+        activity_hist_npz(parent_dir, "pulse_rate_hz_hist_dict"),
         **clean_pulse_rates,
     )
 
@@ -487,7 +477,7 @@ def save_histogram_metadata(start_times, end_times, output_path: Path):
     parent_dir = output_path if output_path.is_dir() else output_path.parent
     parent_dir.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
-        parent_dir / "berlin_dummypulses_hist_metadata.npz",
+        activity_hist_npz(parent_dir, "hist_metadata"),
         first_month_year=time_bounds["first_month"].year,
         first_month_month=time_bounds["first_month"].month,
         first_year=time_bounds["first_year"],
@@ -509,11 +499,8 @@ def save_session_pulse_rate_hz(session_pulse_rate_hz_list, out_path):
         k: np.vstack([sess[k] for sess in session_pulse_rate_hz_list])
         for k in timescales
     }
-    # Save the file inside the out_path directory, not in the parent directory
-    filename = "berlin_dummypulses_session_pulse_rate_hz.npz"
-    save_file = (
-        out_path / filename if out_path.is_dir() else out_path.with_name(filename)
-    )
+    parent_dir = out_path if out_path.is_dir() else out_path.parent
+    save_file = activity_hist_npz(parent_dir, "session_pulse_rate_hz")
     np.savez_compressed(
         save_file,
         **arrs,
@@ -554,7 +541,7 @@ def main():
     )
 
     # calculate histogram of number of pulses per minute for 24‑h period (0…1439 minutes)
-    count_histogram_dict, rec_count_hist_dict, timestamps, pulse_count_per_session = (
+    count_histogram_dict, rec_count_hist_dict, pulse_count_per_session = (
         make_histogram(pulse_centers, sampling_rates, start_times, end_times)
     )
 

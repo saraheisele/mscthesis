@@ -3,20 +3,38 @@
 
 \section{Results}
 
-All results below come from continuous multi electrode recordings of captive \textit{Electrophorus voltai} in the Museum f{\"u}r Naturkunde Berlin tank. Brazil field recordings were not analysed for this chapter.
+All results below come from continuous multi electrode recordings of captive \textit{Electrophorus voltai} in the Museum f{\"u}r Naturkunde Berlin tank. 
+Brazil field recordings were not analysed for this chapter.
 
 \subsection{Special pulse shapes}
 
-Across the processed Berlin dataset ($n = 13{,}465{,}438$ accepted EODs), three shape classes emerge from the RobustPCA plus random forest pipeline (Figure~\ref{fig:pulse_shape_distribution}). Normal pulses dominate (64.0\%, $n = 8{,}623{,}379$). Wide pulses make up about a third (33.5\%, $n = 4{,}514{,}438$). Double pulses are rare (2.4\%, $n = 327{,}621$).
+Across the processed Berlin dataset ($n = 13{,}465{,}438$ accepted EODs), three shape classes emerge from the RobustPCA plus random forest pipeline (Figure~\ref{fig:pulse_shape_distribution}). 
+Median prototypes were calculated from 20.000 random samples of each cohort tocapture the morphological differences (Figure~\ref{fig:prototypes}). 
+Normal pulses make up the biggest share with 64.0\%  and a total of $n = 8{,}623{,}379$ pulses. 
+The normal pulse is a single, roughly symmetric peak with median half width $1.58$\,ms. 
+Wide pulses make up about a third of the dataset (33.5\%, $n = 4{,}514{,}438$). 
+A typical wide pulse is a single peak with a slower decay and median half width of $2.19$\,ms. 
+The decaying part of a wide pulse is often characterized by a little "bump" or shoulder, which is not present in the normal pulse. 
+Therefore it wide pulses are also less symmetrical compared to normal pulses.
+Double pulses are quite rare and only make up 2.4\% ($n = 327{,}621$) of all recorded pulses. 
+Average double pulses have two peaks of similar height separated by a shallow trough.
+In the labelling process however, the goal was to find as many double pulses as possible to improve classifier performance. 
+To this end, pulses that did not have the typical morphology of two clearly elevated peaks but a more or less pronounced shoulder were also labelled as double pulses.
+Peak to peak separation on the median double is $1.00$\,ms. 
+Median half width is $2.40$\,ms when the waveform is treated as one event.
+This makes doubles the longest of the three classes, in median almost 1 ms longer than normal pulses.  
+But the half width is not a sufficient label by itself because the classes overlap in width.
 
 \begin{figure}[H]
   \centering
   \includegraphics[width=0.72\textwidth]{pulse_shapes/pulse_shape_distribution.png}
-  \caption{How often each RF class shows up in the processed Berlin set. Blue is normal, green wide, red double, with counts and percentages on the bars. Most discharges are normal, about a third are wide, and doubles are uncommon.}
+  \caption{How often each RF class shows up in the processed Berlin set. 
+  Blue denotes normal, green wide, red double pulses. 
+  Counts and percentages are displayed on the bars. 
+  Most discharges are normal, about a third are wide, and doubles are uncommon.}
   \label{fig:pulse_shape_distribution}
 \end{figure}
 
-Median prototypes capture the morphological differences (Figure~\ref{fig:prototypes}). The normal pulse is a single, roughly symmetric peak with median half width $1.58$\,ms. The wide pulse is a single peak with a slower decay and median half width $4.38$\,ms. The double pulse shows two peaks of similar height separated by a shallow trough. Peak to peak separation on the median double is $2.00$\,ms. Median half width is $4.79$\,ms when the waveform is treated as one event.
 
 \begin{figure}[H]
   \centering
@@ -32,158 +50,259 @@ Median prototypes capture the morphological differences (Figure~\ref{fig:prototy
     \includegraphics[width=\textwidth]{pulse_shapes/prototype_wide_pulse.png}
     \caption{Wide}
   \end{subfigure}
-  \caption{Median waveforms for the three classes, with half width marked on each. From left to right the panels are normal (blue), double (red), and wide (green). The thick coloured trace is the class median ($n = 20{,}000$), the thin grey ones are 100 example pulses, and the star marks where the waveforms were aligned (peak for normal and wide, trough between peaks for double). The coloured horizontal bar sits at half maximum and reports the half width. Normals are short and single peaked, doubles carry two peaks about 2\,ms apart, and wides stretch out with a slower falling edge.}
+  \caption{Median waveforms for the three classes, with half width marked on each. 
+  From left to right the panels are normal (blue), double (red), and wide (green). 
+  The thick coloured trace is the class median ($n = 20{,}000$). 
+  The thin grey pulses are 100 example pulses per class
+  The stars mark where the waveforms were aligned (peak for normal and wide, trough between peaks for double). 
+  The coloured horizontal bar sits at half maximum and indicates the half width. 
+  Normals are short and single peaked, doubles carry two peaks about 1\,ms apart, and wides stretch out with a slower falling edge.}
   \label{fig:prototypes}
 \end{figure}
 
-Half width distributions back the three way split (Figure~\ref{fig:half_width_overlay}). Normal pulses pile up near $\sim$1.5 to 2\,ms with a second mode around 3 to 3.5\,ms. Wide pulses shift mass toward longer widths (second mode near $\sim$4\,ms). Doubles form a tight peak near 4.5 to 5\,ms. The classes overlap in half width alone, so width is not a sufficient label by itself. The pooled half width histogram without class labels is multimodal at roughly 1.6, 3.2, and 4\,ms (Figure~\ref{fig:half_width_kde}), which is what you would expect if several shape classes sit on top of each other.
+Half width distributions back the three way split (Figure~\ref{fig:half_width_overlay}). 
+Normal pulses pile up near $\sim$1.5 to 1.7\,ms (panel median $1.56$\,ms). 
+Wide pulses shift mass a little longer (median $1.94$\,ms, mode near $\sim$2\,ms). 
+Doubles show least variability in half width distribution.
+The double pulses form a tight peak near 2.3 to 2.5\,ms (median $2.38$\,ms; $n = 24{,}033$ doubles with a measurable half width). 
+The classes still overlap in half width alone, so width is not a sufficient label by itself. 
+The pooled half width histogram without class labels is dominated by a mode near $\sim$1.6\,ms with a long shoulder toward 2 to 2.5\,ms (Figure~\ref{fig:half_width_kde}), 
+which is what you would expect if the three classes sit on top of each other.
+In the pooled histogram the peak of double pulses at about 2.5 ms it is not as pronounced as in the individual class histograms. 
+This is because the normal and wide pulses occur much more frequently compared to the doubles, which causes their distributions to dominate the overall shape of the pooled histogram. 
+The smaller number of double pulses results leads to a less distinct peak in the combined distribution.
+Although we can't observe a clear bimodal distribution in the pooled histogram, the presence of the shoulder indicates that there is a subset of pulses with longer half widths. 
 
 \begin{figure}[H]
   \centering
   \includegraphics[width=0.85\textwidth]{pulse_shapes/half_width_distributions_overlay.png}
-  \caption{Half width densities for the three classes drawn on top of each other, with normal in translucent blue, double in pink, and wide in green. Normal and wide both look bimodal and share a lot of support, while doubles pile up in a narrow ridge near 4.5 to 5\,ms.}
+  \caption{Half width densities for the three classes drawn on top of each other, with normal shown in translucent blue, double in pink, and wide pulses in green. 
+  Normal and wide share a lot of support around 1.5 to 2\,ms, while doubles pile up in a narrow ridge near 2.4\,ms.}
   \label{fig:half_width_overlay}
 \end{figure}
 
 \begin{figure}[H]
   \centering
-  \begin{subfigure}[t]{\textwidth}
-    \centering
-    \includegraphics[width=0.95\textwidth]{pulse_shapes/half_width_distributions_all_shapes.png}
-    \caption{Same half width data split into three histograms so each class keeps its own count scale. Blue, pink, and green are normal, double, and wide. The black dashed line in each panel is that class's median.}
-    \label{fig:half_width_panels}
-  \end{subfigure}
-
-  \vspace{0.8em}
-
-  \begin{subfigure}[t]{\textwidth}
-    \centering
-    \includegraphics[width=0.85\textwidth]{pulse_shapes/half_width_kde_all_shapes.png}
-    \caption{All shapes thrown into one histogram (light blue bars) with a KDE on top (dark blue). You get modes around 1.6, 3.2, and 4\,ms, which is roughly what mixing the three classes above would produce.}
-    \label{fig:half_width_kde}
-  \end{subfigure}
-  \caption{Two more looks at half width in the Berlin classifications. In~(a) each class is alone so the rarer doubles are readable. In~(b) everything is pooled and the multi modal pattern comes back.}
-  \label{fig:half_width_extra}
+  \includegraphics[width=0.85\textwidth]{pulse_shapes/half_width_kde_all_shapes.png}
+  \caption{All shapes thrown into one histogram (light blue bars) with a KDE on top (dark blue). 
+  The main mode sits near 1.6\,ms with a shoulder toward 2 to 2.5\,ms, which is roughly what mixing the three classes above would produce.}
+  \label{fig:half_width_kde}
 \end{figure}
 
-Robust PCA of classified waveforms supports the same taxonomy (Figure~\ref{fig:pca_space}). PC1 and PC2 together explain 91.7\% of variance in the plotted sample. Normal pulses sit apart from doubles along PC1/PC2. Wide pulses scatter more and partially overlap the double cloud. Doubles themselves split into two PCA clumps, which hints at more than one double morphology (relative peak heights or inter peak timing) rather than a single stereotype.
+
+A robust PCA of the classified waveforms supports the evidence for three seperate pulse classes (Figure~\ref{fig:pca_space}). 
+PC1 and PC2 together explain 84.8\% of variance in the plotted sample (63.3\% - PC1 and 21.5\% - PC2). 
+Doubles form a tighly packed cloud, while normals spread out more widely in PC2. 
+Wide pulses sit between them and partially overlap the double region, their variability closer to that of normals than of double pulses. 
+Doubles themselves split into two PCA clumps along PC1 in the PC3/PC4 views, which hints at more than one double morphology (relative peak heights or inter peak timing) rather than a single stereotype.
 
 \begin{figure}[H]
   \centering
   \includegraphics[width=0.95\textwidth]{pulse_shapes/labeled_pulses_pca_space.png}
-  \caption{RF labelled pulses in Robust PCA space, 5000 examples per class. Blue points are normal, green wide, red double. The four panels are different PC pairings (PC2 vs.\ PC1, PC3 vs.\ PC1, PC3 vs.\ PC2, PC4 vs.\ PC1). Normals sit in a fairly tight cloud away from the doubles. Wides sprawl and lean into the double region. The doubles themselves look like two clumps rather than one.}
+  \caption{RF labelled pulses in Robust PCA space, 5000 examples per class. 
+  Blue points represent normal pulses, green wide pulses, and red double pulses. 
+  The four panels are different PC pairings (PC2 vs.\ PC1, PC3 vs.\ PC1, PC3 vs.\ PC2, PC4 vs.\ PC1). 
+  Doubles form a compact cloud; normals show higher viariability, especially along PC2. 
+  Wides are located between double and normal regions while leaning more into the double pulse cluster. 
+  In the PC3/PC4 vs.\ PC1 views the doubles look like two clumps rather than one.}
   \label{fig:pca_space}
 \end{figure}
 
-Aligning two median normal pulses to the two peaks of the median double shows that the double envelope is close to two normals fired about 2\,ms apart (Figure~\ref{fig:normal_aligned_double}). A formal two normal template fit (model A) to the median double recovers a similar separation ($\Delta t = 2.22$\,ms) with $R^2 = 0.853$ (Figure~\ref{fig:double_template_fit}). The fit is sharper in the trough than the empirical median, so the double is \emph{approximately} two overlapping normals, not a perfect sum. Comparing model A against wider free width families on the same median prototype does not change that qualitative picture (Figure~\ref{fig:double_model_hierarchy}).
+When two median normal pulses are aligned to the two peaks of the median double pulse, they resemble the double shape with surprising precision (Figure~\ref{fig:normal_aligned_double}).
+In other words, the double envelope is close to two normals fired about 1\,ms apart. 
+Several models were fit to the median double pulse as the sum of two median normal components. 
+The constraints on peak times t1 and t2, i.e. $\Delta t$, and component widths $w$ were loosened in each subsequent model. 
+Starting with the native and individual widths and free $\Delta t$ in Model A ($R^2 = 0.978$) (Figure~\ref{fig:double_model_hierarchy}).
+High $R^2$ value in Model A is misleading since models A--D do not recover the two-peak envelope. 
+The characteristic trough appears only when the two normal components are allowed to widen. 
+Model E has a $R^2 = 0.999$ with shared width $w = 1.29$ and free$\Delta t = 1.60$\,ms. 
+Model F, with additional independent widths, fits equally well ($R^2 = 1.000$) but does not change the picture, so E is the working description.
 
 \begin{figure}[H]
   \centering
   \includegraphics[width=0.85\textwidth]{pulse_shapes/normal_pulses_aligned_to_double.png}
-  \caption{Can a double be two normals in a hurry? The solid pink trace is the median double, with red stars on its peaks. The dashed and dotted blue curves are the median normal, slid so each sits under one of those peaks. The trough lands where the two normals cross, which is what you would expect if the double were just a short $\sim$2\,ms doublets of the normal shape.}
+  \caption{Two median normal pulses aligned to the peaks of the median double pulse. 
+  The solid pink trace is the median double, with red stars on its peaks. 
+  The dashed and dotted blue curves are the median normal, shifted along the x-axis so each sits under one of those peaks. 
+  The trough lands where the two normals cross, which is what you would expect if the double were just a short $\sim$1\,ms doublet of the normal shape.}
   \label{fig:normal_aligned_double}
 \end{figure}
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=0.85\textwidth]{pulse_shapes/double_pulse_template_fit_example.png}
-  \caption{Same idea, now as an explicit fit (model A) to the median double. Red is the observed median (stars on the peaks), grey is the sum of the two fitted normals, and the blue dotted and dashed curves are those components. The spacing comes out close to the data ($R^2 = 0.853$), but the model digs a deeper trough than the empirical median does.}
-  \label{fig:double_template_fit}
-\end{figure}
-
-\begin{figure}[H]
-  \centering
   \includegraphics[width=0.95\textwidth]{pulse_shapes/double_pulse_model_hierarchy_median.png}
-  \caption{Six ways to build the median double from two components. Every panel keeps the same colour code: red for the observed waveform (pink stars on peaks), grey for the model sum, dashed and dotted blue for C1 and C2. From A to F the constraints on $\Delta t$ and the component widths $w$ get looser. A and B keep native widths and underfit the peaks. E and F let widths float and push $R^2$ near 1, though the fitted $\Delta t$ shrinks below the observed peak to peak gap.}
+  \caption{Six ways to model the median double pulse from two median normal components. 
+  Varying constraints on $\Delta t$ and the component widths $w$ produce different fits.
+  Each panel shows the median double (red, stars on the peaks), the model sum of the fitted normals (grey), and the two median normal components C1 and C2 (dashed and dotted blue). 
+  From A to F the constraints on $\Delta t$ and the component widths $w$ get looser. 
+  A already reaches $R^2 = 0.978$ with native widths. 
+  E and F let widths float and push $R^2$ near 1, with fitted $\Delta t$ drifting away from the observed 1\,ms peak spacing.
+  The characteristic trough of the double pulse shape is recovered only by models E and F.}
   \label{fig:double_model_hierarchy}
 \end{figure}
 
-Mean tank temperature and its range are still open numbers here: mean 17\,$^{\circ}$C, excursions from pickled herring to 17\,K \notels{fill mean / min / max Berlin tank temperature}. Whether half width tracks temperature on the 24\,h or 12 month scale (narrower pulses when warmer) is left as \notels{pulse width versus temperature analyses not yet plotted for Berlin only}.
-
 \subsection{Activity across timescales}
 
-Effort normalized pulse rates for all EODs, double pulses, and wide pulses are shown together at four timescales in Figure~\ref{fig:activity_all_shapes}. Medians are active session medians with bootstrap 95\% CI shading.
+\notels{add activity curves per shape panels? esp. for dp?}
 
-On the 24\,h scale (Figure~\ref{fig:activity_all_shapes}, top left), Berlin \textit{E.\ voltai} are day active. All pulse rate sits near $\sim$0.6\,Hz through the night (00:00 to 04:00), rises after about 05:00, and peaks near 08:00 to 09:00 at roughly 1.55\,Hz. After that morning peak the median falls to about 1.1\,Hz by 10:00 and then wanders between roughly 0.75 and 1.0\,Hz for the rest of the day. Double and wide medians stay near zero across the clock. Wide pulses show only a faint bump under the morning all pulse peak. That morning maximum lines up with feeding related activity (Section~\ref{sec:feeding_corr}) more than with a flat day plateau.
+Pulse rates normalized for recording effort are shown together for all EODs, double pulses, and wide pulses at four timescales in Figure~\ref{fig:activity_all_shapes}.
+\notels{all or normalized pulse rate? clarify}
+Medians are active session medians with bootstrap 95\% confidence interval (CI) shading.
+\notels{explain active session?}
 
-On the calendar month scale (Figure~\ref{fig:activity_all_shapes}, top right), all pulse medians sit around 0.6 to 1.0\,Hz for most of the year, with a wide March confidence band and a clear late year peak in November ($\sim$1.7\,Hz) before a drop in December. Wide pulses track that November bump: they are near zero from January through September, rise in October, and reach about 0.6\,Hz in November. Double pulses stay flat near zero all year. Whether the November all pulse / wide pulse peak tracks a rainy season pattern is unclear from tank data alone \notels{rainy season interpretation: keep, drop, or rephrase}.
+On the 24\,h scale (Figure~\ref{fig:activity_all_shapes}, top left), we can observe th circadian rhythm. 
+The all pulse rate sits near $\sim$0.6\,Hz through the night (00:00 to 04:00), rises after about 05:00, and peaks near 08:00 to 09:00 at roughly 1.55\,Hz. 
+After that morning peak the median falls to about 1.1\,Hz by 10:00 and ranges between roughly 0.75 and 1.0\,Hz for the rest of the day. 
+Double and wide medians stay near zero across the clock, with wide pulses showing the same pulse rate elevation in the morning as the all pulse curve. 
+That morning maximum lines up with feeding related activity (Section~\ref{sec:feeding_corr}).
 
-Months since recording start (Figure~\ref{fig:activity_all_shapes}, bottom left) show that early 2024 carried the highest all pulse medians, with peaks near $\sim$6\,Hz in May 2024 and $\sim$5.5\,Hz in July 2024. Rates then sit lower, with smaller peaks around January 2025 ($\sim$1.6\,Hz) and November 2025 ($\sim$2.4\,Hz). Gaps appear where no sessions contribute (including a break around early to mid 2025). Wide pulses are almost absent until the November 2025 spike ($\sim$1.4\,Hz), which is the chronological source of the November bump in the calendar month panel. Double pulses stay low, with a small rise late in the record (on the order of 0.5\,Hz into early 2026). Special shapes therefore do not simply mirror overall EOD rate. They arrive as sparse bursts on top of the day active baseline.
+The calendar month scale follows a similar pattern(Figure~\ref{fig:activity_all_shapes}, top right).
+All pulse medians sit around 0.6 to 1.0\,Hz for most of the year and there is one clear peak in November ($\sim$1.7\,Hz) that decreases in December and returns to baseline in January. 
+There are two noticable peaks in the confidence band at March and May rate increase in March.
+As seen in the 24h scale, wide pulses track that November bump from all pulses. 
+They are near zero from February through September, rise in October, and reach about 0.6\,Hz in November before returning to baseline in January. 
+Double pulses stay at a near zero baseline of roughly \notels{insert mean Hz!} all year without any noticable peaks or patterns.
 
-Yearly bins (Figure~\ref{fig:activity_all_shapes}, bottom right) show a steady drop in all pulse median rate from about 3.5\,Hz in 2023 through about 1.7\,Hz (2024) and 1.0\,Hz (2025) to about 0.5\,Hz in 2026. Double and wide yearly medians remain near $\sim$0.1\,Hz and do not follow that long term decline. Partial year coverage and dual line weighting (Methods) still matter when reading the yearly drop.
+Months since recording start (Figure~\ref{fig:activity_all_shapes}, bottom left) adds more information to explain the increased late year pulse rates in the calendar month view.
+There is one peak in November 2025 ($\sim$2.4\,Hz), indicating that the November bump is not seasonal but can be attributed to specific behavior in 11/2025. 
+Beyond that, early 2024 carried the highest all pulse medians, with peaks near $\sim$6\,Hz in May 2024 and $\sim$5.5\,Hz in July 2024.
+It is important to add here that the CIs are wide in those months. 
+Also, these peaks are not reflected in the calendar month view although the November 2025 peak is. 
+It is likely that they are driven by a few sessions with high pulse rates rather than a representative increase in activity across sessions.
+\notels{put this in discussion?}
+Gaps appear where no sessions contribute. 
+This is the case for January 2024 and February 2025.
+Wide pulses are almost absent until the November 2025 spike ($\sim$1.4\,Hz). 
+Double pulses stay low, with a small rise towards the end of the recordings on the order of 0.5\,Hz into early 2026. 
+
+Yearly bins (Figure~\ref{fig:activity_all_shapes}, bottom right) show a steady drop in all pulse median rate, from about 3.5\,Hz in 2023 through 1.7\,Hz (2024) and 1.0\,Hz (2025) to about 0.5\,Hz in 2026.
+The bootstrap band also narrows over those years.
+Dual-line weighting (Methods) is already applied in these session medians, so the drop is not an uncorrected double count from the second electrode line.
+2023 and 2026 are still partial calendar years, so those two points sample only the months that were recorded.
+Double and wide yearly medians remain near $\sim$0.1\,Hz and do not follow that long-term decline. 
 
 \begin{figure}[H]
   \centering
   \includegraphics[width=\textwidth]{activity_timescales/circadian_panels_all_shapes.png}
-  \caption{Pulse rate across four timescales, with all three classes in the same panels. Thick traces are active session medians (light blue all pulses, pink doubles, dark green wides), the washed out bands around them are bootstrap 95\% CIs, and the faint dots are the underlying session bins. Clockwise from top left: a clear daytime rise with a morning all pulse peak, a November bump that wide pulses help drive, the chronological record with early 2024 highs and a November 2025 wide spike, and a year by year drop in overall rate while the special shapes stay near the floor.}
+  \caption{Pulse rate across different timescales (24\,h, monthly, yearly), with all three classes in the same panels. 
+  Thick traces are active session medians (light blue all pulses, pink doubles, dark green wides). 
+  The washed out bands show bootstrap 95\% CIs, and the faint dots are the underlying session bins. 
+  \textbf{Top Left:} 24\,h scale with hourly bins. 
+  \textbf{Top Right:} Calendar months with monthly bins. 
+  \textbf{Bottom Left:} Chronological monthly record with monthly bins. 
+  \textbf{Bottom Right:} Yearly bins from recording start in 2023 to end in 2026.}
   \label{fig:activity_all_shapes}
 \end{figure}
 
 \subsection{Environmental and feeding correlations}
 \label{sec:feeding_corr}
 
-Same day scatter of pulse rate against tank temperature and conductivity shows little structure in the measured ranges (Figure~\ref{fig:env_corr}). Temperature spans only about 25.4 to 26.8\,$^{\circ}$C. Conductivity spans about 180 to 350\,$\mu$S\,cm$^{-1}$. Regression lines for all pulses are nearly flat. Wide and double rates sit much lower and likewise lack a convincing linear link. With small $n$ of environmental samples, this is a weak test, not proof of independence.
+Monthly means of pulse rate against tank temperature and conductivity show little structure in the measured ranges (Figure~\ref{fig:env_corr}; $n=13$ months with overlapping sensor logs). 
+Temperature spans only about 25.4 to 26.8\,$^{\circ}$C. 
+Conductivity roughly spans from 180 to 350\,$\mu$S\,cm$^{-1}$. 
+Pearson tests on the plotted linear fits are flat for all pulses (temperature: $r=-0.06$, $p=0.84$; conductivity: $r=0.01$, $p=0.96$) and for wide pulses (temperature: $r=-0.14$, $p=0.65$; conductivity: $r=-0.38$, $p=0.20$). 
+Double-pulse rate vs temperature is the only significant linear association ($r=0.62$, $p=0.023$), but the matching Spearman rank correlation is not ($\rho=-0.07$, $p=0.81$). 
+So that correlation is not robust to rank order and likely reflects a few leverage points in a small sample. 
+Double vs conductivity is likewise non-significant ($r=0.23$, $p=0.44$). 
+Wide and double rates sit much lower than the all-pulse scatter.
+With only $n=13$ months, the informative value of this analysis is limited meaning that existing correlations could be missed. 
 
 \begin{figure}[H]
   \centering
   \includegraphics[width=\textwidth]{correlations/correlations_all_pulse_shapes.png}
-  \caption{Does pulse rate track tank temperature or conductivity on the same day? Each cloud is a pulse class (light blue all, pink double, dark green wide), with a dashed line of the same colour for the linear fit. Temperature is on the left, conductivity on the right. Nothing much tilts in either panel within these narrow ranges, and the special shape rates sit well below the all pulse scatter.}
+  \caption{Environmental correlations of pulse rate in Hz with tank temperature in C° (left) and conductivity in µS\,cm$^{-1}$ (right). 
+  Each cloud is a pulse class (light blue - all, red - double, green - wide), with a dashed line of the same colour indicating the linear fit ($n=13$ months). 
+  The only significant Pearson correlation is double vs temperature ($p=0.023$).
+  In a Spearman rank correlation all three traces do not survive, i.e., they are not significant.
+  Special-shape rates sit well below the all-pulse scatter.}
   \label{fig:env_corr}
 \end{figure}
 
-Lagged Spearman correlations over 0 to 30 days are noisier (Figure~\ref{fig:lag_corr}). Wide pulses show large swings versus conductivity (positive near a 3 day lag, negative near 14 days). Double pulses flip sign within a few days for both variables. All pulse lags stay closer to zero. These delayed peaks should be read cautiously until sample size and multiple comparison structure are tightened \notels{decide which lagged peaks are worth discussing in Discussion}.
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=0.85\textwidth]{correlations/lag_corr_all_pulse_shapes.png}
-  \caption{Spearman $\rho$ between pulse rate and environment as a function of lag (0 to 30 days). Light blue, pink, and dark green mark all, double, and wide pulses (circles on the traces). The dashed horizontal line is zero correlation. Conductivity is above, temperature below. Wide pulses swing hard with conductivity lag, doubles flip sign within a few days, and the all pulse curve stays closer to flat.}
-  \label{fig:lag_corr}
-\end{figure}
-
-Feeding leaves a clearer footprint. Mean pulse rate in a $\pm$5\,min window around feeding is about 5\,Hz for all pulses, versus about 1.3\,Hz more than 5\,min away from feeding (Figure~\ref{fig:feeding_bars}). Wide pulses rise modestly. Double pulses barely move on this scale. Peri feeding trajectories show the rise starting about 2\,min before the logged feeding time, peaking near 10\,Hz at time zero, then decaying over the next 10\,min (Figure~\ref{fig:feeding_traj}). Mean feeding clock time is 17:17 \notels{replace 17:17 with real mean feeding time $\pm$ CI from the notes pipeline}. That morning activity peak in Figure~\ref{fig:activity_all_shapes} lines up with feeding more than with a pure circadian drive.
+Correlations of activity and feeding times show a much clearer picture. 
+Feeding windows were defined as $\pm$5\,min around the logged feeding time, and baseline windows as $>$5\,min away from feeding.
+Mean pulse rate for all pulses is $1.34$\,Hz during non-feeding times, versus a $3.8$-times increase to $5.03$\,Hz in feeding windows (Figure~\ref{fig:feeding_bars}; two-sided Mann--Whitney $U$, $p<0.001$). 
+Wide pulses rise from $0.45$\,Hz to $0.64$\,Hz ($1.4$-times; $p<0.001$). 
+Double-pulse window means stay near $0.03$\,Hz ($0.033$\,Hz baseline vs $0.030$\,Hz in feeding windows), so the mean contrast does not show a net increase.
+Still, the minute-level distributions differ significantly($p<0.001$) because doubles occupy a larger fraction of feeding minutes.
+On its own peri-event scale (Figure~\ref{fig:feeding_traj}), the double-pulse rate shows a brief peak near $0.05$\,Hz at the logged feeding time from a near-zero pre-feeding baseline.
+Peri feeding trajectories for all pulses show the rise starting about 2\,min before the logged feeding time, peaking near $9$\,Hz at time zero, then decaying over the next 10\,min.
+Wide pulses follow the same shape at lower amplitude (peak near $1.1$\,Hz).
+Mean feeding clock time is 08:34 (bootstrap 95\% CI 08:14--08:57; $n=127$ sessions). 
+That morning rate peak in Figure~\ref{fig:activity_all_shapes} coincides with feeding times.
+\notels{adjust feeding window to -2 to +10\,min and replot Figure~\ref{fig:feeding_bars}? Plot +/- 15 or 20 min in Figure~\ref{fig:feeding_traj}?}
 
 \begin{figure}[H]
   \centering
   \includegraphics[width=0.75\textwidth]{correlations/feeding_vs_nonfeeding_pulse_rates.png}
-  \caption{Mean pulse rate in feeding windows ($\pm$5\,min) next to the non feeding baseline ($>$5\,min away). Blue, red, and green are all, double, and wide pulses. Within each hue the darker bar is feeding and the lighter one is baseline. Overall activity jumps during feeding, wides go up a bit, and doubles barely leave the axis.}
+  \caption{Mean pulse rate in feeding windows ($\pm$5\,min) next to the non feeding baseline ($>$5\,min away). 
+  Blue, red, and green are all, double, and wide pulses. 
+  Within each hue the darker bar is feeding and the lighter one is baseline. 
+  Brackets mark two-sided Mann--Whitney $U$ tests on minute-level rates ($***$: $p<0.001$). 
+  Overall activity and wide pulses increase during feeding; doubles stay near the x-axis on this shared mean scale but still differ by the rank test.}
   \label{fig:feeding_bars}
 \end{figure}
 
 \begin{figure}[H]
   \centering
   \includegraphics[width=0.85\textwidth]{correlations/peri_feeding_pulse_rate_trajectories.png}
-  \caption{Minute by minute rate around feeding. Coloured traces are means across matched feeding events (light blue all pulses, dark green wide, pink double), and the matching washed out ribbon is $\pm$ SEM over those events (\texttt{scipy.stats.sem} in \texttt{correlate\_activity\_with\_feeding.py}). The dashed vertical line is the logged feeding time. Overall rate starts climbing about two minutes early, hits roughly 10\,Hz at time zero, then falls off. Wides follow at a lower amplitude. Doubles do essentially nothing.}
+  \caption{Minute by minute rate around feeding, one panel per pulse class with its own y-axis.
+  Coloured traces are means across matched feeding events (blue - all pulses, green - wide, red - double).
+  The matching washed out band is $\pm$ SEM over those events (\texttt{scipy.stats.sem} in \texttt{correlate\_activity\_with\_feeding.py}). 
+  The dashed vertical line is the logged feeding time that each trace was aligned to. 
+  Overall rate starts climbing about two minutes early, hits roughly $9$\,Hz at time zero, then decays until the end of the time window at +10 minutes. 
+  Wides follow the same shape at lower amplitude (peak near $1.1$\,Hz). 
+  On the double-pulse panel a short peak near $0.05$\,Hz appears at time zero.}
   \label{fig:feeding_traj}
 \end{figure}
 
 \subsection{Position estimation}
 
-Head position was taken as the electrode with the largest positive peak in each multi channel snippet. Collapsed over all hourly bins, occupancy is strongly end biased (Figure~\ref{fig:pos_overall}). Pulse rate peaks at electrode 0 (bright end, $\sim$0.39\,Hz) and electrode 15 (dark end, $\sim$0.43\,Hz). Mid bright electrodes (1 to 9) stay low. Dark side electrodes 10 to 14 carry more mid line activity than the bright mid line. The animals park at tank ends and use the dark half more while moving between ends.
+\notels{done proofreading}
+Head position was taken as the electrode with the largest positive peak in each multi channel snippet. 
+Collapsed over all hourly bins, occupancy is strongly end biased (Figure~\ref{fig:pos_overall}). 
+Pulse rate peaks at electrode 0 (bright end, $\sim$0.33\,Hz) and electrode 15 (dark end, $\sim$0.36\,Hz). 
+Mid bright electrodes (1 to 9) stay low. 
+Dark side electrodes 10 to 14 carry more mid line activity than the bright mid line. 
+The animals park at tank ends and use the dark half more while moving between ends.
 
 \begin{figure}[H]
   \centering
   \includegraphics[width=0.85\textwidth]{position_estimation/overall_position_distribution_peak.png}
-  \caption{Where along the 16 electrode line the pulses land when hourly bins are collapsed. Blue bars give pulse rate per electrode. The dashed vertical line is the bright/dark cut at 2.5\,m, and the light grey wash marks the dark half (electrodes 10 to 15). Animals spend most time at the two ends (0 and 15), and the dark mid electrodes stay busier than the bright mid stretch.}
+  \caption{Where along the 16 electrode line the pulses land when hourly bins are collapsed. 
+  Blue bars give pulse rate per electrode. 
+  The dashed vertical line is the bright/dark cut at 2.5\,m, and the light grey wash marks the dark half (electrodes 10 to 15). 
+  Animals spend most time at the two ends (0 and 15), and the dark mid electrodes stay busier than the bright mid stretch.}
   \label{fig:pos_overall}
 \end{figure}
 
-Session wise median head position across timescales is shown in Figure~\ref{fig:pos_panels}. On the 24\,h scale the median stays mostly on the bright side of the 2.5\,m boundary, dipping toward the front (lower meters) in the morning around 07:00 to 08:00 and sitting closer to the dark boundary at other hours. That matches the working picture that daytime use skews toward the bright front while nights and quieter periods pull animals toward the dark back, though the median alone understates how often the upper percentile band crosses into the dark half. Calendar month and months since start show slow drifts of preferred position, including a late 2025 push toward the dark boundary.
+Session wise median head position across timescales is shown in Figure~\ref{fig:pos_panels}. 
+On the 24\,h scale the median stays mostly on the bright side of the 2.5\,m boundary, dipping toward the front (lower meters) around 07:00 to 08:00 and sitting closer to the dark boundary at other hours. 
+The median alone understates how often the upper percentile band crosses into the dark half. 
+Calendar month and months since start show slow drifts of preferred position, including a late 2025 push toward the dark boundary.
 
 \begin{figure}[H]
   \centering
   \includegraphics[width=\textwidth]{position_estimation/position_panels_peak.png}
-  \caption{Head position through the same four timescales as the activity figure. The pink line is the session wise median, the light pink band the 16th to 84th percentile, and the faint blue dots the session values themselves. Everything above the dashed line (grey wash) is the dark half of the tank past 2.5\,m. Medians usually sit on the bright side, slide toward the front mid morning, and wander over months, including a late 2025 stretch nearer the dark boundary.}
+  \caption{Head position through the same four timescales as the activity figure. 
+  The pink line is the session wise median, the light pink band the 16th to 84th percentile, and the faint blue dots the session values themselves. 
+  Everything above the dashed line (grey wash) is the dark half of the tank past 2.5\,m. 
+  Medians usually sit on the bright side, slide toward the front mid morning, and wander over months, including a late 2025 stretch nearer the dark boundary.}
   \label{fig:pos_panels}
 \end{figure}
 
-Figure~\ref{fig:pos_anim} embeds a short animation of one recording: eel icon along the electrode line (head at strongest positive channel) with the corresponding raw trace. The printable PDF shows an interactive frame sequence in viewers that support the \texttt{animate} package. The source files are \path{figures/position_estimation/eel_position_animation.mp4} and \path{.gif}.
+Figure~\ref{fig:pos_anim} embeds a short animation of one recording: eel icon along the electrode line (head at strongest positive channel) with the corresponding raw trace. 
+The printable PDF shows an interactive frame sequence in viewers that support the \texttt{animate} package. 
+The source files are \path{figures/position_estimation/eel_position_animation.mp4} and \path{.gif}.
 
 \begin{figure}[H]
   \centering
   \animategraphics[autoplay,loop,controls,poster=12,width=0.95\linewidth]{2}{position_estimation/anim_frames/frame_}{001}{024}
-  \caption{One Berlin recording played as an animation (this PDF embeds a 2\,fps subsample of the full MP4). On the left the eel icon crawls the electrode line with its head at the strongest positive channel. On the right the dark trace is the raw waveform from that channel in a short window around the same instant. The full clip lives at \texttt{figures/position\_estimation/eel\_position\_animation.mp4} (and the matching \texttt{.gif}).}
+  \caption{One Berlin recording played as an animation (this PDF embeds a 2\,fps subsample of the full MP4). 
+  On the left the eel icon crawls the electrode line with its head at the strongest positive channel. 
+  On the right the dark trace is the raw waveform from that channel in a short window around the same instant. 
+  The full clip lives at \texttt{figures/position\_estimation/eel\_position\_animation.mp4} (and the matching \texttt{.gif}).}
   \label{fig:pos_anim}
 \end{figure}
 
-Average area one eel occupies in the tank versus natural habitat remains open: 17\,m$^{2}$ of spaghetti meadow \notels{tank footprint vs natural home range comparison}.
+An estimate as to how well these numbers resemble the conditions in natural habitats is not possible since there is no data on the territory size of a single electric eel in the wild \parencite{bastos2020historia}.
 \newpage

@@ -16,7 +16,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy import stats
 
-from data_paths import ACTIVITY_HISTOGRAMS_DIR, PULSE_SHAPE_CORRELATION_DIR
+from data_paths import (
+    ACTIVITY_HISTOGRAMS_DIR,
+    PULSE_SHAPE_CORRELATION_DIR,
+    resolve_activity_hist_npz,
+)
 from presentation_style import THESIS_CMAP, apply_presentation_style, pulse_shape_color
 from pulse_config import SPECIAL_PULSE_TYPES, TIMESCALES
 
@@ -27,7 +31,7 @@ PULSE_TYPES = SPECIAL_PULSE_TYPES
 
 
 def load_hist(subdir):
-    path = BASE / subdir / "berlin_dummypulses_pulse_rate_hz_hist_dict.npz"
+    path = resolve_activity_hist_npz(BASE / subdir, "pulse_rate_hz_hist_dict")
     data = np.load(path)
     return {key: data[key] for key in data.files}
 

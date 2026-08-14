@@ -20,7 +20,7 @@ import numpy as np
 from tqdm import tqdm
 
 from correlations.mating_notes_utils import extract_mating_events
-from data_paths import activity_hist_dir, processed_figures_dir
+from data_paths import activity_hist_dir, processed_figures_dir, resolve_activity_hist_npz
 from plotting_utils import format_x_axis
 from presentation_style import LEGEND_LOC, apply_presentation_style, pulse_shape_color, save_thesis_figure
 from pulse_config import PULSE_TYPES, select_pulse_type
@@ -56,7 +56,7 @@ def start_y_axis_at_zero(axes):
 
 
 def load_histogram_metadata(data_path):
-    metadata_path = data_path / "berlin_dummypulses_hist_metadata.npz"
+    metadata_path = resolve_activity_hist_npz(data_path, "hist_metadata")
     if metadata_path.exists():
         metadata = np.load(metadata_path)
         return {
@@ -300,7 +300,7 @@ def plot_circadian_panels_all_shapes(save_path=None):
     session_by_pulse = {}
     for pulse_type, pulse_config in PULSE_TYPES.items():
         data_path = activity_hist_dir(pulse_config["hist_subdir"])
-        session_npz = data_path / "berlin_dummypulses_session_pulse_rate_hz.npz"
+        session_npz = resolve_activity_hist_npz(data_path, "session_pulse_rate_hz")
         if session_npz.exists():
             session_by_pulse[pulse_type] = np.load(session_npz)
 
@@ -391,7 +391,7 @@ def main():
     save_path = processed_figures_dir(pulse_config["figures_subdir"])
     save_path.mkdir(parents=True, exist_ok=True)
 
-    pulse_rate_data = np.load(data_path / "berlin_dummypulses_pulse_rate_hz_hist_dict.npz")
+    pulse_rate_data = np.load(resolve_activity_hist_npz(data_path, "pulse_rate_hz_hist_dict"))
     pulse_rate_hist_dict = {k: pulse_rate_data[k] for k in pulse_rate_data.files}
     axis_meta = load_histogram_metadata(data_path)
     mating_events = extract_mating_events() if pulse_type == "all" else None
@@ -408,7 +408,7 @@ def main():
             save_exploratory=(pulse_type == "all" and timescale == "month_since_start"),
         )
 
-    session_data = np.load(data_path / "berlin_dummypulses_session_pulse_rate_hz.npz")
+    session_data = np.load(resolve_activity_hist_npz(data_path, "session_pulse_rate_hz"))
     for timescale in session_data.files:
         if timescale == "day":
             continue

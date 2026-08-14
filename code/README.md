@@ -114,7 +114,6 @@ figures/                         # dummy (default); full → figures/full/
 │   └── circadian_panels_{all_shapes,all,dp,wide}.png
 ├── correlations/
 │   ├── correlations_all_pulse_shapes.png
-│   ├── lag_corr_all_pulse_shapes.png
 │   ├── feeding_vs_nonfeeding_pulse_rates.png
 │   └── peri_feeding_pulse_rate_trajectories.png
 ├── position_estimation/
@@ -198,8 +197,8 @@ runner sets it explicitly):
 `EXCEL_DIR` (leitwerte) and `LAB_DATA_DIR` (session notes / electrode layout)
 are **shared** across dummy and full modes.
 
-Histogram NPZ basenames still use the historical prefix `berlin_dummypulses_*`
-for both modes (name only; contents follow the active dataset).
+Histogram NPZ basenames follow the same switch: dummy writes
+`berlin_dummypulses_*.npz`, full writes `berlin_pulses_*.npz`.
 
 ## Script reference
 

@@ -18,7 +18,11 @@ setup_script_paths(__file__)
 import matplotlib.pyplot as plt
 import numpy as np
 
-from data_paths import POSITION_FIGURES_DIR, activity_hist_dir, position_hist_dir
+from data_paths import (
+    POSITION_FIGURES_DIR,
+    position_hist_dir,
+    resolve_activity_hist_npz,
+)
 from plotting_utils import format_x_axis
 from presentation_style import (
     LEGEND_LOC,
@@ -33,7 +37,6 @@ from presentation_style import (
 
 POSITION_SCATTER_COLOR = THESIS_COLORS[0]
 POSITION_MEDIAN_COLOR = THESIS_COLORS[1]
-from pulse_config import PULSE_TYPES
 from position_utils import (
     DEFAULT_BRIGHT_DARK_BOUNDARY_M,
     ELECTRODE_SPACING_M,
@@ -54,21 +57,17 @@ POSITION_PANEL_TIMESCALES = [
 ]
 
 
-def estimate_total_recording_seconds() -> float:
-    """Approximate active recording duration from activity histograms."""
-    data_path = activity_hist_dir(PULSE_TYPES["all"]["hist_subdir"])
-    counts = np.load(data_path / "berlin_dummypulses_count_hist_dict.npz")["day"]
-    rates = np.load(data_path / "berlin_dummypulses_pulse_rate_hz_hist_dict.npz")["day"]
-    total_pulses = float(np.nansum(counts))
-    positive_rates = rates[(~np.isnan(rates)) & (rates > 0)]
-    mean_hz = float(np.mean(positive_rates)) if positive_rates.size else np.nan
-    if not mean_hz or np.isnan(mean_hz):
-        return max(total_pulses, 1.0)
-    return max(total_pulses / mean_hz, 1.0)
+def total_recording_seconds(data_path: Path) -> float:
+    """Sum of day-of-year recording-time bins (each recorded second is counted once)."""
+    rec_time = np.load(
+        data_path / f"berlin_position_{POSITION_METHOD}_rec_time_hist_dict.npz"
+    )
+    duration = float(np.nansum(rec_time["day"]))
+    return max(duration, 1.0)
 
 
 def load_metadata(data_path):
-    metadata_path = data_path / "berlin_dummypulses_hist_metadata.npz"
+    metadata_path = resolve_activity_hist_npz(data_path, "hist_metadata")
     if metadata_path.exists():
         metadata = np.load(metadata_path)
         return (
@@ -232,14 +231,16 @@ def plot_session_mean_position_summary(timescale, arr, save_path, suffix, meta):
     plt.close()
 
 
-def plot_overall_position_distribution(occurrence_hour, save_path, suffix):
+def plot_overall_position_distribution(occurrence_hour, save_path, suffix, data_path):
     """Bar chart of pulse rate (Hz) per electrode collapsed over all hours."""
     apply_presentation_style()
     counts = occurrence_hour.sum(axis=0)
     if counts.sum() == 0:
         return
     electrode_indices = np.arange(min(len(counts), N_ELECTRODES))
-    rates_hz = counts[: len(electrode_indices)].astype(float) / estimate_total_recording_seconds()
+    rates_hz = counts[: len(electrode_indices)].astype(float) / total_recording_seconds(
+        data_path
+    )
 
     fig, ax = plt.subplots(figsize=(12, 5))
     ymax = max(float(np.max(rates_hz)) * 1.1, 0.01)
@@ -359,7 +360,9 @@ def main():
     plot_bright_dark_fraction(bright_count, dark_count, save_path, suffix, meta)
 
     if "hour" in occurrence:
-        plot_overall_position_distribution(occurrence["hour"], save_path, suffix)
+        plot_overall_position_distribution(
+            occurrence["hour"], save_path, suffix, data_path
+        )
 
     session_path = data_path / f"berlin_position_{POSITION_METHOD}_session_mean_position.npz"
     if session_path.exists():

@@ -118,9 +118,39 @@ DUAL_LINE_START_DATE = "2025-11-25"
 PARTIAL_RECORDING_YEARS = (2023, 2026)
 
 
+# Activity-histogram NPZ prefix follows the dummy/full switch (not only the folder).
+ACTIVITY_HIST_NPZ_PREFIX = "berlin_dummypulses" if USE_DUMMY_DATASET else "berlin_pulses"
+_LEGACY_ACTIVITY_HIST_NPZ_PREFIX = "berlin_dummypulses"
+
+
 def activity_hist_dir(hist_subdir: str) -> Path:
     """Directory with preprocessed histogram .npz files for one pulse type."""
     return ACTIVITY_HISTOGRAMS_DIR / hist_subdir
+
+
+def activity_hist_npz_name(stem: str) -> str:
+    """Basename for an activity-histogram NPZ under the active dataset prefix."""
+    return f"{ACTIVITY_HIST_NPZ_PREFIX}_{stem}.npz"
+
+
+def activity_hist_npz(directory, stem: str) -> Path:
+    """Canonical write/read path for an activity-histogram NPZ in ``directory``."""
+    return Path(directory) / activity_hist_npz_name(stem)
+
+
+def resolve_activity_hist_npz(directory, stem: str) -> Path:
+    """Return the mode-specific NPZ path, or the legacy dummy-prefix file if present.
+
+    Full-mode runs used to write ``berlin_dummypulses_*.npz``. Prefer the current
+    prefix; fall back so existing artifacts still load until preprocessing is rerun.
+    """
+    path = activity_hist_npz(directory, stem)
+    if path.exists():
+        return path
+    legacy = Path(directory) / f"{_LEGACY_ACTIVITY_HIST_NPZ_PREFIX}_{stem}.npz"
+    if legacy.exists() and legacy != path:
+        return legacy
+    return path
 
 
 def processed_figures_dir(figures_subdir: str) -> Path:

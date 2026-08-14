@@ -23,7 +23,12 @@ import pandas as pd
 from dateutil.relativedelta import relativedelta
 from scipy import stats
 
-from data_paths import ENVIRONMENT_CORRELATION_DIR, EXCEL_DIR, activity_hist_dir
+from data_paths import (
+    ENVIRONMENT_CORRELATION_DIR,
+    EXCEL_DIR,
+    activity_hist_dir,
+    resolve_activity_hist_npz,
+)
 from presentation_style import LEGEND_LOC, apply_presentation_style, pulse_shape_color, save_thesis_figure
 from pulse_config import PULSE_TYPES
 
@@ -147,9 +152,9 @@ def load_pulse_data(pulse_type="all"):
     hist_subdir = PULSE_TYPES[pulse_type]["hist_subdir"]
     data_path = activity_hist_dir(hist_subdir)
 
-    metadata = np.load(data_path / "berlin_dummypulses_hist_metadata.npz")
+    metadata = np.load(resolve_activity_hist_npz(data_path, "hist_metadata"))
     pulse_rate_dict = np.load(
-        data_path / "berlin_dummypulses_pulse_rate_hz_hist_dict.npz"
+        resolve_activity_hist_npz(data_path, "pulse_rate_hz_hist_dict")
     )
 
     print(f"Loaded {pulse_type} pulse data: {len(pulse_rate_dict.files)} timescales")
@@ -300,154 +305,6 @@ def calculate_correlations(data_daily, data_monthly):
         }
 
     return results
-
-
-def calculate_lagged_shape_correlations(
-    daily_env: pd.DataFrame,
-    pulse_fractions_daily: pd.DataFrame,
-    lags_days: tuple[int, ...] = (0, 1, 3, 7, 14, 30),
-) -> pd.DataFrame:
-    """Cross-correlate environmental changes with pulse-shape fractions at positive lags."""
-    rows = []
-    merged_base = pd.merge(
-        pulse_fractions_daily,
-        daily_env.rename(columns={"temperature_daily": "temperature", "conductivity_daily": "conductivity"}),
-        on="date",
-        how="inner",
-    )
-    for lag in lags_days:
-        env_shifted = daily_env.copy()
-        env_shifted["date"] = env_shifted["date"] + timedelta(days=lag)
-        merged = pd.merge(
-            pulse_fractions_daily,
-            env_shifted.rename(columns={"temperature_daily": "temperature", "conductivity_daily": "conductivity"}),
-            on="date",
-            how="inner",
-        )
-        for shape_col in [c for c in merged.columns if c.endswith("_fraction") or c == "all_pulse_rate_hz"]:
-            shape_name = (
-                "all"
-                if shape_col == "all_pulse_rate_hz"
-                else shape_col.replace("_fraction", "")
-            )
-            for env_col in ("temperature", "conductivity"):
-                if env_col not in merged.columns:
-                    continue
-                mask = merged[shape_col].notna() & merged[env_col].notna()
-                x = merged.loc[mask, env_col].values
-                y = merged.loc[mask, shape_col].values
-                if len(x) < 5:
-                    continue
-                pr, pp = stats.pearsonr(x, y)
-                sr, sp = stats.spearmanr(x, y)
-                rows.append(
-                    {
-                        "lag_days": lag,
-                        "pulse_shape": shape_name,
-                        "env_param": env_col,
-                        "n": len(x),
-                        "pearson_r": pr,
-                        "pearson_p": pp,
-                        "spearman_r": sr,
-                        "spearman_p": sp,
-                    }
-                )
-    return pd.DataFrame(rows)
-
-
-def load_daily_shape_fractions() -> pd.DataFrame:
-    """Daily fraction of each special pulse shape from preprocessed histograms."""
-    from pulse_config import PULSE_TYPES
-
-    all_path = activity_hist_dir(PULSE_TYPES["all"]["hist_subdir"])
-    all_counts = np.load(all_path / "berlin_dummypulses_count_hist_dict.npz")["day"].astype(float)
-    all_rates = np.load(all_path / "berlin_dummypulses_pulse_rate_hz_hist_dict.npz")["day"]
-    rows = []
-    first_year = int(np.load(all_path / "berlin_dummypulses_hist_metadata.npz")["first_year"])
-
-    for year_offset in range(4):
-        year = first_year + year_offset
-        for day_idx in range(len(all_counts)):
-            total = all_counts[day_idx]
-            if total <= 0 or np.isnan(total):
-                continue
-            date = datetime(year, 1, 1) + timedelta(days=day_idx)
-            row = {
-                "date": pd.Timestamp(date),
-                "all_count": total,
-                "all_pulse_rate_hz": all_rates[day_idx],
-            }
-            for ptype in ("double", "wide"):
-                sub = np.load(
-                    activity_hist_dir(PULSE_TYPES[ptype]["hist_subdir"])
-                    / "berlin_dummypulses_count_hist_dict.npz"
-                )["day"].astype(float)
-                row[f"{ptype}_fraction"] = sub[day_idx] / total if total > 0 else np.nan
-            rows.append(row)
-    return pd.DataFrame(rows)
-
-
-def _plot_lagged_correlation_on_axis(ax, sub: pd.DataFrame, shape_order: list[str], env_param: str):
-    for shape in shape_order:
-        s = sub[sub["pulse_shape"] == shape].sort_values("lag_days")
-        if s.empty:
-            continue
-        label = "all pulses" if shape == "all" else shape
-        ax.plot(
-            s["lag_days"],
-            s["spearman_r"],
-            marker="o",
-            linewidth=2.5,
-            label=label,
-            color=pulse_shape_color(shape),
-        )
-    ax.axhline(0, color="gray", linestyle="--", linewidth=1.2)
-    ax.set_xlabel("Lag (days): env change → pulse response")
-    ax.set_ylabel("Spearman ρ")
-    ax.set_title(f"Delayed correlation: {env_param}")
-    ax.legend(loc=LEGEND_LOC)
-    ax.grid(True, alpha=0.3)
-
-
-def plot_lagged_correlations(lag_df: pd.DataFrame, output_dir: Path):
-    if lag_df.empty:
-        return
-    shape_order = ["all", "double", "wide"]
-    env_params = sorted(lag_df["env_param"].unique())
-    for env_param in env_params:
-        sub = lag_df[lag_df["env_param"] == env_param]
-        fig, ax = plt.subplots(figsize=(10, 5))
-        _plot_lagged_correlation_on_axis(ax, sub, shape_order, env_param)
-        plt.tight_layout()
-        fig.savefig(output_dir / f"lagged_correlation_{env_param}.png", dpi=300)
-        plt.close(fig)
-
-    if len(env_params) >= 2:
-        fig, axes = plt.subplots(len(env_params), 1, figsize=(10, 4.5 * len(env_params)), sharex=True)
-        axes = np.atleast_1d(axes)
-        for ax, env_param in zip(axes, env_params):
-            sub = lag_df[lag_df["env_param"] == env_param]
-            _plot_lagged_correlation_on_axis(ax, sub, shape_order, env_param)
-        plt.tight_layout()
-        save_thesis_figure("correlations/lag_corr_all_pulse_shapes.png", fig)
-        plt.close(fig)
-
-
-def run_lagged_environment_analysis(daily_env: pd.DataFrame):
-    """Analyse delayed effects of temperature/conductivity on pulse shapes."""
-    print("\n" + "=" * 70)
-    print("LAGGED ENVIRONMENT → PULSE SHAPE CORRELATIONS")
-    print("=" * 70)
-    fractions = load_daily_shape_fractions()
-    if fractions.empty:
-        print("No daily shape fractions available.")
-        return
-    lag_df = calculate_lagged_shape_correlations(daily_env, fractions)
-    lag_df.to_csv(OUTPUT_DIR / "lagged_env_pulse_shape_correlations.csv", index=False)
-    plot_lagged_correlations(lag_df, OUTPUT_DIR)
-    if not lag_df.empty:
-        sig = lag_df[lag_df["spearman_p"] < 0.05].sort_values("spearman_r", key=abs, ascending=False)
-        print(sig.head(10).to_string(index=False))
 
 
 def print_correlation_summary(correlations, pulse_label):
@@ -961,8 +818,6 @@ def main():
         )
         compare_pulse_types_contribution(all_correlations)
         plot_combined_correlations(aligned_by_pulse)
-
-    run_lagged_environment_analysis(daily_env)
 
     print(f"\nOutput saved to: {OUTPUT_DIR}\n")
 
