@@ -3,11 +3,12 @@
 
 \section{Materials and Methods}
 
-Field hardware was built and deployed for a four week expedition to Brazil in September 2025 (two weeks in Manaus at Reserva Ducke and INPA, two weeks near Macap{\'a} on the Rio Araguari and Rio Falsino in FLONA). 
+Field hardware was built and deployed for a four week expedition to Brazil in September 2025 (two weeks in Manaus at Reserva Ducke and the Instituto Nacional de Pesquisas da Amaz{\^o}nia (INPA), two weeks near Macap{\'a} on the Rio Araguari and Rio Falsino in FLONA). 
 The quantitative results in this thesis use continuous multi electrode recordings from captive \textit{Electrophorus} at the Museum f{\"u}r Naturkunde Berlin (Natural History Museum Berlin). 
 \notels{elaborate on the field recordings size and their use in the thesis, if any, or just say they are not used in the thesis and are for future work?}
 
 \subsection{Recording hardware}
+\label{sec:recording_hardware}
 
 Recordings used custom multi electrode loggers based on Teensy microcontrollers with 16 channel amplifier boards. 
 Software and board designs are available at \url{https://github.com/janscience/TeeGrid}, \url{https://github.com/janscience/TeeRec}, and \url{https://github.com/janscience/Teensy_Amp}. 
@@ -104,7 +105,7 @@ Downstream analyses keep only events with \texttt{predicted\_labels} $= 1$.
 \subsubsection{Special pulse classification}
 
 On the predetected H5 pulses, a supervised classifier marks two special shapes used throughout the Results: double pulses and wide pulses. 
-Waveforms are projected with RobustPCA (at most 20 components) and classified with a random forest trained on manually labeled examples. 
+Waveforms are reduced by principal component analysis (PCA) using RobustPCA (at most 20 components) and classified with a random forest (RF) trained on manually labeled examples. 
 Rare classes (wide, double) are accepted only if their predicted probability is at least 0.40. 
 Markers \texttt{is\_double\_peak}, \texttt{is\_wide\_pulse}, and \texttt{special\_pulse\_class} are written back beside each H5 file. 
 Rule based width and double peak metrics remain available for diagnostics but are not the production decision.

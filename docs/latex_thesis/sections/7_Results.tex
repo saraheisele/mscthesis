@@ -8,7 +8,7 @@ Brazil field recordings were not analysed for this chapter.
 
 \subsection{Special pulse shapes}
 
-Across the processed Berlin dataset ($n = 13{,}465{,}438$ accepted EODs), three shape classes emerge from the RobustPCA plus random forest pipeline (Figure~\ref{fig:pulse_shape_distribution}). 
+Across the processed Berlin dataset ($n = 13{,}465{,}438$ accepted EODs), three shape classes emerge from the RobustPCA plus RF pipeline (Figure~\ref{fig:pulse_shape_distribution}). 
 Median prototypes were calculated from 20.000 random samples of each cohort tocapture the morphological differences (Figure~\ref{fig:prototypes}). 
 Normal pulses make up the biggest share with 64.0\%  and a total of $n = 8{,}623{,}379$ pulses. 
 The normal pulse is a single, roughly symmetric peak with median half width $1.58$\,ms. 
@@ -146,7 +146,6 @@ Model F, with additional independent widths, fits equally well ($R^2 = 1.000$) b
 \notels{add activity curves per shape panels? esp. for dp?}
 
 Pulse rates normalized for recording effort are shown together for all EODs, double pulses, and wide pulses at four timescales in Figure~\ref{fig:activity_all_shapes}.
-\notels{all or normalized pulse rate? clarify}
 Medians are active session medians with bootstrap 95\% confidence interval (CI) shading.
 \notels{explain active session?}
 
@@ -169,7 +168,6 @@ Beyond that, early 2024 carried the highest all pulse medians, with peaks near $
 It is important to add here that the CIs are wide in those months. 
 Also, these peaks are not reflected in the calendar month view although the November 2025 peak is. 
 It is likely that they are driven by a few sessions with high pulse rates rather than a representative increase in activity across sessions.
-\notels{put this in discussion?}
 Gaps appear where no sessions contribute. 
 This is the case for January 2024 and February 2025.
 Wide pulses are almost absent until the November 2025 spike ($\sim$1.4\,Hz). 
@@ -229,7 +227,7 @@ Peri feeding trajectories for all pulses show the rise starting about 2\,min bef
 Wide pulses follow the same shape at lower amplitude (peak near $1.1$\,Hz).
 Mean feeding clock time is 08:34 (bootstrap 95\% CI 08:14--08:57; $n=127$ sessions). 
 That morning rate peak in Figure~\ref{fig:activity_all_shapes} coincides with feeding times.
-\notels{adjust feeding window to -2 to +10\,min and replot Figure~\ref{fig:feeding_bars}? Plot +/- 15 or 20 min in Figure~\ref{fig:feeding_traj}?}
+%\notels{adjust feeding window to -2 to +10\,min and replot Figure~\ref{fig:feeding_bars}? Plot +/- 15 or 20 min in Figure~\ref{fig:feeding_traj}?}
 
 \begin{figure}[H]
   \centering
