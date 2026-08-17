@@ -51,13 +51,18 @@ PRESENTATION_RCPARAMS = {
     "ytick.labelsize": 13,
     "legend.fontsize": 12,
     "legend.title_fontsize": 13,
+    "legend.loc": LEGEND_LOC,
     "lines.linewidth": 2.5,
     "lines.markersize": 8,
     "axes.linewidth": 1.5,
+    "axes.spines.top": False,
+    "axes.spines.right": False,
     "xtick.major.width": 1.3,
     "ytick.major.width": 1.3,
     "figure.dpi": 100,
     "figure.autolayout": True,
+    "figure.titlesize": 18,
+    "figure.titleweight": "bold",
     "savefig.dpi": 300,
     "savefig.bbox": "tight",
 }
@@ -86,6 +91,20 @@ def apply_presentation_style(force: bool = False) -> None:
         return
     plt.rcParams.update(PRESENTATION_RCPARAMS)
     _style_applied = True
+
+
+def legend_on_upper_right_subplot(axes, **kwargs):
+    """Place a legend only on the upper-right axes of a 2-D subplot grid."""
+    kwargs.setdefault("loc", LEGEND_LOC)
+    ndim = getattr(axes, "ndim", None)
+    if ndim == 2:
+        ax = axes[0, -1]
+    elif ndim == 1:
+        ax = axes[-1]
+    else:
+        first = axes[0]
+        ax = first[-1] if hasattr(first, "__len__") else axes[-1]
+    return ax.legend(**kwargs)
 
 
 def save_thesis_figure(

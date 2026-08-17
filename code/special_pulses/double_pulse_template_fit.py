@@ -56,6 +56,7 @@ from presentation_style import (
     LEGEND_LOC,
     THESIS_COLORS,
     apply_presentation_style,
+    legend_on_upper_right_subplot,
     pulse_shape_color,
     save_thesis_figure,
     save_thesis_json,
@@ -1156,13 +1157,14 @@ def plot_model_hierarchy_panel(
                 time_ms,
                 yhat,
                 color=REFERENCE_COLOR,
-                label=f"Fit $R^2$={result.r2:.3f}",
+                label="Fit",
                 zorder=5,
             )
             ax.plot(time_ms, c1, color=NORMAL_COLOR, ls="--", alpha=0.85, label="C1")
             ax.plot(time_ms, c2, color=NORMAL_COLOR, ls=":", alpha=0.85, label="C2")
             ax.set_title(
                 f"{key}\n"
+                f"$R^2$={result.r2:.3f}, "
                 f"$\\Delta t$={result.delay_ms:.2f} ms, "
                 f"$w$=({result.width_scale:.2f},{w2:.2f})"
             )
@@ -1178,7 +1180,8 @@ def plot_model_hierarchy_panel(
         )
         ax.grid(True, alpha=0.3)
         ax.set_ylim(-0.15, 1.15)
-        ax.legend(loc=LEGEND_LOC)
+
+    legend_on_upper_right_subplot(axes)
 
     for ax in axes[1, :]:
         ax.set_xlabel("Time (ms)")

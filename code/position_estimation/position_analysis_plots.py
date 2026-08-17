@@ -30,6 +30,7 @@ from presentation_style import (
     add_bright_dark_boundary_horizontal,
     add_dark_electrode_boundary,
     apply_presentation_style,
+    legend_on_upper_right_subplot,
     save_thesis_figure,
     shade_dark_electrodes,
     shade_dark_region_above,
@@ -224,7 +225,7 @@ def plot_session_mean_position_summary(timescale, arr, save_path, suffix, meta):
     ax.set_ylim(0, LINE_LENGTH_M)
     shade_dark_region_above(ax, DEFAULT_BRIGHT_DARK_BOUNDARY_M, y_max=LINE_LENGTH_M)
     add_bright_dark_boundary_horizontal(ax, DEFAULT_BRIGHT_DARK_BOUNDARY_M)
-    ax.legend(loc=LEGEND_LOC, fontsize="small")
+    ax.legend()
     plt.title(f"session-wise mean position ({timescale})")
     plt.tight_layout()
     plt.savefig(save_path / f"{timescale}_session_mean_position{suffix}.png", dpi=300)
@@ -316,9 +317,9 @@ def plot_position_panel_figure(session_data, save_path, suffix, meta):
         add_bright_dark_boundary_horizontal(ax, DEFAULT_BRIGHT_DARK_BOUNDARY_M)
         ax.set_ylabel("Median head position (m)")
         ax.set_title(title)
-        ax.legend(loc=LEGEND_LOC)
         ax.grid(True, alpha=0.25)
 
+    legend_on_upper_right_subplot(axes)
     fig.suptitle("Spatial usage over time (session-wise median + percentiles)")
     filename = f"position_panels{suffix}.png"
     fig.savefig(save_path / filename, dpi=300)

@@ -73,35 +73,22 @@ PULSE_SHAPES = {
         "class_id": CLASS_IDS["normal"],
         "color": pulse_shape_color("normal"),
         "align": "maximum",
-        "criteria": [
-            "Predicted-positive pulse",
-            "Random Forest class: normal",
-            "Robust PCA + RF on strongest channel waveform",
-        ],
     },
     "double": {
         "label": "Double pulse",
         "class_id": CLASS_IDS["double"],
         "color": pulse_shape_color("double"),
         "align": "valley",
-        "criteria": [
-            "Random Forest class: double",
-            "Robust PCA + RF multiclass classifier",
-            "Aligned at inter-peak trough",
-        ],
     },
     "wide": {
         "label": "Wide pulse",
         "class_id": CLASS_IDS["wide"],
         "color": pulse_shape_color("wide"),
         "align": "maximum",
-        "criteria": [
-            "Random Forest class: wide",
-            "Robust PCA + RF multiclass classifier",
-            "Aligned at peak maximum",
-        ],
     },
 }
+
+PULSE_SHAPE_DISPLAY_ORDER = ("normal", "wide", "double")
 
 
 def longest_run_at_peak(trace, ratio=CLIP_RATIO):
@@ -677,17 +664,6 @@ def plot_prototype_pulse_shape(
     add_detection_markers(ax, median_trace, fs, pulse_shape, pulse_key=pulse_key)
     add_half_max_markers(ax, median_trace, fs, pulse_shape["color"])
 
-    criteria_text = "\n".join(f"• {line}" for line in pulse_shape["criteria"])
-    ax.text(
-        0.98,
-        0.97,
-        criteria_text,
-        transform=ax.transAxes,
-        verticalalignment="top",
-        horizontalalignment="right",
-        bbox=dict(boxstyle="round", facecolor="white", alpha=0.9, edgecolor="#cccccc"),
-    )
-
     ax.set_xlabel("Time (ms)")
     ax.set_ylabel("Normalized amplitude")
     ax.set_ylim(-0.2, 1.05)
@@ -833,8 +809,6 @@ def plot_mean_pulse_shapes_panel(
         ax.set_title(shape["label"], color=color, pad=10)
         ax.set_xlabel("Time (ms)")
         ax.grid(True, alpha=0.28)
-        ax.spines["top"].set_visible(False)
-        ax.spines["right"].set_visible(False)
         ax.text(
             0.97,
             0.95,

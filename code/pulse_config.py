@@ -14,27 +14,30 @@ WAVEFORM_FS = 48_000.0
 
 PULSE_TYPES = {
     "all": {
-        "label": "all pulses",
+        "label": "All pulses",
         "suffix": "_all",
         "figures_subdir": "all_pulses",
         "hist_subdir": "all_pulses_hist",
         "array": None,
     },
     "double": {
-        "label": "double pulses",
+        "label": "Double pulses",
         "suffix": "_dp",
         "figures_subdir": "double_pulses",
         "hist_subdir": "double_pulses_hist",
         "array": "is_double_peak",
     },
     "wide": {
-        "label": "wide pulses",
+        "label": "Wide pulses",
         "suffix": "_wide",
         "figures_subdir": "wide_pulses",
         "hist_subdir": "wide_pulses_hist",
         "array": "is_wide_pulse",
     },
 }
+
+# Legend / panel order when several pulse types are drawn together.
+PULSE_TYPE_DISPLAY_ORDER = ("all", "wide", "double")
 
 SPECIAL_PULSE_TYPES = {
     key: value for key, value in PULSE_TYPES.items() if key != "all"

@@ -23,6 +23,7 @@ from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.patches import Patch
 from scipy import stats
 
 warnings.filterwarnings("ignore")
@@ -46,8 +47,8 @@ from data_paths import (
     LAB_DATA_DIR,
 )
 from h5_io import get_path_list, get_pulse_block, load_marker_array, open_h5
-from presentation_style import LEGEND_LOC, apply_presentation_style, pulse_shape_color, save_thesis_figure
-from pulse_config import PULSE_TYPES
+from presentation_style import apply_presentation_style, pulse_shape_color, save_thesis_figure
+from pulse_config import PULSE_TYPES, PULSE_TYPE_DISPLAY_ORDER
 
 OUTPUT_DIR = FEEDING_CORRELATION_DIR
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -745,11 +746,10 @@ def load_peri_curves(path: Path | None = None) -> dict[str, list[np.ndarray]]:
 
 def plot_peri_feeding_curves(peri_curves: dict[str, list[np.ndarray]]):
     """Plot all / wide / double peri-feeding means in separate panels (own y-scales)."""
-    pulse_order = [key for key in PULSE_TYPES if peri_curves.get(key)]
+    apply_presentation_style()
+    pulse_order = [key for key in PULSE_TYPE_DISPLAY_ORDER if peri_curves.get(key)]
     if not pulse_order:
         return
-
-    from matplotlib.patches import Patch
 
     n = len(pulse_order)
     fig, axes = plt.subplots(n, 1, figsize=(10, 3.0 * n), sharex=True)
@@ -760,14 +760,14 @@ def plot_peri_feeding_curves(peri_curves: dict[str, list[np.ndarray]]):
         facecolor="0.5",
         alpha=0.25,
         edgecolor="none",
-        label=r"shaded band: $\pm$ SEM across feeding events",
+        label=r"Shaded band: $\pm$ SEM across feeding events",
     )
 
-    for ax, pulse_type in zip(axes, pulse_order):
+    for i, (ax, pulse_type) in enumerate(zip(axes, pulse_order)):
         cfg = PULSE_TYPES[pulse_type]
         color = pulse_shape_color(pulse_type)
         mean_curve, sem = _peri_mean_sem(peri_curves[pulse_type])
-        (line,) = ax.plot(x, mean_curve, color=color, label=f'{cfg["label"]} (mean)')
+        ax.plot(x, mean_curve, color=color)
         ax.fill_between(
             x,
             mean_curve - sem,
@@ -777,12 +777,13 @@ def plot_peri_feeding_curves(peri_curves: dict[str, list[np.ndarray]]):
             linewidth=0,
         )
         ax.axvline(0, color="black", linestyle="--", linewidth=1, alpha=0.7)
-        ax.set_ylabel("Mean pulse rate (Hz)")
         ax.set_title(cfg["label"])
         ax.grid(True, alpha=0.3)
-        ax.legend(handles=[line, sem_patch], loc=LEGEND_LOC)
+        if i == 0:
+            ax.legend(handles=[sem_patch])
 
     axes[-1].set_xlabel("Minutes relative to feeding event")
+    fig.supylabel("Mean pulse rate (Hz)")
     fig.suptitle("Average pulse activity around feeding events", y=1.01)
     plt.tight_layout()
     plt.savefig(OUTPUT_DIR / "peri_feeding_pulse_rate_trajectories.png", dpi=300)
@@ -793,6 +794,8 @@ def plot_peri_feeding_curves(peri_curves: dict[str, list[np.ndarray]]):
 def plot_feeding_vs_nonfeeding_rates(corr_summary: pd.DataFrame):
     if corr_summary.empty:
         return
+
+    apply_presentation_style()
 
     labels = [PULSE_TYPES[row["pulse_type"]]["label"] for _, row in corr_summary.iterrows()]
     feeding = corr_summary["mean_rate_feeding_hz"].values
@@ -813,14 +816,12 @@ def plot_feeding_vs_nonfeeding_rates(corr_summary: pd.DataFrame):
             width,
             color=color,
             alpha=0.55,
-            label=f"Non-feeding (>{BASELINE_EXCLUDE_MIN} min away)" if i == 0 else None,
         )
         ax.bar(
             x[i] + width / 2,
             feeding[i],
             width,
             color=color,
-            label=f"Feeding (±{FEEDING_FLAG_RADIUS_MIN} min)" if i == 0 else None,
         )
 
     y_max = float(np.nanmax(np.concatenate([feeding, nonfeeding])))
@@ -849,18 +850,25 @@ def plot_feeding_vs_nonfeeding_rates(corr_summary: pd.DataFrame):
     ax.set_ylabel("Mean pulse rate (Hz)")
     ax.set_title("Pulse rate during feeding windows vs baseline")
     ax.set_ylim(0, y_max * 1.22)
-    ax.legend(loc=LEGEND_LOC)
-    ax.grid(True, axis="y", alpha=0.3)
-    ax.text(
-        0.02,
-        0.98,
-        "Mann–Whitney U (two-sided):\n*** $p<0.001$, ** $p<0.01$, * $p<0.05$",
-        transform=ax.transAxes,
-        va="top",
-        ha="left",
-        fontsize=10,
-        bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.85, "edgecolor": "0.8"},
+    ax.legend(
+        handles=[
+            Patch(
+                facecolor="#c5c5c5",
+                edgecolor="none",
+                label=f"Non-feeding (>{BASELINE_EXCLUDE_MIN} min away)",
+            ),
+            Patch(
+                facecolor="#555555",
+                edgecolor="none",
+                label=f"Feeding (±{FEEDING_FLAG_RADIUS_MIN} min)",
+            ),
+        ],
+        title=(
+            "Mann–Whitney U (two-sided):\n"
+            "*** $p<0.001$, ** $p<0.01$, * $p<0.05$"
+        ),
     )
+    ax.grid(True, axis="y", alpha=0.3)
     plt.tight_layout()
     plt.savefig(OUTPUT_DIR / "feeding_vs_nonfeeding_pulse_rates.png", dpi=300)
     save_thesis_figure("correlations/feeding_vs_nonfeeding_pulse_rates.png")

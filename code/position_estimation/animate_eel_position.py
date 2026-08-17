@@ -243,8 +243,6 @@ def build_animation(
     fig.set_layout_engine(None)
     fig.suptitle(
         f"Eel movement — {wav_path.name}",
-        fontsize=13,
-        fontweight="bold",
         y=0.97,
     )
 
@@ -256,23 +254,21 @@ def build_animation(
     for spine in ax_pos.spines.values():
         spine.set_visible(False)
     ax_pos.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
-    ax_pos.set_xlabel("position along electrode line (m)", labelpad=2)
+    ax_pos.set_xlabel("Position along electrode line", labelpad=2)
     ax_pos.set_title(
         f"{meta['wav_start'].strftime('%Y-%m-%d %H:%M:%S')} · "
         f"peak positive · {body_length_m:.1f} m eel",
-        fontsize=11,
         pad=TITLE_PAD,
     )
 
     raw_line = None
     if show_raw and ax_raw is not None:
         raw_line, = ax_raw.plot([], [], color="#555555", linewidth=1.8, alpha=0.95)
-        ax_raw.set_ylabel("normalized audio")
-        ax_raw.set_xlabel("time (ms)")
+        ax_raw.set_ylabel("Normalized audio")
+        ax_raw.set_xlabel("Time (ms)")
         ax_raw.set_title(
             f"Channel {dominant_channel + 1} · "
             f"±{RAW_WINDOW_MS / 2:.0f} ms window",
-            fontsize=11,
             pad=TITLE_PAD,
         )
         ax_raw.grid(True, alpha=0.2)
@@ -326,7 +322,7 @@ def build_animation(
         )
 
         ax_pos.set_xlabel(
-            f"position along electrode line (m) · "
+            f"Position along electrode line · "
             f"t = {t * 1000:.0f} ms / {duration_ms:.0f} ms"
         )
         update_raw_window(t)

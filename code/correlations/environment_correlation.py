@@ -29,8 +29,8 @@ from data_paths import (
     activity_hist_dir,
     resolve_activity_hist_npz,
 )
-from presentation_style import LEGEND_LOC, apply_presentation_style, pulse_shape_color, save_thesis_figure
-from pulse_config import PULSE_TYPES
+from presentation_style import apply_presentation_style, pulse_shape_color, save_thesis_figure
+from pulse_config import PULSE_TYPES, PULSE_TYPE_DISPLAY_ORDER
 
 OUTPUT_DIR = ENVIRONMENT_CORRELATION_DIR
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -503,14 +503,12 @@ def plot_timeseries(data_monthly, pulse_label):
         markersize=6,
         label="Pulse Rate",
     )
-    axes[0].set_ylabel("Pulse Rate (Hz)", fontsize=11, fontweight="bold")
+    axes[0].set_ylabel("Pulse Rate (Hz)")
     axes[0].set_title(
-        f"Eel Activity and Water Conditions - {pulse_label}",
-        fontsize=13,
-        fontweight="bold",
+        f"Eel Activity and Water Conditions - {pulse_label}"
     )
     axes[0].grid(True, alpha=0.3)
-    axes[0].legend(loc="upper left")
+    axes[0].legend()
 
     # Temperature
     axes[1].plot(
@@ -522,9 +520,9 @@ def plot_timeseries(data_monthly, pulse_label):
         markersize=6,
         label="Temperature",
     )
-    axes[1].set_ylabel("Temperature (°C)", fontsize=11, fontweight="bold")
+    axes[1].set_ylabel("Temperature (°C)")
     axes[1].grid(True, alpha=0.3)
-    axes[1].legend(loc="upper left")
+    axes[1].legend()
 
     # Conductivity
     axes[2].plot(
@@ -536,10 +534,10 @@ def plot_timeseries(data_monthly, pulse_label):
         markersize=6,
         label="Conductivity",
     )
-    axes[2].set_ylabel("Conductivity (µS/cm)", fontsize=11, fontweight="bold")
-    axes[2].set_xlabel("Date", fontsize=11, fontweight="bold")
+    axes[2].set_ylabel("Conductivity (µS/cm)")
+    axes[2].set_xlabel("Date")
     axes[2].grid(True, alpha=0.3)
-    axes[2].legend(loc="upper left")
+    axes[2].legend()
 
     plt.tight_layout()
     plt.savefig(
@@ -591,7 +589,6 @@ def plot_correlations(data_daily, data_monthly, pulse_label):
             transform=axes[0].transAxes,
             verticalalignment="top",
             bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
-            fontsize=10,
         )
 
     # Monthly Temperature
@@ -626,12 +623,11 @@ def plot_correlations(data_daily, data_monthly, pulse_label):
             transform=axes[0].transAxes,
             verticalalignment="top",
             bbox=dict(boxstyle="round", facecolor="lightblue", alpha=0.5),
-            fontsize=10,
         )
 
-    axes[0].set_xlabel("Temperature (°C)", fontsize=11, fontweight="bold")
-    axes[0].set_ylabel("Pulse Rate (Hz)", fontsize=11, fontweight="bold")
-    axes[0].set_title("Pulse Rate vs Temperature", fontsize=12, fontweight="bold")
+    axes[0].set_xlabel("Temperature (°C)")
+    axes[0].set_ylabel("Pulse Rate (Hz)")
+    axes[0].set_title("Pulse Rate vs Temperature")
     axes[0].grid(True, alpha=0.3)
     axes[0].legend()
 
@@ -666,7 +662,6 @@ def plot_correlations(data_daily, data_monthly, pulse_label):
             transform=axes[1].transAxes,
             verticalalignment="top",
             bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
-            fontsize=10,
         )
 
     # Monthly Conductivity
@@ -701,18 +696,15 @@ def plot_correlations(data_daily, data_monthly, pulse_label):
             transform=axes[1].transAxes,
             verticalalignment="top",
             bbox=dict(boxstyle="round", facecolor="lightblue", alpha=0.5),
-            fontsize=10,
         )
 
-    axes[1].set_xlabel("Conductivity (µS/cm)", fontsize=11, fontweight="bold")
-    axes[1].set_ylabel("Pulse Rate (Hz)", fontsize=11, fontweight="bold")
-    axes[1].set_title("Pulse Rate vs Conductivity", fontsize=12, fontweight="bold")
+    axes[1].set_xlabel("Conductivity (µS/cm)")
+    axes[1].set_ylabel("Pulse Rate (Hz)")
+    axes[1].set_title("Pulse Rate vs Conductivity")
     axes[1].grid(True, alpha=0.3)
     axes[1].legend()
 
-    plt.suptitle(
-        f"Correlation Analysis - {pulse_label}", fontsize=14, fontweight="bold", y=0.995
-    )
+    plt.suptitle(f"Correlation Analysis - {pulse_label}", y=0.995)
     plt.tight_layout()
     plt.savefig(
         OUTPUT_DIR / f"correlations_{pulse_label.lower().replace(' ', '_')}.png",
@@ -735,7 +727,10 @@ def plot_combined_correlations(aligned_by_pulse: dict):
     ]
 
     for ax, (env_col, env_label) in zip(axes, env_specs):
-        for pulse_type, payload in aligned_by_pulse.items():
+        for pulse_type in PULSE_TYPE_DISPLAY_ORDER:
+            payload = aligned_by_pulse.get(pulse_type)
+            if payload is None:
+                continue
             monthly = payload["monthly"]
             if len(monthly) < 2 or env_col not in monthly.columns:
                 continue
@@ -755,7 +750,7 @@ def plot_combined_correlations(aligned_by_pulse: dict):
         ax.set_xlabel(env_label)
         ax.set_ylabel("Pulse rate (Hz)")
         ax.grid(True, alpha=0.3)
-        ax.legend(loc=LEGEND_LOC)
+        ax.legend()
 
     fig.suptitle("Environmental correlations — all pulse categories")
     plt.tight_layout()

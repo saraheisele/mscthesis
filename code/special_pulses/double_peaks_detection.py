@@ -53,7 +53,11 @@ from h5_io import (
     open_h5_readwrite_or_readonly,
     save_marker_sidecar,
 )
-from presentation_style import LEGEND_LOC, apply_presentation_style, classifier_label_colors
+from presentation_style import (
+    apply_presentation_style,
+    classifier_label_colors,
+    legend_on_upper_right_subplot,
+)
 from pulse_config import WAVEFORM_FS
 from waveform_rule_metrics import (
     MIN_AMPLITUDE_THRESHOLD,
@@ -1127,7 +1131,7 @@ def plot_labeled_pulses_pca_space(
     show=True,
     class_names=None,
     *,
-    legend_title: str = "RF class",
+    legend_title: str | None = None,
     title: str = "Robust PCA space of RF-classified pulses",
 ):
     """
@@ -1180,12 +1184,14 @@ def plot_labeled_pulses_pca_space(
             labels_sorted,
             colors,
         )
-        if panel_idx == 0:
-            ax.legend(title=legend_title, frameon=True, loc=LEGEND_LOC)
-
     for panel_idx in range(n_panels, n_rows * n_cols):
         row_idx, col_idx = divmod(panel_idx, n_cols)
         axes[row_idx, col_idx].set_axis_off()
+
+    legend_kwargs = {"frameon": True}
+    if legend_title:
+        legend_kwargs["title"] = legend_title
+    legend_on_upper_right_subplot(axes, **legend_kwargs)
 
     fig.suptitle(title, y=1.02)
 

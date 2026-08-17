@@ -115,7 +115,7 @@ def _mark_mating_on_period_axis(
         )
         marked = True
     if marked:
-        ax.legend(loc=LEGEND_LOC, fontsize=10)
+        ax.legend()
 
 
 def plot_half_width_monthly(
@@ -310,7 +310,7 @@ def plot_property_kde(df: pd.DataFrame, property_col: str, output_dir: Path):
         ax.grid(True, alpha=0.3)
 
     axes[-1].xaxis.set_major_formatter(DateFormatter("%Y-%m"))
-    fig.suptitle(f"Temporal trend: {property_col}", fontsize=13, fontweight="bold")
+    fig.suptitle(f"Temporal trend: {property_col}")
     plt.tight_layout()
     fig.savefig(output_dir / f"kde_trend_{property_col}.png", dpi=300)
     plt.close(fig)

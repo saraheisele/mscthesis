@@ -21,7 +21,7 @@ from rich.console import Console
 
 from data_paths import HALF_WIDTH_DISTRIBUTIONS_DIR, H5_DIR
 from presentation_style import LEGEND_LOC, apply_presentation_style, save_thesis_figure
-from special_pulses.prototype_pulse_plots import PULSE_SHAPES
+from special_pulses.prototype_pulse_plots import PULSE_SHAPE_DISPLAY_ORDER, PULSE_SHAPES
 from special_pulses.pulse_property_collect import (
     collect_pulse_property_records,
     half_widths_by_shape,
@@ -72,7 +72,8 @@ def plot_distributions(widths_by_shape: dict, output_dir: Path):
     plt.close(fig)
 
     fig, ax = plt.subplots(figsize=(12, 6))
-    for key, shape in PULSE_SHAPES.items():
+    for key in PULSE_SHAPE_DISPLAY_ORDER:
+        shape = PULSE_SHAPES[key]
         values = widths_by_shape[key]
         if values.size == 0:
             continue

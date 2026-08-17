@@ -22,8 +22,8 @@ from tqdm import tqdm
 from correlations.mating_notes_utils import extract_mating_events
 from data_paths import activity_hist_dir, processed_figures_dir, resolve_activity_hist_npz
 from plotting_utils import format_x_axis
-from presentation_style import LEGEND_LOC, apply_presentation_style, pulse_shape_color, save_thesis_figure
-from pulse_config import PULSE_TYPES, select_pulse_type
+from presentation_style import apply_presentation_style, legend_on_upper_right_subplot, pulse_shape_color, save_thesis_figure
+from pulse_config import PULSE_TYPES, PULSE_TYPE_DISPLAY_ORDER, select_pulse_type
 
 USE_BOOTSTRAP = True
 BOOTSTRAP_ITERATIONS = 1000
@@ -153,7 +153,7 @@ def mark_mating_on_month_since_start(
         )
         marked = True
     if marked:
-        ax.legend(loc=LEGEND_LOC, fontsize=10)
+        ax.legend()
 
 
 def plot_pulse_rate(
@@ -205,6 +205,7 @@ def plot_session_median_on_axis(
     median_label="active-session median",
     decorate_axis=True,
     include_band_in_legend=True,
+    show_legend=True,
 ):
     x = np.arange(arr.shape[1])
     if show_scatter:
@@ -250,7 +251,8 @@ def plot_session_median_on_axis(
         ax.set_ylabel("Pulse rate (Hz)")
         ax.set_ylim(bottom=0)
         ax.set_title(title)
-        ax.legend(loc=LEGEND_LOC, fontsize=10)
+        if show_legend:
+            ax.legend()
         ax.grid(True, alpha=0.25)
     else:
         ax.set_ylim(bottom=0)
@@ -265,6 +267,7 @@ def plot_circadian_panel_figure(
     pulse_type_key,
 ):
     """Four-panel overview: 24h, 12 month, months since start, years."""
+    apply_presentation_style()
     fig, axes = plt.subplots(2, 2, figsize=(18, 12))
     color = pulse_shape_color(pulse_type_key)
     for ax, (timescale, title) in zip(axes.ravel(), CIRCADIAN_PANEL_TIMESCALES):
@@ -278,7 +281,9 @@ def plot_circadian_panel_figure(
             axis_meta,
             color=color,
             title=title,
+            show_legend=False,
         )
+    legend_on_upper_right_subplot(axes)
     fig.suptitle(f"Pulse rate over time — {pulse_label}")
     plt.tight_layout()
     filename = f"circadian_panels{suffix}.png"
@@ -289,6 +294,7 @@ def plot_circadian_panel_figure(
 
 def plot_circadian_panels_all_shapes(save_path=None):
     """Four-panel overview with all pulse categories overlaid."""
+    apply_presentation_style()
     if save_path is None:
         save_path = processed_figures_dir(PULSE_TYPES["all"]["figures_subdir"])
     save_path = Path(save_path)
@@ -307,8 +313,9 @@ def plot_circadian_panels_all_shapes(save_path=None):
     fig, axes = plt.subplots(2, 2, figsize=(18, 12))
     for ax, (timescale, panel_title) in zip(axes.ravel(), CIRCADIAN_PANEL_TIMESCALES):
         plotted = False
-        for pulse_type, session_data in session_by_pulse.items():
-            if timescale not in session_data.files:
+        for pulse_type in PULSE_TYPE_DISPLAY_ORDER:
+            session_data = session_by_pulse.get(pulse_type)
+            if session_data is None or timescale not in session_data.files:
                 continue
             plot_session_median_on_axis(
                 ax,
@@ -341,9 +348,9 @@ def plot_circadian_panels_all_shapes(save_path=None):
         ax.set_ylabel("Pulse rate (Hz)")
         ax.set_ylim(bottom=0)
         ax.set_title(panel_title)
-        ax.legend(loc=LEGEND_LOC, fontsize=10)
         ax.grid(True, alpha=0.25)
 
+    legend_on_upper_right_subplot(axes)
     fig.suptitle("Pulse rate over time — all pulse categories")
     plt.tight_layout()
     filename = "circadian_panels_all_shapes.png"
