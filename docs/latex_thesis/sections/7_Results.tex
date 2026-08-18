@@ -182,9 +182,9 @@ Double and wide yearly medians remain near $\sim$0.1\,Hz and do not follow that 
 \begin{figure}[H]
   \centering
   \includegraphics[width=\textwidth]{activity_timescales/circadian_panels_all_shapes.png}
-  \caption{Pulse rate across different timescales (24\,h, monthly, yearly), with all three classes in the same panels. 
+  \caption{Pulse rate across different timescales (24\,h, monthly, yearly), with all pulses, wide pulses, and double pulses in the same panels. 
   Thick traces are active session medians (light blue all pulses, pink doubles, dark green wides). 
-  The washed out bands show bootstrap 95\% CIs, and the faint dots are the underlying session bins. 
+  The washed out bands show bootstrap 95\% CIs. 
   \textbf{Top Left:} 24\,h scale with hourly bins. 
   \textbf{Top Right:} Calendar months with monthly bins. 
   \textbf{Bottom Left:} Chronological monthly record with monthly bins. 
@@ -208,8 +208,8 @@ With only $n=13$ months, the informative value of this analysis is limited meani
 \begin{figure}[H]
   \centering
   \includegraphics[width=\textwidth]{correlations/correlations_all_pulse_shapes.png}
-  \caption{Environmental correlations of pulse rate in Hz with tank temperature in C° (left) and conductivity in µS\,cm$^{-1}$ (right). 
-  Each cloud is a pulse class (light blue - all, red - double, green - wide), with a dashed line of the same colour indicating the linear fit ($n=13$ months). 
+  \caption{Environmental correlations of pulse rate in Hz with tank temperature in $^{\circ}$C (left) and conductivity in µS\,cm$^{-1}$ (right). 
+  Each cloud is a pulse category (light blue - all pulses, red - double, green - wide), with a dashed line of the same colour indicating the linear fit ($n=13$ months). 
   The only significant Pearson correlation is double vs temperature ($p=0.023$).
   In a Spearman rank correlation all three traces do not survive, i.e., they are not significant.
   Special-shape rates sit well below the all-pulse scatter.}
@@ -243,7 +243,7 @@ That morning rate peak in Figure~\ref{fig:activity_all_shapes} coincides with fe
 \begin{figure}[H]
   \centering
   \includegraphics[width=0.85\textwidth]{correlations/peri_feeding_pulse_rate_trajectories.png}
-  \caption{Minute by minute rate around feeding, one panel per pulse class with its own y-axis.
+  \caption{Minute by minute rate around feeding, one panel each for all pulses, wide pulses, and double pulses, each with its own y-axis.
   Coloured traces are means across matched feeding events (blue - all pulses, green - wide, red - double).
   The matching washed out band is $\pm$ SEM over those events (\texttt{scipy.stats.sem} in \texttt{correlate\_activity\_with\_feeding.py}). 
   The dashed vertical line is the logged feeding time that each trace was aligned to. 
@@ -288,16 +288,18 @@ Calendar month and months since start show slow drifts of preferred position, in
   \label{fig:pos_panels}
 \end{figure}
 
-Figure~\ref{fig:pos_anim} embeds a short animation of one recording: eel icon along the electrode line (head at strongest positive channel) with the corresponding raw trace. 
-The printable PDF shows an interactive frame sequence in viewers that support the \texttt{animate} package. 
-The source files are \path{figures/position_estimation/eel_position_animation.mp4} and \path{.gif}.
+Figure~\ref{fig:pos_anim} shows a short animation of one recording.
+An eel icon is plotted to move along the electrode line with the head position equal to the strongest positive electrode. 
+The right panel of this figure shows the raw waveform from that electrode simultaneous to the eels position.
+% The printable PDF shows an interactive frame sequence in viewers that support the \texttt{animate} package. 
+% The source files are \path{figures/position_estimation/eel_position_animation.mp4} and \path{.gif}.
 
 \begin{figure}[H]
   \centering
   \animategraphics[autoplay,loop,controls,poster=12,width=0.95\linewidth]{2}{position_estimation/anim_frames/frame_}{001}{024}
   \caption{One Berlin recording played as an animation (this PDF embeds a 2\,fps subsample of the full MP4). 
   On the left the eel icon crawls the electrode line with its head at the strongest positive channel. 
-  On the right the dark trace is the raw waveform from that channel in a short window around the same instant. 
+  On the right the dark trace is the raw waveform from a fixed channel (channel 1 of the recording) in a $\pm$50\,ms window around the same instant; it does not follow the head electrode as the eel moves. 
   The full clip lives at \texttt{figures/position\_estimation/eel\_position\_animation.mp4} (and the matching \texttt{.gif}).}
   \label{fig:pos_anim}
 \end{figure}

@@ -29,7 +29,13 @@ from data_paths import (
     activity_hist_dir,
     resolve_activity_hist_npz,
 )
-from presentation_style import apply_presentation_style, pulse_shape_color, save_thesis_figure
+from presentation_style import (
+    apply_presentation_style,
+    hide_top_right_spines,
+    legend_on_upper_right_subplot,
+    pulse_shape_color,
+    save_thesis_figure,
+)
 from pulse_config import PULSE_TYPES, PULSE_TYPE_DISPLAY_ORDER
 
 OUTPUT_DIR = ENVIRONMENT_CORRELATION_DIR
@@ -717,10 +723,11 @@ def plot_correlations(data_daily, data_monthly, pulse_label):
 
 def plot_combined_correlations(aligned_by_pulse: dict):
     """Overlay all pulse-shape correlations on shared temperature/conductivity panels."""
+    apply_presentation_style()
     if "all" not in aligned_by_pulse:
         return
 
-    fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+    fig, axes = plt.subplots(1, 2, figsize=(16, 7), sharey=True)
     env_specs = [
         ("temperature_monthly", "Temperature (°C)"),
         ("conductivity_monthly", "Conductivity (µS/cm)"),
@@ -748,9 +755,10 @@ def plot_combined_correlations(aligned_by_pulse: dict):
             x_range = np.linspace(monthly[env_col].min(), monthly[env_col].max(), 100)
             ax.plot(x_range, np.poly1d(coeffs)(x_range), "--", color=color, linewidth=2.2)
         ax.set_xlabel(env_label)
-        ax.set_ylabel("Pulse rate (Hz)")
         ax.grid(True, alpha=0.3)
-        ax.legend()
+    axes[0].set_ylabel("Pulse rate (Hz)")
+    legend_on_upper_right_subplot(axes)
+    hide_top_right_spines(fig)
 
     fig.suptitle("Environmental correlations — all pulse categories")
     plt.tight_layout()

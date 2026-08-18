@@ -10,6 +10,7 @@ session h5, estimates head position per pulse, and renders an animation.
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 from pathlib import Path
 
@@ -25,7 +26,7 @@ from matplotlib.patches import Circle, PathPatch
 from matplotlib.path import Path as MplPath
 from scipy.io import wavfile
 
-from data_paths import EEL_SVG, LAB_DATA_DIR, POSITION_FIGURES_DIR
+from data_paths import EEL_SVG, LAB_DATA_DIR, POSITION_FIGURES_DIR, PROJECT_ROOT
 from eelplotting import get_eel_shape, plot_eel
 from position_utils import (
     BRIGHT_POOL_CENTER,
@@ -42,7 +43,12 @@ from position_utils import (
     smooth_positions,
     tank_outline_bounds_framed,
 )
-from presentation_style import apply_presentation_style, copy_thesis_asset, pulse_shape_color
+from presentation_style import (
+    apply_presentation_style,
+    copy_thesis_asset,
+    pulse_shape_color,
+    thesis_figure_path,
+)
 
 EEL_LINE_Y = 0.0
 ELECTRODE_TICK_HALF_M = 0.08
@@ -56,6 +62,9 @@ TITLE_PAD = 8
 FIXED_BODY_LENGTH_M = 2.0
 RAW_Y_MARGIN = 1.08
 POOL_FRAME_PAD_M = 0.04
+THESIS_ANIM_FRAME_COUNT = 24
+THESIS_ANIM_POSTER_FRAME = 12
+LATEX_POSITION_FIGURES = PROJECT_ROOT / "docs" / "latex_thesis" / "figures" / "position_estimation"
 
 # Thesis default: dark-area chunk used for eel_position_animation.{mp4,gif}.
 DEFAULT_WAV_RELATIVE = Path(
@@ -273,6 +282,8 @@ def build_animation(
         )
         ax_raw.grid(True, alpha=0.2)
         ax_raw.set_ylim(-global_raw_ymax, global_raw_ymax)
+        ax_raw.spines["top"].set_visible(False)
+        ax_raw.spines["right"].set_visible(False)
 
     if show_raw:
         fig.subplots_adjust(left=0.05, right=0.99, top=0.86, bottom=0.13, wspace=0.10)
@@ -337,6 +348,7 @@ def build_animation(
         blit=False,
         repeat=True,
     )
+    meta["n_anim_frames"] = len(times)
     meta["duration_sec"] = duration
     meta["audio_fs"] = audio_fs
     return fig, anim
@@ -400,7 +412,58 @@ def save_animation(
         if video_path != output_path and video_path.exists():
             video_path.unlink(missing_ok=True)
 
-    plt.close(fig)
+
+def _copy_into_latex_position_figures(source: Path, filename: str) -> Path:
+    LATEX_POSITION_FIGURES.mkdir(parents=True, exist_ok=True)
+    dest = LATEX_POSITION_FIGURES / filename
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, dest)
+    return dest
+
+
+def save_thesis_animation_frames(
+    fig,
+    anim,
+    *,
+    n_total: int,
+    n_frames: int = THESIS_ANIM_FRAME_COUNT,
+    poster_frame: int = THESIS_ANIM_POSTER_FRAME,
+) -> list[Path]:
+    """Write evenly spaced PNG frames used by the thesis ``animategraphics`` figure."""
+    n_total = int(n_total or getattr(anim, "save_count", 0) or 0)
+    if n_total < 1:
+        raise ValueError("Animation has no frames to export.")
+    n_frames = min(int(n_frames), n_total)
+    indices = np.unique(np.linspace(0, n_total - 1, n_frames).astype(int))
+    while len(indices) < n_frames:
+        extra = [i for i in range(n_total) if i not in set(indices)]
+        if not extra:
+            break
+        indices = np.append(indices, extra[0])
+    indices = np.sort(indices)[:n_frames]
+
+    frame_dir = thesis_figure_path("position_estimation/anim_frames/frame_001.png").parent
+    latex_frame_dir = LATEX_POSITION_FIGURES / "anim_frames"
+    frame_dir.mkdir(parents=True, exist_ok=True)
+    latex_frame_dir.mkdir(parents=True, exist_ok=True)
+
+    saved = []
+    fig.set_layout_engine("none")
+    for out_idx, src_idx in enumerate(indices, start=1):
+        anim._func(int(src_idx))
+        name = f"frame_{out_idx:03d}.png"
+        thesis_path = frame_dir / name
+        fig.savefig(thesis_path, dpi=150, bbox_inches=None)
+        shutil.copy2(thesis_path, latex_frame_dir / name)
+        saved.append(thesis_path)
+
+    poster_idx = min(max(int(poster_frame), 1), len(saved))
+    still = saved[poster_idx - 1]
+    still_name = "eel_position_still.png"
+    copy_thesis_asset(still, f"position_estimation/{still_name}")
+    _copy_into_latex_position_figures(still, still_name)
+    print(f"Saved {len(saved)} thesis animation frames to {frame_dir}")
+    return saved
 
 
 def _print_entry_candidates(limit: int = 20) -> list[dict]:
@@ -558,6 +621,7 @@ def main():
             else None
         )
 
+    save_thesis_animation_frames(fig, anim, n_total=int(meta["n_anim_frames"]))
     save_animation(
         fig,
         anim,
@@ -566,8 +630,10 @@ def main():
         wav_path=wav_path if use_audio and output_path.suffix.lower() == ".mp4" else None,
         duration_sec=meta.get("duration_sec"),
     )
+    plt.close(fig)
     thesis_name = f"eel_position_animation{output_path.suffix}"
     copy_thesis_asset(output_path, f"position_estimation/{thesis_name}")
+    _copy_into_latex_position_figures(output_path, thesis_name)
     print(f"Saved animation to {output_path}")
 
     # Also produce a silent GIF thesis asset when the primary output is MP4.
@@ -589,6 +655,9 @@ def main():
         )
         if gif_path.exists():
             copy_thesis_asset(gif_path, "position_estimation/eel_position_animation.gif")
+            _copy_into_latex_position_figures(
+                gif_path, "eel_position_animation.gif"
+            )
             print(f"Saved GIF animation to {gif_path}")
 
     if args.show:

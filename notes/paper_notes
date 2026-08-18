@@ -23,74 +23,6 @@ Self defense:
 
 
 ##################################################################
-Social predation in electric eels - Bastos 2020 (read on 26.03.25)
-- elecrophorus voltai
-- high/low voltage output systems
-- eels work together to hunt (video !!)
-- prevailing understanding: hunt alone using high voltage charges in shallow waters
-- social hunting behavior observed in amazon river, shallow area i which they hunt
-- first time seen 2012, observed this behavior 5 times during 72h in 2015
-- deeper area in which eels rest
-- acidic, low conductivity, low oxygen, warm water
-
-- four main states eels go through in 24 h period:
-    resting, interacting, migrating, hunting
-- predation in dusk and dawn
-- males and females
-- interaction period, commotion on water surface, app. 20 min long
-- then eels swim together to hunting grounds, up to over 100 animals
-- herd fish into prey ball in very shallow water
-- 2-10 animals launch synchronized high v strike (sinusoidal motion of eels bodies, observable visually)
-- this stunnes fish, eels go in an feed
-- some eels maintain prey ball, some strike
-- 5-7 prey ball events during one hunting event (app. 2 hours)
-
-- why not just hunt alone if capable to do so?
-- school of fish are overwhelming for single predators
-- maximizing income of hunt by working together
-- same eel groups use same hunting grounds for years (do they share knowledge of good hunting grounds, other social benefits?)
-- surprisingly low aggression levels within these groups
-- evolutionary driven by availability of prey and self organizing social mechanics
-    if hunting with other individual is succesful eels go back to hunting with those same individuals
-
-- Social predation framework:
-    sociality: given in these scenarios
-    communication: highly suggested by observed behaviors
-    dependence: eels seem to be dependent on this group foraging
-    resource sharing: no hierarchy, fair sharing of prey
-    specialization: no role specific for individuals, roles are fluent
-
-- No info about genetics and EODs during social hunting behavior
-
-
-##################################################################
-Reproductive effort and terminal investment in a multispecies assemblage of Amazon electric fish - Waddell 2021 (read on 03.04.25)
-
-- brachyhypopomus
-- upper amazon (terra firme stream)
-- looked at 5 species
-- metrics of reproductive effort (gonad and EOD condition) increased towards end of final breeding season
-- somatic condition decreased towards end of final breeding season
-- found in males and females
-- liver condition increased in females (necessary for producing eggs), but decreased in males
-- carcass condition decreased in both males and females
-- 4 species only have one breeding season, 1 species has 2 breeding seasons (B. beebei)
-     - in B. beebei these correlations were only found in the final season, not in the first alone
-
-
-##################################################################
-Electric Eel foraging optimization based control design of islanded microgrid - Ebrahim 2025 (read on 14.04.25)
-
-- micro grids that operate independent from the main electrical/energy grid
-- microgrid: local energy distribution system (source: mostly renewable), can be connected or disconnected to large grid
-- usages: community, industrial complex
-- rely on power converters (converts raw energy to AC)
-- grid feeding converters: push power into existing electrical grid, need grid forming unit
-- grid forming converters: maintain stable voltage and frequency, set electrical rhythm
---> not really relevant, electric eels are proposed for model for microgrids, basically applied paper from social predation in eels paper (bastos)
-
-
-##################################################################
 Electric Eels Concentrate Their Electric Field to Induce Involuntary Fatigue in Struggling Prey - Catania 2015 (read on 14.04.25)
 
 - eels amplify electrical power to exhaust prey
@@ -178,6 +110,113 @@ Electric eels use high-voltage to track fast-moving prey - Catania 2015 (read on
 
 
 ##################################################################
+The shocking predatory strike of the electric eel - Catania 2014 (read on 29.04.25)
+
+- E. electricus
+- up to 600 V
+- 3 ms after high V volley prey fish is paralyzed
+
+mechanism of prey immobilisation:
+- pithed fish, so only peripheral nerve and muscle reaction can be measured
+- eel hunts worms
+- pithed fish seperated from eel with agar plate (seperated mechanically but not electrically)
+- 3-4 ms after first high V pulse fish contracted
+- fish contraction is equally strong to maximum twitch that could be elicited on purpose
+- electrically induced tetanus
+
+muscle or nerve immobilisation:
+- 2 fish next to each other behind agar barrier
+- one fish treated with curare, other got saline
+- fish w curare almost no muscle tension, other fish same amount as in prev experiments
+- eels shock acts on nervous system of prey, specifically motor neurons
+- high frequency and amplitude discharge very effective to immobilize
+
+- fish in plastic bag and behind agar (isolated from eel in all senses but mechanically)
+- if researcher makes fish twitch after doublet of eel; attack
+- same response if fish twitched without probing doublet
+- no attack if fish doesn't twitch after doublet
+
+
+################ SUMMARY CATANIA PAPERS ################
+- NEXT JOURNAL CLUB
+usual hunting strategy of eel:
+- probing environment with small V pulses
+- then high V doublet, to force prey to twitch (mechanosensory detection)
+- attack in direction of prey with high V volley
+- prey immobilized after 3 ms
+- if too big/tricky, eel concentrates electric field around it to put more force into paralyzing prey
+- high V volley also used to very precisely sense prey location and confirm that is prey (electrosensory feedback necessary for feeding attempt)
+
+
+##################################################################
+Social predation in electric eels - Bastos 2020 (read on 26.03.25)
+- elecrophorus voltai
+- high/low voltage output systems
+- eels work together to hunt (video !!)
+- prevailing understanding: hunt alone using high voltage charges in shallow waters
+- social hunting behavior observed in amazon river, shallow area i which they hunt
+- first time seen 2012, observed this behavior 5 times during 72h in 2015
+- deeper area in which eels rest
+- acidic, low conductivity, low oxygen, warm water
+
+- four main states eels go through in 24 h period:
+    resting, interacting, migrating, hunting
+- predation in dusk and dawn
+- males and females
+- interaction period, commotion on water surface, app. 20 min long
+- then eels swim together to hunting grounds, up to over 100 animals
+- herd fish into prey ball in very shallow water
+- 2-10 animals launch synchronized high v strike (sinusoidal motion of eels bodies, observable visually)
+- this stunnes fish, eels go in an feed
+- some eels maintain prey ball, some strike
+- 5-7 prey ball events during one hunting event (app. 2 hours)
+
+- why not just hunt alone if capable to do so?
+- school of fish are overwhelming for single predators
+- maximizing income of hunt by working together
+- same eel groups use same hunting grounds for years (do they share knowledge of good hunting grounds, other social benefits?)
+- surprisingly low aggression levels within these groups
+- evolutionary driven by availability of prey and self organizing social mechanics
+    if hunting with other individual is succesful eels go back to hunting with those same individuals
+
+- Social predation framework:
+    sociality: given in these scenarios
+    communication: highly suggested by observed behaviors
+    dependence: eels seem to be dependent on this group foraging
+    resource sharing: no hierarchy, fair sharing of prey
+    specialization: no role specific for individuals, roles are fluent
+
+- No info about genetics and EODs during social hunting behavior
+
+
+##################################################################
+Reproductive effort and terminal investment in a multispecies assemblage of Amazon electric fish - Waddell 2021 (read on 03.04.25)
+
+- brachyhypopomus
+- upper amazon (terra firme stream)
+- looked at 5 species
+- metrics of reproductive effort (gonad and EOD condition) increased towards end of final breeding season
+- somatic condition decreased towards end of final breeding season
+- found in males and females
+- liver condition increased in females (necessary for producing eggs), but decreased in males
+- carcass condition decreased in both males and females
+- 4 species only have one breeding season, 1 species has 2 breeding seasons (B. beebei)
+     - in B. beebei these correlations were only found in the final season, not in the first alone
+
+
+##################################################################
+Electric Eel foraging optimization based control design of islanded microgrid - Ebrahim 2025 (read on 14.04.25)
+
+- micro grids that operate independent from the main electrical/energy grid
+- microgrid: local energy distribution system (source: mostly renewable), can be connected or disconnected to large grid
+- usages: community, industrial complex
+- rely on power converters (converts raw energy to AC)
+- grid feeding converters: push power into existing electrical grid, need grid forming unit
+- grid forming converters: maintain stable voltage and frequency, set electrical rhythm
+--> not really relevant, electric eels are proposed for model for microgrids, basically applied paper from social predation in eels paper (bastos)
+
+
+##################################################################
 Electrochemical Capacitors with High Output Voltages that Mimic Electric Eels -  Sun 2016 (read on 23.04.25)
 
 - tries to solve problem of how to make energy efficient technology
@@ -234,45 +273,6 @@ MEMBRANE POTENTIALS IN THE ELECTROPLATES OF THE ELECTRIC EEL - Keynes 1952 (read
 - up to 150 mv pos inside
 - in resting phase net 0 V (inside and outside cancel out)
 -
-
-
-##################################################################
-The shocking predatory strike of the electric eel - Catania 2014 (read on 29.04.25)
-
-- E. electricus
-- up to 600 V
-- 3 ms after high V volley prey fish is paralyzed
-
-mechanism of prey immobilisation:
-- pithed fish, so only peripheral nerve and muscle reaction can be measured
-- eel hunts worms
-- pithed fish seperated from eel with agar plate (seperated mechanically but not electrically)
-- 3-4 ms after first high V pulse fish contracted
-- fish contraction is equally strong to maximum twitch that could be elicited on purpose
-- electrically induced tetanus
-
-muscle or nerve immobilisation:
-- 2 fish next to each other behind agar barrier
-- one fish treated with curare, other got saline
-- fish w curare almost no muscle tension, other fish same amount as in prev experiments
-- eels shock acts on nervous system of prey, specifically motor neurons
-- high frequency and amplitude discharge very effective to immobilize
-
-- fish in plastic bag and behind agar (isolated from eel in all senses but mechanically)
-- if researcher makes fish twitch after doublet of eel; attack
-- same response if fish twitched without probing doublet
-- no attack if fish doesn't twitch after doublet
-
-
-################ SUMMARY CATANIA PAPERS ################
-- NEXT JOURNAL CLUB
-usual hunting strategy of eel:
-- probing environment with small V pulses
-- then high V doublet, to force prey to twitch (mechanosensory detection)
-- attack in direction of prey with high V volley
-- prey immobilized after 3 ms
-- if too big/tricky, eel concentrates electric field around it to put more force into paralyzing prey
-- high V volley also used to very precisely sense prey location and confirm that is prey (electrosensory feedback necessary for feeding attempt)
 
 
 ##################################################################
@@ -430,7 +430,7 @@ Nesting and Paternal Care in the Weakly Electric Fish Gymnotus (Gymnotiformes: G
 - how much can I compare this to el. eel ???
 
 ##################################################################
-HISTÓRIA NATURAL DE PORAQUÊS (ELECTROPHORUS SPP.) - DOUGLAS AVIZ BASTOS (read on 13.02.26)
+HISTÓRIA NATURAL DE PORAQUÊS (ELECTROPHORUS SPP.) - BASTOS (read on 13.02.26)
 
 - first two chapters are in portuguese so I didnt get much of that
 - tracked several E. varii for 2 years in Ducke with PIT tags so they know where which animal was at all times

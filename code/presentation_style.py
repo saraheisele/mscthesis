@@ -93,6 +93,14 @@ def apply_presentation_style(force: bool = False) -> None:
     _style_applied = True
 
 
+def hide_top_right_spines(fig=None) -> None:
+    """Hide top and right axes spines on every axes of a figure."""
+    fig = fig or plt.gcf()
+    for ax in fig.get_axes():
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+
 def legend_on_upper_right_subplot(axes, **kwargs):
     """Place a legend only on the upper-right axes of a 2-D subplot grid."""
     kwargs.setdefault("loc", LEGEND_LOC)
@@ -122,8 +130,10 @@ def save_thesis_figure(
     path = figures_dir / filename
     path.parent.mkdir(parents=True, exist_ok=True)
     if fig is None:
+        hide_top_right_spines()
         plt.savefig(path, dpi=dpi, **kwargs)
     else:
+        hide_top_right_spines(fig)
         fig.savefig(path, dpi=dpi, **kwargs)
     return path
 

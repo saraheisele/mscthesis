@@ -756,12 +756,6 @@ def plot_peri_feeding_curves(peri_curves: dict[str, list[np.ndarray]]):
     if n == 1:
         axes = [axes]
     x = np.arange(-PERI_WINDOW_MIN, PERI_WINDOW_MIN)
-    sem_patch = Patch(
-        facecolor="0.5",
-        alpha=0.25,
-        edgecolor="none",
-        label=r"Shaded band: $\pm$ SEM across feeding events",
-    )
 
     for i, (ax, pulse_type) in enumerate(zip(axes, pulse_order)):
         cfg = PULSE_TYPES[pulse_type]
@@ -777,13 +771,21 @@ def plot_peri_feeding_curves(peri_curves: dict[str, list[np.ndarray]]):
             linewidth=0,
         )
         ax.axvline(0, color="black", linestyle="--", linewidth=1, alpha=0.7)
-        ax.set_title(cfg["label"])
+        ax.set_title(cfg["label"], fontsize=14)
         ax.grid(True, alpha=0.3)
         if i == 0:
-            ax.legend(handles=[sem_patch])
+            ax.text(
+                0.99,
+                0.96,
+                r"Shaded band: $\pm$ SEM across feeding events",
+                transform=ax.transAxes,
+                ha="right",
+                va="top",
+                fontsize=plt.rcParams["legend.fontsize"],
+            )
 
     axes[-1].set_xlabel("Minutes relative to feeding event")
-    fig.supylabel("Mean pulse rate (Hz)")
+    fig.supylabel("Mean pulse rate (Hz)", fontweight="bold")
     fig.suptitle("Average pulse activity around feeding events", y=1.01)
     plt.tight_layout()
     plt.savefig(OUTPUT_DIR / "peri_feeding_pulse_rate_trajectories.png", dpi=300)

@@ -73,7 +73,7 @@ Channel 0 which was closest to the logger was located in the bright area.
 The bright versus dark boundary used for occupancy analyses sits at about 2.5\,m. 
 A second line was added in November 2025 to span bright and dark regions of the tank.
 Dual line recordings from 25 November 2025 onward enter rate analyses with pulse counts weighted by 0.5.
-Yearly panels report session-median rates (Hz), so partial calendar years 2023 and 2026 are not scaled by the fraction of the year recorded.
+Yearly panels report session-median rates in Hz, so partial calendar years 2023 and 2026 are not scaled by the fraction of the year recorded.
 Those years remain samples of the months that were actually logged.
 The Berlin Dataset spans 13.7 TiB of raw WAV recordings obtained from 2023 to 2026, with around 500 GiB of processed data in NIX/H5 format. 
 
@@ -138,7 +138,8 @@ Labeled pulses are also shown in PCA space, and half width, inter pulse interval
 Temperature and conductivity from tank water logs are correlated with daily and monthly rates.
 % High voltage volleys are scored as rapid trains: primary rule $\geq 5$ waveform sub peaks with inter event interval $\leq 2$\,ms, with a fallback of $\geq 3$ pulse centers at $\leq 5$\,ms.
 % Bright versus dark tank regions tagged in filenames are compared for shape fractions.
-Feeding windows ($\pm$5\,min around logged feeding times) are contrasted with baseline minutes ($>$5\,min from feeding) using mean pulse rates and a two-sided Mann--Whitney $U$ test on the minute-level rates; peri-feeding trajectories are also computed.
+Feeding windows ($\pm$5\,min around logged feeding times) are contrasted with baseline minutes ($>$5\,min from feeding) using mean pulse rates and a two-sided Mann--Whitney $U$ test on the minute-level rates.
+Peri-feeding trajectories are computed as well.
 Mean feeding clock time is the circular mean of the first logged feeding-related timestamp per session, with a bootstrap 95\% CI.
 
 \subsubsection{Position along the electrode line}
