@@ -9,13 +9,13 @@ Brazil field recordings were not analysed for this chapter.
 \subsection{Special pulse shapes}
 
 Across the processed Berlin dataset ($n = 13{,}465{,}438$ accepted EODs), three shape classes emerge from the RobustPCA plus RF pipeline (Figure~\ref{fig:pulse_shape_distribution}). 
-Median prototypes were calculated from 20.000 random samples of each cohort tocapture the morphological differences (Figure~\ref{fig:prototypes}). 
+Median prototypes were calculated from 20.000 random samples of each cohort to capture the morphological differences (Figure~\ref{fig:prototypes}). 
 Normal pulses make up the biggest share with 64.0\%  and a total of $n = 8{,}623{,}379$ pulses. 
 The normal pulse is a single, roughly symmetric peak with median half width $1.58$\,ms. 
 Wide pulses make up about a third of the dataset (33.5\%, $n = 4{,}514{,}438$). 
 A typical wide pulse is a single peak with a slower decay and median half width of $2.19$\,ms. 
 The decaying part of a wide pulse is often characterized by a little "bump" or shoulder, which is not present in the normal pulse. 
-Therefore it wide pulses are also less symmetrical compared to normal pulses.
+Therefore wide pulses are also less symmetrical compared to normal pulses.
 Double pulses are quite rare and only make up 2.4\% ($n = 327{,}621$) of all recorded pulses. 
 Average double pulses have two peaks of similar height separated by a shallow trough.
 In the labelling process however, the goal was to find as many double pulses as possible to improve classifier performance. 
@@ -29,7 +29,6 @@ But the half width is not a sufficient label by itself because the classes overl
   \centering
   \includegraphics[width=0.72\textwidth]{pulse_shapes/pulse_shape_distribution.png}
   \caption{How often each RF class shows up in the processed Berlin set. 
-  Blue denotes normal, green wide, red double pulses. 
   Counts and percentages are displayed on the bars. 
   Most discharges are normal, about a third are wide, and doubles are uncommon.}
   \label{fig:pulse_shape_distribution}
@@ -50,33 +49,31 @@ But the half width is not a sufficient label by itself because the classes overl
     \includegraphics[width=\textwidth]{pulse_shapes/prototype_double_pulse.png}
     \caption{Double}
   \end{subfigure}
-  \caption{Median waveforms for the three classes, with half width marked on each. 
-  From left to right the panels are normal (blue), wide (green), and double (red). 
+  \caption{Median waveforms for the three classes.
   The thick coloured trace is the class median ($n = 20{,}000$). 
-  The thin grey pulses are 100 example pulses per class
+  The thin grey pulses are 100 example pulses per class.
   The stars mark where the waveforms were aligned (peak for normal and wide, trough between peaks for double). 
-  The coloured horizontal bar sits at half maximum and indicates the half width. 
   Normals are short and single peaked, wides stretch out with a slower falling edge, and doubles carry two peaks about 1\,ms apart.}
   \label{fig:prototypes}
 \end{figure}
 
 Half width distributions back the three way split (Figure~\ref{fig:half_width_overlay}). 
-Normal pulses pile up near $\sim$1.5 to 1.7\,ms (panel median $1.56$\,ms). 
+Normal pulses aggregate near $\sim$1.5 to 1.7\,ms (panel median $1.56$\,ms). 
 Wide pulses shift mass a little longer (median $1.94$\,ms, mode near $\sim$2\,ms). 
 Doubles show least variability in half width distribution.
 The double pulses form a tight peak near 2.3 to 2.5\,ms (median $2.38$\,ms; $n = 24{,}033$ doubles with a measurable half width). 
 The classes still overlap in half width alone, so width is not a sufficient label by itself. 
 The pooled half width histogram without class labels is dominated by a mode near $\sim$1.6\,ms with a long shoulder toward 2 to 2.5\,ms (Figure~\ref{fig:half_width_kde}), 
 which is what you would expect if the three classes sit on top of each other.
-In the pooled histogram the peak of double pulses at about 2.5 ms it is not as pronounced as in the individual class histograms. 
+In the pooled histogram the peak of double pulses at about 2.5 ms is not as pronounced as in the individual class histograms. 
 This is because the normal and wide pulses occur much more frequently compared to the doubles, which causes their distributions to dominate the overall shape of the pooled histogram. 
-The smaller number of double pulses results leads to a less distinct peak in the combined distribution.
+The smaller number of double pulses results in a less distinct peak in the combined distribution.
 Although we can't observe a clear bimodal distribution in the pooled histogram, the presence of the shoulder indicates that there is a subset of pulses with longer half widths. 
 
 \begin{figure}[H]
   \centering
   \includegraphics[width=0.85\textwidth]{pulse_shapes/half_width_distributions_overlay.png}
-  \caption{Half width densities for the three classes drawn on top of each other, with normal shown in translucent blue, double in pink, and wide pulses in green. 
+  \caption{Half width densities for the three classes drawn on top of each other, with normal shown in blue, double in pink, and wide pulses in green. 
   Normal and wide share a lot of support around 1.5 to 2\,ms, while doubles pile up in a narrow ridge near 2.4\,ms.}
   \label{fig:half_width_overlay}
 \end{figure}
@@ -84,7 +81,7 @@ Although we can't observe a clear bimodal distribution in the pooled histogram, 
 \begin{figure}[H]
   \centering
   \includegraphics[width=0.85\textwidth]{pulse_shapes/half_width_kde_all_shapes.png}
-  \caption{All shapes thrown into one histogram (light blue bars) with a KDE on top (dark blue). 
+  \caption{Half-widths of all shapes throcombined in one histogram (light blue bars) with a KDE on top (dark blue). 
   The main mode sits near 1.6\,ms with a shoulder toward 2 to 2.5\,ms, which is roughly what mixing the three classes above would produce.}
   \label{fig:half_width_kde}
 \end{figure}
@@ -101,8 +98,8 @@ Doubles themselves split into two PCA clumps along PC1 in the PC3/PC4 views, whi
   \includegraphics[width=0.95\textwidth]{pulse_shapes/labeled_pulses_pca_space.png}
   \caption{RF labelled pulses in Robust PCA space, 5000 examples per class. 
   Blue points represent normal pulses, green wide pulses, and red double pulses. 
-  The four panels are different PC pairings (PC2 vs.\ PC1, PC3 vs.\ PC1, PC3 vs.\ PC2, PC4 vs.\ PC1). 
-  Doubles form a compact cloud; normals show higher viariability, especially along PC2. 
+  The four panels are different PC pairings. 
+  Doubles form two distinct clouds; normals show higher viariability, especially along PC2. 
   Wides are located between double and normal regions while leaning more into the double pulse cluster. 
   In the PC3/PC4 vs.\ PC1 views the doubles look like two clumps rather than one.}
   \label{fig:pca_space}
@@ -159,7 +156,7 @@ The calendar month scale follows a similar pattern(Figure~\ref{fig:activity_all_
 All pulse medians sit around 0.6 to 1.0\,Hz for most of the year and there is one clear peak in November ($\sim$1.7\,Hz) that decreases in December and returns to baseline in January. 
 There are two noticable peaks in the confidence band at March and May rate increase in March.
 As seen in the 24h scale, wide pulses track that November bump from all pulses. 
-They are near zero from February through September, rise in October, and reach about 0.6\,Hz in November before returning to baseline in January. 
+They are near zero from February through September, rise in October, and reach about 0.6\,Hz in November before returning to baseline in January.
 Double pulses stay at a near zero baseline of roughly \notels{insert mean Hz!} all year without any noticable peaks or patterns.
 
 Months since recording start (Figure~\ref{fig:activity_all_shapes}, bottom left) adds more information to explain the increased late year pulse rates in the calendar month view.
@@ -211,7 +208,7 @@ With only $n=13$ months, the informative value of this analysis is limited meani
   \caption{Environmental correlations of pulse rate in Hz with tank temperature in $^{\circ}$C (left) and conductivity in µS\,cm$^{-1}$ (right). 
   Each cloud is a pulse category (light blue - all pulses, red - double, green - wide), with a dashed line of the same colour indicating the linear fit ($n=13$ months). 
   The only significant Pearson correlation is double vs temperature ($p=0.023$).
-  In a Spearman rank correlation all three traces do not survive, i.e., they are not significant.
+  In a Spearman rank correlation all three traces are not significant.
   Special-shape rates sit well below the all-pulse scatter.}
   \label{fig:env_corr}
 \end{figure}
@@ -255,7 +252,6 @@ That morning rate peak in Figure~\ref{fig:activity_all_shapes} coincides with fe
 
 \subsection{Position estimation}
 
-\notels{done proofreading}
 Head position was taken as the electrode with the largest positive peak in each multi channel snippet. 
 Collapsed over all hourly bins, occupancy is strongly end biased (Figure~\ref{fig:pos_overall}). 
 Pulse rate peaks at electrode 0 (bright end, $\sim$0.33\,Hz) and electrode 15 (dark end, $\sim$0.36\,Hz). 

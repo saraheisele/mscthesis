@@ -554,7 +554,7 @@ pyrightconfig.json
 *.odp
 
 # PDF files
-*.pdf
+# *.pdf
 
 # Other office-related formats
 *.pub
