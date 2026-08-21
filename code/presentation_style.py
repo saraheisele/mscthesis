@@ -24,18 +24,18 @@ THESIS_COLORS = (
 
 THESIS_CMAP = mpl.colors.LinearSegmentedColormap.from_list(
     "thesis_diverging",
-    [THESIS_COLORS[0], THESIS_COLORS[6], THESIS_COLORS[1]],
+    [THESIS_COLORS[4], THESIS_COLORS[6], THESIS_COLORS[1]],
 )
 
 PULSE_SHAPE_COLORS = {
-    "normal": THESIS_COLORS[0],  # blue
+    "normal": THESIS_COLORS[4],  # cyan
     "double": THESIS_COLORS[1],  # red
     "wide": THESIS_COLORS[2],  # green
-    "all": THESIS_COLORS[5],  # purple (distinct from normal blue)
+    "all": THESIS_COLORS[5],  # purple
 }
 
-# Plots not about pulse-shape classes (position, eel icon, etc.).
-NON_PULSE_SHAPE_COLOR = THESIS_COLORS[3]  # yellow
+# Plots not about pulse-shape classes (position, eel icon, recording excerpts).
+NON_PULSE_SHAPE_COLOR = THESIS_COLORS[0]  # blue #4477AA
 
 DARK_AREA_FACE_COLOR = "#808080"
 DARK_AREA_ALPHA = 0.28
@@ -76,6 +76,18 @@ _style_applied = False
 def pulse_shape_color(key: str) -> str:
     """Return the presentation color for a pulse-shape category key."""
     return PULSE_SHAPE_COLORS.get(key, THESIS_COLORS[6])
+
+
+def shade_hex(color: str, factor: float) -> str:
+    """Darken (factor < 1) or lighten toward white (factor > 1) a hex color."""
+    r, g, b = mpl.colors.to_rgb(color)
+    if factor < 1.0:
+        r, g, b = r * factor, g * factor, b * factor
+    else:
+        r = 1.0 - (1.0 - r) / factor
+        g = 1.0 - (1.0 - g) / factor
+        b = 1.0 - (1.0 - b) / factor
+    return mpl.colors.to_hex((max(0.0, min(1.0, r)), max(0.0, min(1.0, g)), max(0.0, min(1.0, b))))
 
 
 def classifier_label_colors(label_ids, class_names: dict) -> list[str]:

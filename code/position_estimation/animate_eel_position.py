@@ -71,10 +71,11 @@ THESIS_PRINT_KEYFRAME_INDICES = (1, 2, 3, 4)
 THESIS_ANIM_DURATION_MS = 20_000.0
 LATEX_POSITION_FIGURES = PROJECT_ROOT / "docs" / "latex_thesis" / "figures" / "position_estimation"
 
-# Public URL for the print-thesis QR code.
-# Default branch is ``master`` (not ``main``).
+# Public URL for the print-thesis QR code and Direct GIF link.
+# Use the GitHub blob page (opens/plays in browser). raw.githubusercontent.com
+# serves the same bytes as a download for large GIFs.
 ANIMATION_SUPPLEMENT_URL = (
-    "https://raw.githubusercontent.com/saraheisele/mscthesis/master/"
+    "https://github.com/saraheisele/mscthesis/blob/master/"
     "docs/latex_thesis/figures/position_estimation/eel_position_animation.gif"
 )
 # Landing page with notes + MP4 link.

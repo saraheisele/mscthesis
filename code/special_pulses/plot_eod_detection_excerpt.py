@@ -165,7 +165,7 @@ def plot_results_intro_excerpt() -> Path:
 
     fig, ax = plt.subplots(figsize=(10.5, 4.2))
     t_ms = (np.arange(i0, i1) / fs - t0) * 1000.0
-    ax.plot(t_ms, trace, color="#222222", lw=0.9)
+    ax.plot(t_ms, trace, color=NON_PULSE_SHAPE_COLOR, lw=2.2)
     ymin, ymax = np.percentile(trace, [0.2, 99.8])
     pad = 0.12 * (ymax - ymin + 1)
     ax.set_ylim(ymin - pad, ymax + pad)
@@ -177,7 +177,14 @@ def plot_results_intro_excerpt() -> Path:
         x = (pt - t0) * 1000.0
         local = trace[max(0, int((pt - t0) * fs) - 20) : int((pt - t0) * fs) + 20]
         if local.size:
-            ax.plot(x, np.max(local), marker="o", ms=4, color=NON_PULSE_SHAPE_COLOR, alpha=0.7)
+            ax.plot(
+                x,
+                np.max(local),
+                marker="o",
+                ms=8,
+                color=NON_PULSE_SHAPE_COLOR,
+                alpha=0.45,
+            )
 
     LATEX_DETECTION.mkdir(parents=True, exist_ok=True)
     out = LATEX_DETECTION / "results_intro_recording_excerpt.png"

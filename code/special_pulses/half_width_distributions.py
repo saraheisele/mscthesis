@@ -26,6 +26,7 @@ from presentation_style import (
     apply_presentation_style,
     pulse_shape_color,
     save_thesis_figure,
+    shade_hex,
 )
 from special_pulses.prototype_pulse_plots import PULSE_SHAPE_DISPLAY_ORDER, PULSE_SHAPES
 from special_pulses.pulse_property_collect import (
@@ -149,7 +150,7 @@ def _plot_pooled_on_ax(ax, values: np.ndarray) -> None:
         return
 
     hist_color = pulse_shape_color("all")
-    kde_color = pulse_shape_color("normal")
+    kde_color = shade_hex(hist_color, 0.55)
     ax.hist(
         values,
         bins=80,
@@ -168,7 +169,7 @@ def _plot_pooled_on_ax(ax, values: np.ndarray) -> None:
         )
         kde_x = np.linspace(0.0, HALF_WIDTH_XLIM_MS, 300)
         kde_y = stats.gaussian_kde(sample)(kde_x)
-        ax.plot(kde_x, kde_y, color=kde_color, label="KDE")
+        ax.plot(kde_x, kde_y, color=kde_color, alpha=0.65, linewidth=2.2, label="KDE")
         ax.legend(loc=LEGEND_LOC)
     ax.set_xlabel("Half width (ms)")
     ax.set_ylabel("Density")

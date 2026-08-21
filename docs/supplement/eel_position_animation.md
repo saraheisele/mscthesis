@@ -3,9 +3,9 @@
 ## Direct links (repo is public; default branch is `master`)
 
 - GIF (QR target):
-  https://raw.githubusercontent.com/saraheisele/mscthesis/master/docs/latex_thesis/figures/position_estimation/eel_position_animation.gif
+  https://github.com/saraheisele/mscthesis/blob/master/docs/latex_thesis/figures/position_estimation/eel_position_animation.gif
 - MP4:
-  https://raw.githubusercontent.com/saraheisele/mscthesis/master/docs/latex_thesis/figures/position_estimation/eel_position_animation.mp4
+  https://github.com/saraheisele/mscthesis/blob/master/docs/latex_thesis/figures/position_estimation/eel_position_animation.mp4
 
 ## Channel selection (print vs GIF)
 

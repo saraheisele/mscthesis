@@ -27,6 +27,7 @@ from plotting_utils import format_x_axis
 from presentation_style import (
     LEGEND_LOC,
     NON_PULSE_SHAPE_COLOR,
+    THESIS_COLORS,
     add_bright_dark_boundary_horizontal,
     add_dark_electrode_boundary,
     apply_presentation_style,
@@ -35,9 +36,6 @@ from presentation_style import (
     shade_dark_electrodes,
     shade_dark_region_above,
 )
-
-POSITION_SCATTER_COLOR = NON_PULSE_SHAPE_COLOR
-POSITION_MEDIAN_COLOR = NON_PULSE_SHAPE_COLOR
 from position_utils import (
     DEFAULT_BRIGHT_DARK_BOUNDARY_M,
     ELECTRODE_SPACING_M,
@@ -45,6 +43,10 @@ from position_utils import (
     N_ELECTRODES,
     default_electrode_positions_m,
 )
+
+POSITION_BAR_COLOR = NON_PULSE_SHAPE_COLOR  # #4477AA electrode bars
+POSITION_SCATTER_COLOR = THESIS_COLORS[6]  # grey session dots
+POSITION_MEDIAN_COLOR = NON_PULSE_SHAPE_COLOR  # #4477AA
 
 DARK_ELECTRODE_START = int(round(DEFAULT_BRIGHT_DARK_BOUNDARY_M / ELECTRODE_SPACING_M))
 
@@ -255,7 +257,7 @@ def plot_overall_position_distribution(occurrence_hour, save_path, suffix, data_
         y_max=ymax,
     )
     add_dark_electrode_boundary(ax, DARK_ELECTRODE_START)
-    ax.bar(electrode_indices, rates_hz, width=0.7, color=POSITION_SCATTER_COLOR, linewidth=0, zorder=3)
+    ax.bar(electrode_indices, rates_hz, width=0.7, color=POSITION_BAR_COLOR, linewidth=0, zorder=3)
     ax.set_xticks(electrode_indices)
     ax.set_xlabel("Electrode")
     ax.set_ylabel("Pulse rate (Hz)")

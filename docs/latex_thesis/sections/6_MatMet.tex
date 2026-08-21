@@ -102,7 +102,7 @@ The data that builds the basis of the analysis conducted in this thesis were rec
 Two adult eels, one male and one female, were housed in a dual-pool tank constructed from two pools of about 3\,m diameter joined by an opening of about 2\,m.
 One pool was kept as a brighter region and the other as a darker region of the tank.
 In the Berlin setting most recordings were obtained using a 16-electrode line with 25\,cm spacing, totalling 3.75\,m in length.
-Overall, the Berlin dataset covers session starts on 165 calendar days from November 2023 to March 2026 (Table~\ref{tab:recording_inventory}), about 13.7\,TiB of raw WAV and around 500\,GiB of processed NIX/H5 data.
+Overall, the Berlin dataset covers session starts on 165 calendar days from November 2023 to March 2026 (Table~\ref{tab:recording_inventory}), about 13.7\,TiB of raw WAV and around 500\,GiB of processed NIX/HDF5 data.
 
 \subsection{Video and audio synchronization}
 
@@ -117,17 +117,8 @@ Logger audio was band-pass filtered within 100 to 3000\,Hz, then stitched across
 \subsection{Data analysis}
 
 Analysis of the Berlin recordings has two main stages.
-First, EOD pulses are detected in the continuous WAV traces to obtain the time of every discharge and a short waveform cutout around it (Figure~\ref{fig:eod_detection}).
+First, EOD pulses are detected in the continuous WAV traces to obtain the time of every discharge and a short waveform cutout around it.
 Second, those pulses are analysed by waveform morphology and by discharge rate, as detailed in the subsections below.
-
-\begin{figure}[htbp]
-  \centering
-  \includegraphics[width=0.92\textwidth]{detection/eod_detection_excerpt.png}
-  \caption{EOD pulse detection on a short Berlin recording excerpt (1\,s, one electrode channel).
-  Red markers in (A) show eeltracker pulse times.
-  (B) zooms on one detected discharge and shades the short waveform cutout stored for later shape analysis.}
-  \label{fig:eod_detection}
-\end{figure}
 
 \subsubsection{Peak detection and EOD labeling}
 
