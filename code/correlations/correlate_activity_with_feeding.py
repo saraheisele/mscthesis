@@ -786,7 +786,6 @@ def plot_peri_feeding_curves(peri_curves: dict[str, list[np.ndarray]]):
 
     axes[-1].set_xlabel("Minutes relative to feeding event")
     fig.supylabel("Mean pulse rate (Hz)", fontweight="bold")
-    fig.suptitle("Average pulse activity around feeding events", y=1.01)
     plt.tight_layout()
     plt.savefig(OUTPUT_DIR / "peri_feeding_pulse_rate_trajectories.png", dpi=300)
     save_thesis_figure("correlations/peri_feeding_pulse_rate_trajectories.png")
@@ -850,7 +849,6 @@ def plot_feeding_vs_nonfeeding_rates(corr_summary: pd.DataFrame):
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=15)
     ax.set_ylabel("Mean pulse rate (Hz)")
-    ax.set_title("Pulse rate during feeding windows vs baseline")
     ax.set_ylim(0, y_max * 1.22)
     ax.legend(
         handles=[

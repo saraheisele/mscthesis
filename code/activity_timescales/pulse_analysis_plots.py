@@ -284,7 +284,6 @@ def plot_circadian_panel_figure(
             show_legend=False,
         )
     legend_on_upper_right_subplot(axes)
-    fig.suptitle(f"Pulse rate over time — {pulse_label}")
     plt.tight_layout()
     filename = f"circadian_panels{suffix}.png"
     fig.savefig(save_path / filename, dpi=300)
@@ -351,7 +350,6 @@ def plot_circadian_panels_all_shapes(save_path=None):
         ax.grid(True, alpha=0.25)
 
     legend_on_upper_right_subplot(axes)
-    fig.suptitle("Pulse rate over time — all pulse categories")
     plt.tight_layout()
     filename = "circadian_panels_all_shapes.png"
     out_path = save_path / filename

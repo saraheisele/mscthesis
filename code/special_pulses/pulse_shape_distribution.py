@@ -142,32 +142,43 @@ def filter_mating_window(
 def plot_pulse_shape_distribution(
     counts: dict[str, int],
     *,
-    title: str,
     filename: str,
     output_dir: Path,
+    y_unit: str = "count",
 ) -> Path:
     apply_presentation_style()
     labels = [shape.capitalize() for shape in SHAPE_ORDER]
     values = [counts[shape] for shape in SHAPE_ORDER]
     colors = [pulse_shape_color(shape) for shape in SHAPE_ORDER]
     total = sum(values)
-    ymax = max(values) if any(values) else 1.0
+
+    if y_unit == "mio":
+        plot_values = [v / 1e6 for v in values]
+        ylabel = "Pulse count (Mio)"
+        ymax = 10.0
+        yticks = list(range(1, 11))
+    else:
+        plot_values = list(values)
+        ylabel = "Pulse count"
+        ymax = (max(plot_values) if any(plot_values) else 1.0) * 1.18
+        yticks = None
 
     fig, ax = plt.subplots(figsize=(9, 6))
-    bars = ax.bar(labels, values, color=colors, edgecolor="black", linewidth=1.0)
-    ax.set_ylabel("Pulse count")
+    bars = ax.bar(labels, plot_values, color=colors, edgecolor="black", linewidth=1.0)
+    ax.set_ylabel(ylabel)
     ax.set_xlabel("Pulse shape")
-    ax.set_title(title)
     # Headroom for count/percent labels above the tallest bar.
     # (autolayout / constrained_layout only adjust subplot margins, not ylim.)
-    ax.set_ylim(0, ymax * 1.18)
+    ax.set_ylim(0, ymax)
+    if yticks is not None:
+        ax.set_yticks(yticks)
     ax.grid(True, axis="y", alpha=0.3)
 
-    for bar, value in zip(bars, values):
+    for bar, value, plot_value in zip(bars, values, plot_values):
         pct = 100.0 * value / total if total else 0.0
         ax.text(
             bar.get_x() + bar.get_width() / 2,
-            value + 0.02 * ymax,
+            plot_value + 0.02 * ymax,
             f"{value:,} ({pct:.1f}%)",
             ha="center",
             va="bottom",
@@ -208,9 +219,9 @@ def main(data_path=H5_DIR):
 
     plot_pulse_shape_distribution(
         counts,
-        title="Pulse-shape distribution (processed dataset)",
         filename="pulse_shapes/pulse_shape_distribution.png",
         output_dir=OUTPUT_DIR,
+        y_unit="mio",
     )
 
     mating_events = extract_mating_events()
@@ -222,12 +233,9 @@ def main(data_path=H5_DIR):
     )
     plot_pulse_shape_distribution(
         mating_counts,
-        title=(
-            f"Pulse-shape distribution within ±{MATING_WINDOW_DAYS} days "
-            "of mating notes"
-        ),
         filename="workinprogress/pulse_shape_distribution_mating_window.png",
         output_dir=OUTPUT_DIR,
+        y_unit="count",
     )
 
     payload = {

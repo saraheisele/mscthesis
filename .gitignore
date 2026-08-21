@@ -501,6 +501,8 @@ pyrightconfig.json
 *.mpeg
 *.mpg
 *.m4v
+# Thesis print/electronic supplement: host these on GitHub for the QR code.
+!docs/latex_thesis/figures/position_estimation/eel_position_animation.mp4
 
 # Image files
 *.jpg
@@ -512,6 +514,10 @@ pyrightconfig.json
 *.tif
 *.svg
 *.webp
+# Thesis print/electronic supplement: host these on GitHub for the QR code.
+!docs/latex_thesis/figures/position_estimation/eel_position_animation.gif
+!docs/latex_thesis/figures/position_estimation/eel_position_keyframes.png
+!docs/latex_thesis/figures/position_estimation/eel_position_animation_qr.png
 
 # RAW image formats
 *.cr2

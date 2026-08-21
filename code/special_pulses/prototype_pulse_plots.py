@@ -358,42 +358,21 @@ def load_sampled_waveforms(entries, sample_size, random_seed, align_mode=None):
 
 
 def add_half_max_markers(ax, mean_trace, fs, color, time_offset_ms=0.0):
-    """Mark half-maximum level and FWHM span of the mean waveform."""
+    """Mark half-maximum FWHM span of the mean waveform with shading."""
     width_sec, width_info = compute_half_max_width(mean_trace, fs)
     if np.isnan(width_sec):
         return
     left_t = width_info["left_idx"] / fs * 1000 + time_offset_ms
     right_t = width_info["right_idx"] / fs * 1000 + time_offset_ms
-    half_h = width_info["half_height"]
     width_ms = width_sec * 1000
 
-    ax.axhline(
-        half_h,
-        color=color,
-        linestyle="--",
-        alpha=0.55,
-        linewidth=1.0,
-        zorder=3,
-    )
+    # Shading alone marks the half-width span (no redundant horizontal line).
     ax.axvspan(
         left_t,
         right_t,
         color=color,
         alpha=0.12,
         zorder=2,
-    )
-    # Explicit width bar (legend entry for half-width).
-    ax.plot(
-        [left_t, right_t],
-        [half_h, half_h],
-        color=color,
-        linestyle="-",
-        linewidth=2.0,
-        marker="|",
-        markersize=14,
-        markeredgewidth=2.0,
-        alpha=0.95,
-        zorder=6,
         label=f"Half-width = {width_ms:.2f} ms",
     )
 
@@ -667,18 +646,6 @@ def plot_prototype_pulse_shape(
     ax.set_xlabel("Time (ms)")
     ax.set_ylabel("Normalized amplitude")
     ax.set_ylim(-0.2, 1.05)
-    if total_count is not None and total_count != pool_n:
-        title = (
-            f"Prototype {pulse_shape['label'].lower()}s "
-            f"(showing {len(aligned_sample)} of {pool_n:,}; "
-            f"{total_count:,} classified)"
-        )
-    else:
-        title = (
-            f"Prototype {pulse_shape['label'].lower()}s "
-            f"(showing {len(aligned_sample)} of {pool_n:,})"
-        )
-    ax.set_title(title)
     ax.legend(loc=LEGEND_LOC)
     ax.grid(True, alpha=0.3)
 
@@ -806,7 +773,6 @@ def plot_mean_pulse_shapes_panel(
         ax.axhline(0.0, color="#bbbbbb", linewidth=1.0, zorder=0)
         ax.axvline(0.0, color="#dddddd", linewidth=1.0, linestyle=":", zorder=0)
 
-        ax.set_title(shape["label"], color=color, pad=10)
         ax.set_xlabel("Time (ms)")
         ax.grid(True, alpha=0.28)
         ax.text(
@@ -897,9 +863,6 @@ def plot_normal_double_overlay(
     )
     ax.set_xlabel("Time (ms)")
     ax.set_ylabel("Normalized amplitude")
-    ax.set_title(
-        f"{stat_label} double pulse vs two {prototype_stat} normal pulses (peak-aligned)"
-    )
     ax.legend(loc=LEGEND_LOC)
     ax.grid(True, alpha=0.3)
     out = output_dir / "normal_pulses_aligned_to_double.png"
@@ -1098,6 +1061,67 @@ def main(
         console.log(
             "[yellow]WARNING: mean_pulse_shapes_panel.png was not produced."
         )
+
+
+def replot_prototypes_from_cache(
+    data_path=H5_DIR,
+    *,
+    sample_size: int = SAMPLE_SIZE,
+    random_seed: int = 0,
+) -> None:
+    """Rebuild thesis prototype PNGs from saved medians + a small gray overlay sample."""
+    apply_presentation_style()
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    counts_path = OUTPUT_DIR / "pulse_shape_counts.json"
+    prior_counts = {}
+    if counts_path.exists():
+        with open(counts_path) as handle:
+            prior_counts = json.load(handle)
+
+    for pulse_key, pulse_shape in PULSE_SHAPES.items():
+        loaded = load_prototype_mean_waveforms(pulse_key, OUTPUT_DIR)
+        if loaded is None:
+            console.log(f"[yellow]Missing prototype_{pulse_key}_mean.npz — skip.")
+            continue
+        median_trace = np.asarray(loaded[PROTOTYPE_STAT], dtype=float)
+        fs = float(loaded["fs"])
+        n_in_median = int(loaded["n_in_mean"])
+        total_count = int(prior_counts.get(pulse_key, loaded.get("n_classified", n_in_median)))
+
+        class_seed = random_seed + int(pulse_shape["class_id"])
+        entries, _ = collect_classifier_pulse_indices(
+            data_path,
+            pulse_shape["class_id"],
+            max_entries=max(sample_size * 8, sample_size),
+            random_seed=class_seed,
+        )
+        corrected, normalized, fs_loaded = load_all_waveforms(
+            entries,
+            align_mode=pulse_shape["align"],
+            max_waveforms=sample_size,
+            random_seed=class_seed,
+        )
+        if fs_loaded is not None:
+            fs = float(fs_loaded)
+        if not normalized:
+            # Fall back to median-only plot if H5 sample is unavailable.
+            corrected = [median_trace]
+            normalized = [median_trace]
+
+        plot_prototype_pulse_shape(
+            pulse_key,
+            pulse_shape,
+            corrected,
+            normalized,
+            fs,
+            OUTPUT_DIR,
+            median_trace_all=median_trace,
+            n_in_median=n_in_median,
+            total_count=total_count,
+        )
+
+    refresh_aligned_overlay_from_npz(OUTPUT_DIR)
+    plot_mean_pulse_shapes_panel(OUTPUT_DIR)
 
 
 if __name__ == "__main__":

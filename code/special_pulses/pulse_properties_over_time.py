@@ -274,7 +274,6 @@ def plot_half_width_distribution(df: pd.DataFrame, output_dir: Path):
         ax.legend(loc=LEGEND_LOC)
     ax.set_xlabel("Half width (ms)")
     ax.set_ylabel("Density")
-    ax.set_title("Half-width across all pulse shapes")
     ax.grid(True, alpha=0.3)
 
     fig.savefig(output_dir / "half_width_kde_all_shapes.png", dpi=300)

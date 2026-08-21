@@ -760,7 +760,6 @@ def plot_combined_correlations(aligned_by_pulse: dict):
     legend_on_upper_right_subplot(axes)
     hide_top_right_spines(fig)
 
-    fig.suptitle("Environmental correlations — all pulse categories")
     plt.tight_layout()
     out = OUTPUT_DIR / "correlations_all_pulse_shapes.png"
     plt.savefig(out, dpi=300, bbox_inches="tight")

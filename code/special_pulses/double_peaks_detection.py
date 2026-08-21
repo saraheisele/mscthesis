@@ -1193,7 +1193,8 @@ def plot_labeled_pulses_pca_space(
         legend_kwargs["title"] = legend_title
     legend_on_upper_right_subplot(axes, **legend_kwargs)
 
-    fig.suptitle(title, y=1.02)
+    if title:
+        fig.suptitle(title, y=1.02)
 
     if output_path is not None:
         output_path = Path(output_path)

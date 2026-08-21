@@ -923,10 +923,6 @@ def plot_prototype_template_fit_example(
         )
     ax.set_xlabel("Time (ms)")
     ax.set_ylabel("Normalized amplitude")
-    ax.set_title(
-        f"Two-normal template fit to prototype {prototype_stat} double "
-        f"(n={n_pulses} in prototype; model {result.model})"
-    )
     ax.legend(loc=LEGEND_LOC)
     ax.set_ylim(-0.12, 1.12)
     ax.grid(True, alpha=0.3)
@@ -1187,10 +1183,6 @@ def plot_model_hierarchy_panel(
         ax.set_xlabel("Time (ms)")
     for ax in axes[:, 0]:
         ax.set_ylabel("Normalized amplitude")
-    fig.suptitle(
-        f"Model hierarchy on prototype {prototype_stat} double "
-        f"(n={n_pulses}; observed $\\Delta t$={observed_dt_ms:.2f} ms)"
-    )
     out = output_dir / f"double_pulse_model_hierarchy_{prototype_stat}.png"
     output_dir.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=300)

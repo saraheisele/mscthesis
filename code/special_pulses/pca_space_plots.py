@@ -183,7 +183,7 @@ def save_pca_space_plots(output_dir: Path | None = None) -> Path | None:
         output_path=None,
         show=False,
         class_names=SPECIAL_PULSE_CLASSES,
-        title="Robust PCA space of RF-classified pulses",
+        title="",
     )
     if fig is None:
         return None

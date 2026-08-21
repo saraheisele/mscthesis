@@ -145,7 +145,7 @@ Waveforms were then reduced by RobustPCA (at most 20 components) and classified 
 Rare classes (wide, double) were accepted only if their predicted probability was at least 0.40.
 The resulting markers (\texttt{is\_double\_peak}, \texttt{is\_wide\_pulse}, and \texttt{special\_pulse\_class}) provide the class assignments used throughout the Results.
 
-Classified pulses were characterised by half-maximum width and by mean and median prototype waveforms per class; class prevalence is summarised over the dataset (Figures~\ref{fig:pulse_shape_distribution}--\ref{fig:half_width_overlay}).
+Classified pulses were characterised by half-maximum width and by mean and median prototype waveforms per class; class prevalence is summarised over the dataset (Figures~\ref{fig:pulse_shape_distribution}--\ref{fig:half_width}).
 To test whether the double shape is consistent with a short doublet of normal pulses, the median double prototype was fit as the sum of two median normal templates.
 Six nested models (A--F) relaxed constraints on the inter-component delay $\Delta t$ and on the component widths (Figure~\ref{fig:double_model_hierarchy}).
 Model E was chosen as the working description: it recovers the two-peak envelope and trough of the median double with free $t_1$ and $t_2$, a shared free width $w$, and free amplitudes $a_1$ and $a_2$.

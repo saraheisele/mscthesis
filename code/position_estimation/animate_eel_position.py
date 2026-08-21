@@ -64,7 +64,16 @@ RAW_Y_MARGIN = 1.08
 POOL_FRAME_PAD_M = 0.04
 THESIS_ANIM_FRAME_COUNT = 24
 THESIS_ANIM_POSTER_FRAME = 12
+THESIS_PRINT_KEYFRAME_INDICES = (1, 6, 11, 16, 21, 24)  # 1-based frame_XXX.png
+# Approximate clip length burned into the exported thesis frames (ms).
+THESIS_ANIM_DURATION_MS = 598_713.0
 LATEX_POSITION_FIGURES = PROJECT_ROOT / "docs" / "latex_thesis" / "figures" / "position_estimation"
+
+# Public URL for the print-thesis QR code (raw GIF on GitHub after push).
+ANIMATION_SUPPLEMENT_URL = (
+    "https://raw.githubusercontent.com/saraheisele/mscthesis/main/"
+    "docs/latex_thesis/figures/position_estimation/eel_position_animation.gif"
+)
 
 # Thesis default: dark-area chunk used for eel_position_animation.{mp4,gif}.
 DEFAULT_WAV_RELATIVE = Path(
@@ -466,6 +475,117 @@ def save_thesis_animation_frames(
     return saved
 
 
+def _anim_frame_paths(frame_dir: Path | None = None) -> list[Path]:
+    frame_dir = Path(frame_dir) if frame_dir is not None else (
+        LATEX_POSITION_FIGURES / "anim_frames"
+    )
+    paths = sorted(frame_dir.glob("frame_*.png"))
+    if not paths:
+        raise FileNotFoundError(f"No animation frames found in {frame_dir}")
+    return paths
+
+
+def _crop_position_panel(image):
+    """Crop a thesis anim frame to the left (tank) panel, dropping title bars."""
+    from PIL import Image
+
+    if not isinstance(image, Image.Image):
+        image = Image.open(image)
+    width, height = image.size
+    # Layout matches build_animation: ~2:1 width split with a white gutter near x≈0.61.
+    left = int(0.02 * width)
+    right = int(0.585 * width)
+    top = int(0.14 * height)
+    # Drop the burned-in x-axis time string; panel labels carry the times.
+    bottom = int(0.88 * height)
+    return image.crop((left, top, right, bottom))
+
+
+def _frame_time_label(frame_number_1based: int, n_frames: int = THESIS_ANIM_FRAME_COUNT) -> str:
+    if n_frames <= 1:
+        t_ms = 0.0
+    else:
+        t_ms = (frame_number_1based - 1) / (n_frames - 1) * THESIS_ANIM_DURATION_MS
+    if t_ms >= 60_000:
+        return f"t = {t_ms / 60_000:.1f} min"
+    return f"t = {t_ms / 1000:.1f} s"
+
+
+def save_animation_qr_code(
+    url: str = ANIMATION_SUPPLEMENT_URL,
+    *,
+    output_name: str = "eel_position_animation_qr.png",
+) -> Path:
+    """Write a QR PNG that points to the electronic animation supplement."""
+    import qrcode
+
+    qr = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=12, border=2)
+    qr.add_data(url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
+
+    thesis_path = thesis_figure_path(f"position_estimation/{output_name}")
+    img.save(thesis_path)
+    _copy_into_latex_position_figures(thesis_path, output_name)
+    print(f"Saved animation QR code → {url}")
+    return thesis_path
+
+
+def save_print_keyframe_figure(
+    *,
+    frame_dir: Path | None = None,
+    frame_numbers: tuple[int, ...] = THESIS_PRINT_KEYFRAME_INDICES,
+    output_name: str = "eel_position_keyframes.png",
+) -> Path:
+    """Compose a print-friendly keyframe strip from exported anim frames."""
+    from PIL import Image
+
+    apply_presentation_style()
+    available = {int(p.stem.split("_")[1]): p for p in _anim_frame_paths(frame_dir)}
+    missing = [n for n in frame_numbers if n not in available]
+    if missing:
+        raise FileNotFoundError(f"Missing anim frames: {missing}")
+
+    crops = []
+    labels = []
+    for n in frame_numbers:
+        crops.append(_crop_position_panel(Image.open(available[n])))
+        labels.append(_frame_time_label(n))
+
+    n_cols = 3
+    n_rows = int(np.ceil(len(crops) / n_cols))
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(12.5, 6.8))
+    axes = np.atleast_1d(axes).ravel()
+    for ax, crop, label, panel in zip(axes, crops, labels, "abcdef"):
+        ax.imshow(crop)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+        ax.set_xlabel(f"({panel})  {label}", fontsize=12, fontweight="bold", labelpad=4)
+    for ax in axes[len(crops) :]:
+        ax.set_axis_off()
+
+    fig.subplots_adjust(left=0.02, right=0.98, top=0.98, bottom=0.08, wspace=0.04, hspace=0.18)
+    thesis_path = thesis_figure_path(f"position_estimation/{output_name}")
+    fig.savefig(thesis_path, dpi=200, bbox_inches="tight")
+    _copy_into_latex_position_figures(thesis_path, output_name)
+    # Also keep a copy next to processed position figures when available.
+    processed = POSITION_FIGURES_DIR / "animations" / output_name
+    processed.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(processed, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved print keyframe figure to {thesis_path}")
+    return thesis_path
+
+
+def make_print_animation_assets() -> tuple[Path, Path]:
+    """Build keyframe strip + QR code assets for the analog thesis PDF."""
+    keyframes = save_print_keyframe_figure()
+    qr_path = save_animation_qr_code()
+    return keyframes, qr_path
+
+
 def _print_entry_candidates(limit: int = 20) -> list[dict]:
     """List entry-recording candidates and return the full candidate list."""
     candidates = find_entry_recordings()
@@ -579,12 +699,24 @@ def parse_args():
         action="store_true",
         help="Hide the raw audio / pulse marker panel.",
     )
+    parser.add_argument(
+        "--make-print-figure",
+        action="store_true",
+        help=(
+            "Only compose the print keyframe strip + QR code from existing "
+            "anim_frames (no wav / animation rebuild)."
+        ),
+    )
     return parser.parse_args()
 
 
 def main():
     apply_presentation_style()
     args = parse_args()
+
+    if args.make_print_figure:
+        make_print_animation_assets()
+        return
 
     if args.list_entry_recordings:
         _print_entry_candidates()
