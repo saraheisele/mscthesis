@@ -20,7 +20,12 @@ import nixio
 import numpy as np
 from scipy.io import wavfile
 
-from presentation_style import apply_presentation_style, pulse_shape_color, save_thesis_figure
+from presentation_style import (
+    NON_PULSE_SHAPE_COLOR,
+    apply_presentation_style,
+    pulse_shape_color,
+    save_thesis_figure,
+)
 
 WAV_PATH = Path(
     "/data2/labdata/eels-mfn2021/berlin_tank_site/recordings_2024-02-26/"
@@ -172,7 +177,7 @@ def plot_results_intro_excerpt() -> Path:
         x = (pt - t0) * 1000.0
         local = trace[max(0, int((pt - t0) * fs) - 20) : int((pt - t0) * fs) + 20]
         if local.size:
-            ax.plot(x, np.max(local), marker="o", ms=4, color=pulse_shape_color("all"), alpha=0.7)
+            ax.plot(x, np.max(local), marker="o", ms=4, color=NON_PULSE_SHAPE_COLOR, alpha=0.7)
 
     LATEX_DETECTION.mkdir(parents=True, exist_ok=True)
     out = LATEX_DETECTION / "results_intro_recording_excerpt.png"

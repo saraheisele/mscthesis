@@ -28,11 +28,14 @@ THESIS_CMAP = mpl.colors.LinearSegmentedColormap.from_list(
 )
 
 PULSE_SHAPE_COLORS = {
-    "normal": THESIS_COLORS[0],
-    "double": THESIS_COLORS[1],
-    "wide": THESIS_COLORS[2],
-    "all": THESIS_COLORS[4],
+    "normal": THESIS_COLORS[0],  # blue
+    "double": THESIS_COLORS[1],  # red
+    "wide": THESIS_COLORS[2],  # green
+    "all": THESIS_COLORS[5],  # purple (distinct from normal blue)
 }
+
+# Plots not about pulse-shape classes (position, eel icon, etc.).
+NON_PULSE_SHAPE_COLOR = THESIS_COLORS[3]  # yellow
 
 DARK_AREA_FACE_COLOR = "#808080"
 DARK_AREA_ALPHA = 0.28
@@ -72,7 +75,7 @@ _style_applied = False
 
 def pulse_shape_color(key: str) -> str:
     """Return the presentation color for a pulse-shape category key."""
-    return PULSE_SHAPE_COLORS.get(key, THESIS_COLORS[5])
+    return PULSE_SHAPE_COLORS.get(key, THESIS_COLORS[6])
 
 
 def classifier_label_colors(label_ids, class_names: dict) -> list[str]:

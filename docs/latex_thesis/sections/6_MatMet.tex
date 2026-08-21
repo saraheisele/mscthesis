@@ -140,7 +140,7 @@ In the Results and later analyses, phrases such as ``all pulses'' or ``all EODs'
 \subsubsection{EOD waveform classification}
 \label{sec:waveform_classification}
 
-Accepted EODs were further labelled by waveform morphology into three classes: normal, wide, and double pulses (Figure~\ref{fig:prototypes}).
+Accepted EODs were further labelled by waveform morphology into three working classes: normal, wide, and double pulses (Figure~\ref{fig:prototypes}).
 Classification uses peak-normalized waveforms, so labels reflect shape rather than absolute amplitude; a high-voltage pulse and a low-voltage pulse of the same shape receive the same class.
 Normal pulses are short single peaks while wide pulses are longer single peaks with a slower falling edge or shoulder. 
 Double pulses show two peaks separated by a shallow trough (training labels also included clear shoulders toward a second peak).
@@ -148,6 +148,7 @@ A seed set was labelled by hand according to these shapes.
 Waveforms were then reduced by RobustPCA (at most 20 components) and classified with a random forest trained on those labels.
 Rare classes (wide, double) were accepted only if their predicted probability was at least 0.40.
 The resulting markers (\texttt{is\_double\_peak}, \texttt{is\_wide\_pulse}, and \texttt{special\_pulse\_class}) provide the class assignments used throughout the Results.
+These discrete labels are an operational scheme for quantifying prevalence and rates rather than a claim of fully discrete natural morphologies.
 
 Classified pulses were characterised by half-maximum width and by mean and median prototype waveforms per class; class prevalence is summarised over the dataset (Figures~\ref{fig:pulse_shape_distribution}--\ref{fig:half_width}).
 To test whether the double shape is consistent with a short doublet of normal pulses, the median double prototype was fit as the sum of two median normal templates:
@@ -155,10 +156,33 @@ To test whether the double shape is consistent with a short doublet of normal pu
   y(t) = a_1\,T_{w_1}(t-t_1) + a_2\,T_{w_2}(t-t_2),
 \end{equation}
 where $T_w$ is the median normal template time-scaled by width factor $w$ ($w=1$ keeps the native normal width; $w>1$ widens), $a_1$ and $a_2$ are free amplitudes, and $t_1$ and $t_2$ are free peak times with $\Delta t = t_2-t_1$.
-Six nested models (A--F) relaxed constraints on $\Delta t$ and on the width factors (Figure~\ref{fig:double_model_hierarchy}).
+Six nested models (A--F) relaxed constraints on $\Delta t$ and on the width factors (Table~\ref{tab:double_pulse_models}; Figure~\ref{fig:double_model_hierarchy}).
+Amplitudes $a_1$ and $a_2$ are free in every model.
 Model~E was chosen as the working description: free $a_1$, $a_2$, $t_1$, and $t_2$, with a shared free width factor $w_1=w_2=w$.
 Allowing independent widths $w_1$ and $w_2$ in model~F did not improve the fit meaningfully.
 Labeled pulses were also examined in Robust PCA space (Figure~\ref{fig:pca_space}).
+
+\begin{table}[htbp]
+  \centering
+  \small
+  \caption{Constraints and fitted amplitudes for the six nested two-normal fits of the median double pulse.
+  Fixed $\Delta t$ locks peak times to the observed double peaks; free $\Delta t$ lets $t_1$ and $t_2$ vary.
+  Width factor $w=1$ is the native median-normal template; shared means $w_1=w_2$.
+  Amplitudes $a_1$ and $a_2$ are free in every model; the table lists the best-fit values on the median double.}
+  \label{tab:double_pulse_models}
+  \begin{tabular}{lllcc}
+    \toprule
+    \textbf{Model} & \textbf{$\Delta t$} & \textbf{Widths $w_1$, $w_2$} & \textbf{Fitted $a_1$} & \textbf{Fitted $a_2$} \\
+    \midrule
+    A & free & fixed ($w_1=w_2=1$) & 0.69 & 0.78 \\
+    B & fixed to peaks & fixed ($w_1=w_2=1$) & 0.63 & 0.78 \\
+    C & fixed to peaks & shared, free & 0.61 & 0.76 \\
+    D & fixed to peaks & independent, free & 0.62 & 0.75 \\
+    E & free & shared, free & 0.88 & 0.94 \\
+    F & free & independent, free & 0.92 & 0.90 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
 
 \subsubsection{Activity rates}
 

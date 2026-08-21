@@ -1145,11 +1145,6 @@ def plot_model_hierarchy_panel(
         ax.plot(time_ms, y, color=DOUBLE_COLOR, label="Observed", zorder=4)
         if result.success:
             yhat, c1, c2 = reconstruct_fit(result, template)
-            w2 = (
-                result.width_scale_2
-                if np.isfinite(result.width_scale_2)
-                else result.width_scale
-            )
             ax.plot(
                 time_ms,
                 yhat,
@@ -1159,17 +1154,12 @@ def plot_model_hierarchy_panel(
             )
             ax.plot(time_ms, c1, color=NORMAL_COLOR, ls="--", alpha=0.85, label="C1")
             ax.plot(time_ms, c2, color=NORMAL_COLOR, ls=":", alpha=0.85, label="C2")
-            # Full model-key titles (unchanged wording); slightly smaller font + pad.
-            ax.set_title(
-                f"{key}\n"
-                f"$R^2$={result.r2:.3f}, "
-                f"$\\Delta t$={result.delay_ms:.2f} ms, "
-                f"$w$=({result.width_scale:.2f},{w2:.2f})",
-                fontsize=11,
-                pad=10,
-            )
+            # Letter + R² only; full constraints live in Methods Table tab:double_pulse_models.
+            letter = key.split("_", 1)[0]
+            ax.set_title(f"{letter}  ($R^2$={result.r2:.3f})", fontsize=12, pad=6)
         else:
-            ax.set_title(f"{key}\n(failed)", fontsize=11)
+            letter = key.split("_", 1)[0]
+            ax.set_title(f"{letter}  (failed)", fontsize=12, pad=6)
         ax.scatter(
             [t1 / fs * 1000, t2 / fs * 1000],
             [y[int(round(t1))], y[int(round(t2))]],
@@ -1187,7 +1177,7 @@ def plot_model_hierarchy_panel(
         ax.set_xlabel("Time (ms)")
     for ax in axes[:, 0]:
         ax.set_ylabel("Normalized amplitude")
-    fig.subplots_adjust(hspace=0.38, wspace=0.18, top=0.90)
+    fig.subplots_adjust(hspace=0.28, wspace=0.18, top=0.92)
     out = output_dir / f"double_pulse_model_hierarchy_{prototype_stat}.png"
     output_dir.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=300)

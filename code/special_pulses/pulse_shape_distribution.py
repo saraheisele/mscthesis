@@ -140,61 +140,38 @@ def filter_mating_window(
 
 
 def _draw_total_brace(ax, bars, total: int, ymax: float) -> None:
-    """Horizontal curly brace above all bars; tip points up at the total-n label."""
-    from matplotlib.path import Path as MplPath
-    from matplotlib.patches import PathPatch
+    """Square bracket spanning all bars with a center gap for the total-n label.
 
+    Style matches a flat horizontal bracket with short vertical end ticks and a
+    text gap in the middle (not a curly brace).
+    """
     x0 = float(bars[0].get_x())
     x1 = float(bars[-1].get_x() + bars[-1].get_width())
     xm = 0.5 * (x0 + x1)
-    y = ymax * 0.88
-    h = ymax * 0.05
-    tip = ymax * 0.08
-    curl = 0.12 * (x1 - x0)
-    tip_w = 0.055 * (x1 - x0)
+    # Place above the tallest bar + its count label; text sits in the center gap.
+    # Horizontal arms are drawn at ``y``; text uses va="center" so that line
+    # runs through the vertical middle of the "n = …" string.
+    tallest = max(float(b.get_height()) for b in bars)
+    y = tallest + 0.12 * ymax
+    tick = 0.022 * ymax
+    label = f"n = {total:,}"
+    span = x1 - x0
+    gap = max(0.26 * span, 0.72)  # tight around "n = …"; arms sit close to text
+    xl = xm - 0.5 * gap
+    xr = xm + 0.5 * gap
 
-    verts = [
-        (x0, y),
-        (x0, y + 0.7 * h),
-        (x0 + 0.5 * curl, y + h),
-        (x0 + curl, y + h),
-        (xm - tip_w, y + h),
-        (xm, y + h + tip),
-        (xm + tip_w, y + h),
-        (x1 - curl, y + h),
-        (x1 - 0.5 * curl, y + h),
-        (x1, y + 0.7 * h),
-        (x1, y),
-    ]
-    codes = [
-        MplPath.MOVETO,
-        MplPath.CURVE4,
-        MplPath.CURVE4,
-        MplPath.CURVE4,
-        MplPath.LINETO,
-        MplPath.LINETO,
-        MplPath.LINETO,
-        MplPath.LINETO,
-        MplPath.CURVE4,
-        MplPath.CURVE4,
-        MplPath.CURVE4,
-    ]
-    tip_y = y + h + tip
-    ax.add_patch(
-        PathPatch(
-            MplPath(verts, codes),
-            fill=False,
-            lw=1.8,
-            edgecolor="black",
-            clip_on=False,
-        )
-    )
+    # Left arm: vertical tick down + horizontal to gap.
+    ax.plot([x0, x0], [y, y - tick], color="black", lw=1.0, clip_on=False)
+    ax.plot([x0, xl], [y, y], color="black", lw=1.0, clip_on=False)
+    # Right arm.
+    ax.plot([xr, x1], [y, y], color="black", lw=1.0, clip_on=False)
+    ax.plot([x1, x1], [y, y - tick], color="black", lw=1.0, clip_on=False)
     ax.text(
         xm,
-        tip_y + 0.012 * ymax,
-        f"n = {total:,}",
+        y,
+        label,
         ha="center",
-        va="bottom",
+        va="center",
         clip_on=False,
     )
 
@@ -217,18 +194,21 @@ def plot_pulse_shape_distribution(
         ylabel = "Pulse count (Mio)"
         ymax = 10.0
         yticks = list(range(1, 11))
+        # Extra headroom above the 10 Mio tick for the square n= bracket.
+        ylim_top = 11.2
     else:
         plot_values = list(values)
         ylabel = "Pulse count"
         ymax = (max(plot_values) if any(plot_values) else 1.0) * 1.28
         yticks = None
+        ylim_top = ymax
 
     fig, ax = plt.subplots(figsize=(9, 6.4))
     bars = ax.bar(labels, plot_values, color=colors, edgecolor="black", linewidth=1.0)
     ax.set_ylabel(ylabel)
     ax.set_xlabel("Pulse shape")
-    # Headroom for bar labels + total brace above the tallest bar.
-    ax.set_ylim(0, ymax)
+    # Headroom for bar labels + total bracket above the tallest bar.
+    ax.set_ylim(0, ylim_top)
     if yticks is not None:
         ax.set_yticks(yticks)
     ax.grid(True, axis="y", alpha=0.3)

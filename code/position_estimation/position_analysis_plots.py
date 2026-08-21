@@ -26,7 +26,7 @@ from data_paths import (
 from plotting_utils import format_x_axis
 from presentation_style import (
     LEGEND_LOC,
-    THESIS_COLORS,
+    NON_PULSE_SHAPE_COLOR,
     add_bright_dark_boundary_horizontal,
     add_dark_electrode_boundary,
     apply_presentation_style,
@@ -36,8 +36,8 @@ from presentation_style import (
     shade_dark_region_above,
 )
 
-POSITION_SCATTER_COLOR = THESIS_COLORS[0]
-POSITION_MEDIAN_COLOR = THESIS_COLORS[1]
+POSITION_SCATTER_COLOR = NON_PULSE_SHAPE_COLOR
+POSITION_MEDIAN_COLOR = NON_PULSE_SHAPE_COLOR
 from position_utils import (
     DEFAULT_BRIGHT_DARK_BOUNDARY_M,
     ELECTRODE_SPACING_M,
@@ -53,7 +53,7 @@ POSITION_METHOD = "peak_positive"
 POSITION_PANEL_TIMESCALES = [
     ("hour", "24 h — Hour"),
     ("month", "12 month — Month"),
-    ("month_since_start", "Months since start"),
+    ("month_since_start", "Months since start - Month"),
     ("year", "Years since start — Year"),
 ]
 

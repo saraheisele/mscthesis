@@ -29,8 +29,14 @@ def format_x_axis(
     first_month_year: int = 2023,
     first_month_month: int = 1,
     data=None,
+    thin_ticks: bool = False,
+    tick_fontsize: float | None = None,
 ):
-    """Apply timescale-specific tick positions, labels, and x-axis padding."""
+    """Apply timescale-specific tick positions, labels, and x-axis padding.
+
+    If ``thin_ticks`` is True, keep every second tick (helps dense 24 h /
+    months-since-start panels).
+    """
     x = np.arange(n_bins)
 
     if timescale == "year" and data is not None:
@@ -66,7 +72,14 @@ def format_x_axis(
         tick_labels = [str(i) for i in x]
         xlabel = "Bin index"
 
+    if thin_ticks and len(tick_positions) > 2:
+        tick_positions = tick_positions[::2]
+        tick_labels = tick_labels[::2]
+
     axis.set_xticks(tick_positions)
-    axis.set_xticklabels(tick_labels, rotation=45, ha="right")
+    kwargs = {"rotation": 45, "ha": "right"}
+    if tick_fontsize is not None:
+        kwargs["fontsize"] = tick_fontsize
+    axis.set_xticklabels(tick_labels, **kwargs)
     axis.set_xlim(-0.5, n_bins - 0.5)
     axis.set_xlabel(xlabel)

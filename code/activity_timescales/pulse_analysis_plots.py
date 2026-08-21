@@ -49,11 +49,14 @@ GLOBAL_PLOTS = [
 ]
 
 CIRCADIAN_PANEL_TIMESCALES = [
-    ("hour", "24 h — hour"),
-    ("month", "12 month — month"),
-    ("month_since_start", "months since start"),
-    ("year", "years since start — year"),
+    ("hour", "24 hours"),
+    ("month", "12 months"),
+    ("month_since_start", "Months since start"),
+    ("year", "Years since start"),
 ]
+
+# Dense rows where frequent ticks overlap: drop every second label.
+CIRCADIAN_THIN_TICK_TIMESCALES = frozenset({"hour", "month_since_start"})
 
 
 def start_y_axis_at_zero(axes):
@@ -389,9 +392,10 @@ def plot_circadian_panels_stacked_by_shape(save_path=None):
     fig, axes = plt.subplots(
         n_rows,
         n_cols,
-        figsize=(14, 16),
+        figsize=(13.5, 13.5),
         sharex="row",
         sharey=False,
+        constrained_layout=True,
     )
     for col, pulse_type in enumerate(col_order):
         session_data = session_by_pulse.get(pulse_type)
@@ -420,20 +424,22 @@ def plot_circadian_panels_stacked_by_shape(save_path=None):
                 arr = session_data[timescale]
                 active_arr = np.where(arr > 0, arr, np.nan)
                 year_data = np.nanmedian(active_arr, axis=0)
+            thin = timescale in CIRCADIAN_THIN_TICK_TIMESCALES
             format_x_axis(
                 ax,
                 timescale,
                 session_data[timescale].shape[1],
                 data=year_data,
+                # Dense rows: keep every second tick so labels stay readable.
+                # Every row keeps its own visible x-tick labels (do not share /
+                # hide ticks across timescale rows).
+                thin_ticks=thin,
                 **axis_meta,
             )
             ax.set_ylim(bottom=0)
             ax.grid(True, alpha=0.25)
-            # Shared axis labels: y on left column only, x on bottom row only.
-            if col == 0:
-                ax.set_ylabel("Pulse rate (Hz)")
-            else:
-                ax.set_ylabel("")
+            # Each subplot keeps its own y-label; x-label only on the bottom row.
+            ax.set_ylabel("Pulse rate (Hz)")
             if row < n_rows - 1:
                 ax.set_xlabel("")
             if row == 0:
@@ -443,18 +449,20 @@ def plot_circadian_panels_stacked_by_shape(save_path=None):
                     panel_title,
                     xy=(0, 0.5),
                     xycoords="axes fraction",
-                    xytext=(-0.30, 0.5),
+                    xytext=(-0.28, 0.5),
                     textcoords="axes fraction",
                     ha="right",
                     va="center",
                     rotation=90,
                     fontweight="bold",
-                    fontsize=13,
+                    fontsize=12,
                     annotation_clip=False,
                 )
+            # Ensure this row's tick labels are shown (sharex="row" must not
+            # blank them on upper timescale rows).
+            ax.tick_params(axis="x", labelbottom=True)
 
     # No legend — column titles already name the shapes.
-    plt.tight_layout()
     filename = "circadian_panels_by_shape_stacked.png"
     out_path = save_path / filename
     fig.savefig(out_path, dpi=300)

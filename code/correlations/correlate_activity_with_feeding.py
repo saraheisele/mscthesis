@@ -771,18 +771,20 @@ def plot_peri_feeding_curves(peri_curves: dict[str, list[np.ndarray]]):
             linewidth=0,
         )
         ax.axvline(0, color="black", linestyle="--", linewidth=1, alpha=0.7)
-        ax.set_title(cfg["label"], fontsize=14)
+        ax.set_title(cfg["label"], color=color, fontweight="bold")
         ax.grid(True, alpha=0.3)
-        if i == 0:
-            ax.text(
-                0.99,
-                0.96,
-                r"Shaded band: $\pm$ SEM across feeding events",
-                transform=ax.transAxes,
-                ha="right",
-                va="top",
-                fontsize=plt.rcParams["legend.fontsize"],
-            )
+        ax.legend(
+            handles=[
+                Patch(
+                    facecolor=color,
+                    edgecolor="none",
+                    alpha=0.35,
+                    label=r"$\pm$ SEM",
+                )
+            ],
+            loc="upper right",
+            frameon=True,
+        )
 
     axes[-1].set_xlabel("Minutes relative to feeding event")
     fig.supylabel("Mean pulse rate (Hz)", fontweight="bold")
@@ -797,6 +799,14 @@ def plot_feeding_vs_nonfeeding_rates(corr_summary: pd.DataFrame):
         return
 
     apply_presentation_style()
+
+    # Stable display order: all → wide → double.
+    order_index = {key: i for i, key in enumerate(PULSE_TYPE_DISPLAY_ORDER)}
+    corr_summary = corr_summary.copy()
+    corr_summary["_order"] = corr_summary["pulse_type"].map(
+        lambda k: order_index.get(k, len(order_index))
+    )
+    corr_summary = corr_summary.sort_values("_order").drop(columns="_order")
 
     labels = [PULSE_TYPES[row["pulse_type"]]["label"] for _, row in corr_summary.iterrows()]
     feeding = corr_summary["mean_rate_feeding_hz"].values

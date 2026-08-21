@@ -7,6 +7,14 @@
 - MP4:
   https://raw.githubusercontent.com/saraheisele/mscthesis/master/docs/latex_thesis/figures/position_estimation/eel_position_animation.mp4
 
+## Channel selection (print vs GIF)
+
+- **GIF / MP4:** the right-hand raw panel follows each pulse's head electrode
+  (channel with the strongest positive peak at that time; 0-based indices
+  matching the electrode ticks).
+- **Print keyframes:** both raw panels use fixed electrode 0 so amplitude and
+  polarity can be compared on one shared channel.
+
 ## Print figure
 
 The thesis PDF shows keyframes from a short turnaround scene in

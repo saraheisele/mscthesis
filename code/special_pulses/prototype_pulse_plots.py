@@ -595,6 +595,76 @@ def load_all_waveforms(
     return corrected_waveforms, normalized_waveforms, fs
 
 
+def _draw_prototype_on_axis(
+    ax,
+    *,
+    pulse_key,
+    pulse_shape,
+    corrected_waveforms,
+    normalized_waveforms,
+    fs,
+    median_trace_all=None,
+    n_in_median=None,
+    prototype_stat=PROTOTYPE_STAT,
+    show_xlabel: bool = True,
+    show_ylabel: bool = True,
+    show_title: bool = True,
+):
+    """Draw gray overlays + median prototype onto an existing axis."""
+    if not normalized_waveforms:
+        return None
+    if prototype_stat != "median":
+        raise ValueError("prototype plots display the median; got {!r}".format(prototype_stat))
+
+    aligned_sample = align_waveforms(
+        normalized_waveforms, corrected_waveforms, pulse_shape["align"], fs
+    )
+    pool_n = n_in_median if n_in_median is not None else len(aligned_sample)
+    if median_trace_all is not None:
+        median_trace = np.asarray(median_trace_all, dtype=float)
+        if len(median_trace) != aligned_sample.shape[1]:
+            median_trace = match_trace_length(median_trace, aligned_sample.shape[1])
+    else:
+        median_trace = np.median(aligned_sample, axis=0)
+    median_label = f"Median (n={pool_n:,})"
+    time_ms = np.arange(aligned_sample.shape[1]) / fs * 1000.0
+
+    for trace in aligned_sample:
+        ax.plot(time_ms, trace, color="gray", alpha=0.22, linewidth=0.7)
+
+    ax.plot(
+        time_ms,
+        median_trace,
+        color=pulse_shape["color"],
+        label=median_label,
+        zorder=5,
+    )
+    add_detection_markers(ax, median_trace, fs, pulse_shape, pulse_key=pulse_key)
+    add_half_max_markers(ax, median_trace, fs, pulse_shape["color"])
+    ax.set_ylim(-0.2, 1.05)
+    # Legend slightly below presentation rcParams so it does not dominate stacked panels.
+    ax.legend(loc=LEGEND_LOC, fontsize=10)
+    ax.grid(True, alpha=0.3)
+    if show_title:
+        # Smaller than axes.titlesize for the compact stacked thesis panel; bold.
+        ax.set_title(
+            f"{pulse_shape['label'].removesuffix(' pulse').capitalize()} pulses",
+            color=pulse_shape["color"],
+            fontsize=11,
+            fontweight="bold",
+            pad=2,
+        )
+    if show_xlabel:
+        ax.set_xlabel("Time (ms)")
+    else:
+        ax.set_xlabel("")
+    if show_ylabel:
+        ax.set_ylabel("Normalized amplitude")
+    else:
+        ax.set_ylabel("")
+    return median_trace
+
+
 def plot_prototype_pulse_shape(
     pulse_key,
     pulse_shape,
@@ -612,46 +682,26 @@ def plot_prototype_pulse_shape(
     if not normalized_waveforms:
         console.log(f"[yellow]No pulses found for {pulse_shape['label']}. Skipping.")
         return None
-    if prototype_stat != "median":
-        raise ValueError("prototype plots display the median; got {!r}".format(prototype_stat))
-
-    aligned_sample = align_waveforms(
-        normalized_waveforms, corrected_waveforms, pulse_shape["align"], fs
-    )
-    pool_n = n_in_median if n_in_median is not None else len(aligned_sample)
-    if median_trace_all is not None:
-        median_trace = np.asarray(median_trace_all, dtype=float)
-        # Keep overlay / median on the same sample grid.
-        if len(median_trace) != aligned_sample.shape[1]:
-            median_trace = match_trace_length(median_trace, aligned_sample.shape[1])
-    else:
-        median_trace = np.median(aligned_sample, axis=0)
-    median_label = f"Median (n={pool_n:,})"
-
-    time_ms = np.arange(aligned_sample.shape[1]) / fs * 1000
 
     # Compact height so three stacked panels + caption fit one thesis page.
     fig, ax = plt.subplots(figsize=(10, 3.6))
-
-    for trace in aligned_sample:
-        ax.plot(time_ms, trace, color="gray", alpha=0.22, linewidth=0.7)
-
-    ax.plot(
-        time_ms,
-        median_trace,
-        color=pulse_shape["color"],
-        label=median_label,
-        zorder=5,
+    drawn = _draw_prototype_on_axis(
+        ax,
+        pulse_key=pulse_key,
+        pulse_shape=pulse_shape,
+        corrected_waveforms=corrected_waveforms,
+        normalized_waveforms=normalized_waveforms,
+        fs=fs,
+        median_trace_all=median_trace_all,
+        n_in_median=n_in_median,
+        prototype_stat=prototype_stat,
+        show_xlabel=True,
+        show_ylabel=True,
+        show_title=False,
     )
-
-    add_detection_markers(ax, median_trace, fs, pulse_shape, pulse_key=pulse_key)
-    add_half_max_markers(ax, median_trace, fs, pulse_shape["color"])
-
-    ax.set_xlabel("Time (ms)")
-    ax.set_ylabel("Normalized amplitude")
-    ax.set_ylim(-0.2, 1.05)
-    ax.legend(loc=LEGEND_LOC)
-    ax.grid(True, alpha=0.3)
+    if drawn is None:
+        plt.close(fig)
+        return None
 
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"prototype_{pulse_key}_pulse.png"
@@ -662,77 +712,62 @@ def plot_prototype_pulse_shape(
     return output_path
 
 
-def _overlay_indices_like_median(
-    aligned: np.ndarray,
-    median_trace: np.ndarray,
-    sample_size: int,
-    rng: np.random.Generator,
+def plot_prototypes_stacked_from_data(
+    panel_payloads: dict[str, dict],
+    output_dir: Path | None = None,
     *,
-    pulse_key: str | None = None,
-    fs: float | None = None,
-) -> np.ndarray:
-    """Return indices of the most median-like overlay traces (by correlation).
+    panel_order: tuple[str, ...] = PULSE_SHAPE_DISPLAY_ORDER,
+    save_name: str = "prototype_pulses_stacked.png",
+) -> Path | None:
+    """Single thesis figure with shared x/y labels and class headings."""
+    output_dir = Path(output_dir) if output_dir is not None else OUTPUT_DIR
+    apply_presentation_style()
+    missing = [k for k in panel_order if k not in panel_payloads]
+    if missing:
+        console.log(f"[yellow]Missing prototype payloads for {missing} — skip stacked.")
+        return None
 
-    For wide pulses, also require a slower right flank and half-width ≥ 1.7 ms
-    so overlays match the median shoulder orientation.
-    """
-    n = len(aligned)
-    if n <= sample_size:
-        return np.arange(n)
-    med = match_trace_length(np.asarray(median_trace, dtype=float), aligned.shape[1])
-    med_c = med - med.mean()
-    med_norm = np.linalg.norm(med_c) + 1e-12
-    scores = np.full(n, -np.inf, dtype=float)
-    for i, trace in enumerate(aligned):
-        t = np.asarray(trace, dtype=float)
-        if pulse_key == "wide" and fs is not None:
-            width_sec, info = compute_half_max_width(t, fs)
-            if not np.isfinite(width_sec):
-                continue
-            peak = int(info["peak_idx"])
-            left = peak - int(info["left_idx"])
-            right = int(info["right_idx"]) - peak
-            if right < int(0.9 * left):
-                continue
-            if width_sec * 1000.0 < 1.7:
-                continue
-            # Reject clear pre-peak shoulders: left flank mean above right flank.
-            lo = max(0, peak - int(0.0015 * fs))
-            mid_l = max(0, peak - int(0.0004 * fs))
-            mid_r = min(len(t), peak + int(0.0004 * fs))
-            hi = min(len(t), peak + int(0.0015 * fs))
-            left_mean = float(np.mean(t[lo:mid_l])) if mid_l > lo else 0.0
-            right_mean = float(np.mean(t[mid_r:hi])) if hi > mid_r else 0.0
-            if left_mean > right_mean + 0.02:
-                continue
-        t_c = t - t.mean()
-        corr = float(np.dot(t_c, med_c) / (np.linalg.norm(t_c) * med_norm + 1e-12))
-        if corr < 0.85:
-            continue
-        scores[i] = corr
-    valid = np.isfinite(scores) & (scores > -np.inf)
-    if int(valid.sum()) == 0:
-        # Correlation-only fallback.
-        for i, trace in enumerate(aligned):
-            t = np.asarray(trace, dtype=float)
-            t_c = t - t.mean()
-            scores[i] = float(
-                np.dot(t_c, med_c) / (np.linalg.norm(t_c) * med_norm + 1e-12)
-            )
-        valid = np.ones(n, dtype=bool)
-    order = np.argsort(scores)[::-1]
-    order = order[valid[order]]
-    take = min(sample_size, len(order))
-    _ = rng  # kept for API stability / future jitter
-    return np.sort(order[:take])
+    fig, axes = plt.subplots(
+        len(panel_order),
+        1,
+        figsize=(7.4, 9.0),
+        sharex=True,
+        sharey=True,
+        constrained_layout=True,
+    )
+    axes = np.atleast_1d(axes)
+    for i, (ax, pulse_key) in enumerate(zip(axes, panel_order)):
+        payload = panel_payloads[pulse_key]
+        _draw_prototype_on_axis(
+            ax,
+            pulse_key=pulse_key,
+            pulse_shape=payload["pulse_shape"],
+            corrected_waveforms=payload["corrected"],
+            normalized_waveforms=payload["normalized"],
+            fs=payload["fs"],
+            median_trace_all=payload.get("median_trace"),
+            n_in_median=payload.get("n_in_median"),
+            show_xlabel=(i == len(panel_order) - 1),
+            show_ylabel=(i == len(panel_order) // 2),
+            show_title=True,
+        )
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out = output_dir / save_name
+    fig.savefig(out, dpi=300)
+    save_thesis_figure(f"pulse_shapes/{save_name}", fig)
+    plt.close(fig)
+    console.log(f"Saved stacked prototypes {out}")
+    return out
+
 
 def plot_prototypes_stacked_panel(
     output_dir: Path | None = None,
     *,
-    panel_order: tuple[str, ...] = ("normal", "wide", "double"),
+    panel_order: tuple[str, ...] = PULSE_SHAPE_DISPLAY_ORDER,
     save_name: str = "prototype_pulses_stacked.png",
 ) -> Path | None:
-    """Single thesis figure: stacked median prototypes (compact page fit)."""
+    """Legacy collage fallback when only per-class PNGs exist."""
     output_dir = Path(output_dir) if output_dir is not None else OUTPUT_DIR
     apply_presentation_style()
     paths = [output_dir / f"prototype_{key}_pulse.png" for key in panel_order]
@@ -744,7 +779,6 @@ def plot_prototypes_stacked_panel(
 
     images = [Image.open(p).convert("RGB") for p in paths]
     width = max(im.width for im in images)
-    # Mild downscale keeps detail while helping the page budget.
     scale = min(1.0, 2400 / width)
     resized = []
     for im in images:
@@ -763,14 +797,13 @@ def plot_prototypes_stacked_panel(
 
     out = output_dir / save_name
     canvas.save(out, dpi=(300, 300))
-    # Also push into thesis figures tree via a temporary mpl figure for sync path.
     fig, ax = plt.subplots(figsize=(7.2, 8.2))
     ax.imshow(canvas)
     ax.set_axis_off()
     fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
     save_thesis_figure(f"pulse_shapes/{save_name}", fig)
     plt.close(fig)
-    console.log(f"Saved stacked prototypes {out}")
+    console.log(f"Saved stacked prototypes collage {out}")
     return out
 
 
@@ -779,12 +812,12 @@ def replot_prototypes_from_cache(
     *,
     sample_size: int = SAMPLE_SIZE,
     random_seed: int = RANDOM_SEED,
-    overlay_pool: int = 800,
+    overlay_pool: int = MAX_WAVEFORMS_PER_CLASS,
 ) -> None:
-    """Rebuild thesis prototype PNGs from saved medians + a morph-aligned overlay sample.
+    """Rebuild thesis prototype PNGs from saved medians + random overlays.
 
-    Overlays are drawn from a larger morph-filtered pool and ranked by similarity
-    to the cached median (avoids the noisy / left-shoulder random draws).
+    Overlay traces are a random subsample of the same morph-aligned pool used
+    for the median (default 20k), matching ``main()`` — not similarity-ranked.
     """
     apply_presentation_style()
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -794,6 +827,7 @@ def replot_prototypes_from_cache(
         with open(counts_path) as handle:
             prior_counts = json.load(handle)
 
+    panel_payloads: dict[str, dict] = {}
     for pulse_key, pulse_shape in PULSE_SHAPES.items():
         loaded = load_prototype_mean_waveforms(pulse_key, OUTPUT_DIR)
         if loaded is None:
@@ -806,8 +840,8 @@ def replot_prototypes_from_cache(
 
         class_seed = random_seed + int(pulse_shape["class_id"])
         rng = np.random.default_rng(class_seed)
-        # Oversample: valley/morph filters reject many candidates.
-        oversample = 8.0 if pulse_shape["align"] == "valley" else 3.0
+        # Same oversampling strategy as main(): morph filters reject many candidates.
+        oversample = 8.0 if pulse_shape["align"] == "valley" else 2.0
         entries, _ = collect_classifier_pulse_indices(
             data_path,
             pulse_shape["class_id"],
@@ -829,16 +863,11 @@ def replot_prototypes_from_cache(
             sample_corrected = corrected
             sample_normalized = normalized
         else:
-            aligned = align_waveforms(
-                normalized, corrected, pulse_shape["align"], fs
-            )
-            pick = _overlay_indices_like_median(
-                aligned,
-                median_trace,
-                sample_size,
-                rng,
-                pulse_key=pulse_key,
-                fs=fs,
+            # Honest class diversity: random 100 from the morph-aligned subset.
+            pick = rng.choice(
+                len(normalized),
+                size=min(sample_size, len(normalized)),
+                replace=False,
             )
             sample_corrected = [corrected[i] for i in pick]
             sample_normalized = [normalized[i] for i in pick]
@@ -854,8 +883,19 @@ def replot_prototypes_from_cache(
             n_in_median=n_in_median,
             total_count=total_count,
         )
+        panel_payloads[pulse_key] = {
+            "pulse_shape": pulse_shape,
+            "corrected": sample_corrected,
+            "normalized": sample_normalized,
+            "fs": fs,
+            "median_trace": median_trace,
+            "n_in_median": n_in_median,
+        }
 
-    plot_prototypes_stacked_panel(OUTPUT_DIR)
+    if panel_payloads:
+        plot_prototypes_stacked_from_data(panel_payloads, OUTPUT_DIR)
+    else:
+        plot_prototypes_stacked_panel(OUTPUT_DIR)
     refresh_aligned_overlay_from_npz(OUTPUT_DIR)
     plot_mean_pulse_shapes_panel(OUTPUT_DIR)
 
@@ -1151,6 +1191,7 @@ def main(
 
     pulse_counts = {}
     proto_traces = {}
+    panel_payloads = {}
 
     for pulse_key, pulse_shape in PULSE_SHAPES.items():
         console.log(f"\n{pulse_shape['label']}:")
@@ -1229,6 +1270,14 @@ def main(
             n_in_median=n_in_median,
             total_count=total_count,
         )
+        panel_payloads[pulse_key] = {
+            "pulse_shape": pulse_shape,
+            "corrected": sample_corrected,
+            "normalized": sample_normalized,
+            "fs": fs,
+            "median_trace": median_all,
+            "n_in_median": n_in_median,
+        }
 
         if pulse_key == "double":
             save_double_peak_separation_stats(all_corrected, fs, OUTPUT_DIR)
@@ -1236,6 +1285,9 @@ def main(
             plot_symmetry_analysis(
                 pulse_key, pulse_shape, all_corrected, fs, OUTPUT_DIR
             )
+
+    if panel_payloads:
+        plot_prototypes_stacked_from_data(panel_payloads, OUTPUT_DIR)
 
     with open(OUTPUT_DIR / "pulse_shape_counts.json", "w") as handle:
         json.dump(pulse_counts, handle, indent=2)

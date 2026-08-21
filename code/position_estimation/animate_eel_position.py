@@ -44,9 +44,9 @@ from position_utils import (
     tank_outline_bounds_framed,
 )
 from presentation_style import (
+    NON_PULSE_SHAPE_COLOR,
     apply_presentation_style,
     copy_thesis_asset,
-    pulse_shape_color,
     thesis_figure_path,
 )
 
@@ -202,7 +202,7 @@ def draw_realistic_eel(
         rotate=rotate,
         headpos=(head_m, EEL_LINE_Y),
     )
-    return plot_eel(ax, eel_verts[0], eel_verts[1], color=pulse_shape_color("normal"), alpha=0.95)
+    return plot_eel(ax, eel_verts[0], eel_verts[1], color=NON_PULSE_SHAPE_COLOR, alpha=0.95)
 
 
 def build_animation(
@@ -314,7 +314,7 @@ def build_animation(
         ax_raw.set_ylabel("Normalized audio")
         ax_raw.set_xlabel("Time (ms)")
         ax_raw.set_title(
-            f"Channel {dominant_channel + 1} · "
+            f"Channel {dominant_channel} · "
             f"±{RAW_WINDOW_MS / 2:.0f} ms window",
             pad=TITLE_PAD,
         )
@@ -328,7 +328,7 @@ def build_animation(
     else:
         fig.subplots_adjust(left=0.05, right=0.99, top=0.86, bottom=0.13)
 
-    trail_line, = ax_pos.plot([], [], color=pulse_shape_color("all"), linewidth=2, alpha=0.6, zorder=4)
+    trail_line, = ax_pos.plot([], [], color=NON_PULSE_SHAPE_COLOR, linewidth=2, alpha=0.6, zorder=4)
     eel_artists = []
 
     def init():
@@ -359,7 +359,7 @@ def build_animation(
         ylim = max(local_peak * RAW_Y_MARGIN, 0.05)
         ax_raw.set_ylim(-ylim, ylim)
         ax_raw.set_title(
-            f"Channel {ch + 1} · ±{RAW_WINDOW_MS / 2:.0f} ms window",
+            f"Channel {ch} · ±{RAW_WINDOW_MS / 2:.0f} ms window",
             pad=TITLE_PAD,
         )
 
@@ -694,169 +694,241 @@ def find_turnaround_scene(
     return best[1], best[2]
 
 
+def _raw_window_segment(
+    wav_data: np.ndarray,
+    fs: int,
+    t_abs: float,
+    channel: int,
+    *,
+    window_sec: float = RAW_WINDOW_SEC,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return (time_ms relative to pulse, y) for a fixed electrode channel."""
+    half = window_sec / 2.0
+    i0 = max(0, int((t_abs - half) * fs))
+    i1 = min(len(wav_data), int((t_abs + half) * fs))
+    ch = int(np.clip(channel, 0, wav_data.shape[1] - 1))
+    y = wav_data[i0:i1, ch].astype(np.float64)
+    t_ms = (np.arange(i0, i1) / fs - t_abs) * 1000.0
+    return t_ms, y
+
+
+def _pick_polarity_contrast_pulses(pulse_positions, wav_data, fs: int, raw_channel: int = 0):
+    """Pick (bright-end, dark-end) pulses for the print polarity contrast figure.
+
+    Panel A: head at electrode 0, facing toward electrode 0 (dir < 0), strong
+    positive peak on ``raw_channel``.
+    Panel B: head at electrode 15, facing toward electrode 15 (dir > 0),
+    dominant negative peak on the same ``raw_channel``.
+    """
+    times = np.asarray([p.time_sec for p in pulse_positions], dtype=float)
+    channels = np.asarray([p.head_channel for p in pulse_positions], dtype=int)
+    positions = np.asarray([p.head_m for p in pulse_positions], dtype=float)
+    smoothed = smooth_positions(positions, window=5)
+    directions = movement_direction(positions, window=5)
+
+    best_a = None
+    for i, p in enumerate(pulse_positions):
+        if channels[i] != 0:
+            continue
+        if not np.isfinite(directions[i]) or directions[i] >= 0:
+            continue
+        _, y = _raw_window_segment(wav_data, fs, times[i], raw_channel)
+        if y.size == 0:
+            continue
+        peak = float(y.max())
+        trough = float(y.min())
+        if peak < 800:
+            continue
+        score = peak - 0.2 * abs(trough)
+        if best_a is None or score > best_a[0]:
+            best_a = (score, i, peak, trough)
+
+    best_b = None
+    for i, p in enumerate(pulse_positions):
+        if channels[i] != 15:
+            continue
+        if not np.isfinite(directions[i]) or directions[i] <= 0:
+            continue
+        if smoothed[i] < 3.2:
+            continue
+        _, y = _raw_window_segment(wav_data, fs, times[i], raw_channel)
+        if y.size == 0:
+            continue
+        peak = float(y.max())
+        trough = float(y.min())
+        if trough > -200:
+            continue
+        score = abs(trough) - 0.2 * peak
+        if best_b is None or score > best_b[0]:
+            best_b = (score, i, peak, trough)
+
+    if best_a is None or best_b is None:
+        raise RuntimeError(
+            "Could not find polarity-contrast pulses "
+            f"(A={best_a is not None}, B={best_b is not None})."
+        )
+    return (
+        pulse_positions[best_a[1]],
+        pulse_positions[best_b[1]],
+        directions[best_a[1]],
+        directions[best_b[1]],
+        smoothed[best_a[1]],
+        smoothed[best_b[1]],
+    )
+
+
+def save_polarity_contrast_figure(
+    *,
+    wav_path: Path | None = None,
+    raw_channel: int = 0,
+    output_name: str = "eel_position_keyframes.png",
+    body_length_m: float = FIXED_BODY_LENGTH_M,
+) -> Path:
+    """Two vertical panels: head@electrode 0 vs head@electrode 15, same raw channel.
+
+    Channel selection note: elsewhere the animation raw panel follows each pulse's
+    ``head_channel`` (electrode with the strongest *positive* peak). This print
+    figure instead fixes ``raw_channel`` (default 0 / electrode 0) in both panels
+    so amplitude and polarity can be compared directly.
+    """
+    apply_presentation_style()
+    wav_path = Path(wav_path) if wav_path is not None else DEFAULT_WAV_PATH
+    pulse_positions, meta = load_pulses_for_wav(wav_path)
+    fs, wav_data = wavfile.read(str(wav_path))
+    if wav_data.ndim == 1:
+        wav_data = wav_data[:, np.newaxis]
+
+    pulse_a, pulse_b, dir_a, dir_b, sm_a, sm_b = _pick_polarity_contrast_pulses(
+        pulse_positions, wav_data, int(fs), raw_channel=raw_channel
+    )
+
+    panels = [
+        {
+            "pulse": pulse_a,
+            "direction": float(dir_a),
+            "head_m": float(sm_a),
+            "label": "(a)  Head at electrode 0, facing electrode 0",
+        },
+        {
+            "pulse": pulse_b,
+            "direction": float(dir_b),
+            "head_m": float(sm_b),
+            "label": "(b)  Head at electrode 15, facing electrode 15",
+        },
+    ]
+
+    # Shared raw y-scale (honest amplitude comparison on the same electrode).
+    segs = []
+    for panel in panels:
+        t_ms, y = _raw_window_segment(
+            wav_data, int(fs), float(panel["pulse"].time_sec), raw_channel
+        )
+        segs.append((t_ms, y))
+    peak = max(float(np.max(np.abs(y))) for _, y in segs if y.size) or 1.0
+    ylim = peak * RAW_Y_MARGIN
+
+    xmin, xmax, ymin, ymax = tank_outline_bounds_framed(POOL_FRAME_PAD_M)
+    fig = plt.figure(figsize=(12.5, 8.6))
+    # Two rows × (position | raw)
+    gs = fig.add_gridspec(
+        2,
+        2,
+        width_ratios=[POS_PANEL_WIDTH_RATIO, RAW_PANEL_WIDTH_RATIO],
+        height_ratios=[1, 1],
+        wspace=0.12,
+        hspace=0.28,
+        left=0.05,
+        right=0.98,
+        top=0.92,
+        bottom=0.08,
+    )
+
+    for row, (panel, (t_ms, y)) in enumerate(zip(panels, segs)):
+        ax_pos = fig.add_subplot(gs[row, 0])
+        ax_raw = fig.add_subplot(gs[row, 1])
+        draw_tank_background(ax_pos)
+        ax_pos.set_xlim(xmin, xmax)
+        ax_pos.set_ylim(ymin, ymax)
+        ax_pos.set_aspect("equal")
+        ax_pos.margins(0)
+        for spine in ax_pos.spines.values():
+            spine.set_visible(False)
+        ax_pos.tick_params(left=False, bottom=False, labelleft=False, labelbottom=False)
+
+        head_m = panel["head_m"]
+        direction = panel["direction"]
+        head_m, tail_m = eel_body_endpoints(head_m, direction, body_length_m=body_length_m)
+        draw_realistic_eel(ax_pos, head_m, tail_m, direction, body_length_m)
+        # Red marker at electrode 0 (shared raw channel; both panels).
+        electrode_positions = default_electrode_positions_m()
+        ax_pos.plot(
+            electrode_positions[0],
+            EEL_LINE_Y,
+            marker="o",
+            markersize=9,
+            color="red",
+            markeredgecolor="black",
+            markeredgewidth=0.6,
+            zorder=8,
+            clip_on=False,
+        )
+        # Panel caption as xlabel; titles use presentation rcParams.
+        ax_pos.set_xlabel(panel["label"])
+        ax_pos.set_title(
+            f"t = {panel['pulse'].time_sec:.1f} s",
+            pad=TITLE_PAD,
+        )
+
+        ax_raw.plot(t_ms, y, color="#555555", linewidth=1.6, alpha=0.95)
+        ax_raw.set_ylim(-ylim, ylim)
+        ax_raw.set_xlim(-RAW_WINDOW_MS / 2.0, RAW_WINDOW_MS / 2.0)
+        ax_raw.grid(True, alpha=0.25)
+        ax_raw.spines["top"].set_visible(False)
+        ax_raw.spines["right"].set_visible(False)
+        ax_raw.set_title(
+            f"Electrode {raw_channel} (shared) · ±{RAW_WINDOW_MS / 2:.0f} ms",
+            pad=TITLE_PAD,
+        )
+        if row == 1:
+            ax_raw.set_xlabel("Time relative to pulse (ms)")
+        ax_raw.set_ylabel("Raw amplitude")
+
+    # No figure-level title (avoids overlap with panel titles).
+    thesis_path = thesis_figure_path(f"position_estimation/{output_name}")
+    fig.savefig(thesis_path, dpi=200, bbox_inches="tight")
+    _copy_into_latex_position_figures(thesis_path, output_name)
+    processed = POSITION_FIGURES_DIR / "animations" / output_name
+    processed.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(processed, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    print(
+        f"Saved polarity-contrast keyframes to {thesis_path} "
+        f"(A t={pulse_a.time_sec:.2f}s ch={pulse_a.head_channel}; "
+        f"B t={pulse_b.time_sec:.2f}s ch={pulse_b.head_channel}; "
+        f"raw electrode {raw_channel})"
+    )
+    return thesis_path
+
+
 def make_print_animation_assets(
     *,
     wav_path: Path | None = None,
     qr_url: str | None = None,
     n_print_frames: int = 4,
 ) -> tuple[Path, Path]:
-    """Rebuild a short turnaround scene and compose keyframe strip + QR."""
+    """Rebuild print keyframes (polarity contrast) and leave QR unchanged.
+
+    GIF/QR from prior runs are kept as-is unless missing; this path only
+    refreshes the two-panel print figure.
+    """
+    _ = (n_print_frames, qr_url)  # retained for call-site compatibility
     wav_path = Path(wav_path) if wav_path is not None else DEFAULT_WAV_PATH
-    pulse_positions, meta = load_pulses_for_wav(wav_path)
-    times = np.array([p.time_sec for p in pulse_positions])
-    positions = np.array([p.head_m for p in pulse_positions])
-    t0, t1 = find_turnaround_scene(
-        times, positions, window_s=40.0, min_window_s=10.0, max_window_s=60.0
-    )
-    scene = [p for p in pulse_positions if t0 <= p.time_sec < t1]
-    if len(scene) < 8:
-        raise RuntimeError(f"Turnaround scene too sparse ({len(scene)} pulses).")
-
-    # Shift times so the animation starts at 0 for clean labels.
-    scene_meta = dict(meta)
-    from copy import copy
-
-    scene_shifted = []
-    for p in scene:
-        q = copy(p)
-        q.time_sec = float(p.time_sec - t0)
-        scene_shifted.append(q)
-
-    duration_ms = (t1 - t0) * 1000.0
-    global THESIS_ANIM_DURATION_MS
-    THESIS_ANIM_DURATION_MS = duration_ms
-
-    # Prefer frames that land on real pulses (raw panel shows an EOD).
-    # Export denser animation frames, then pick n_print_frames with strong signal.
-    fig, anim = build_animation(
-        scene_shifted,
-        scene_meta,
-        body_length_m=FIXED_BODY_LENGTH_M,
-        smooth_window=5,
-        fps=5,
-        max_frames=max(n_print_frames * 16, 64),
-        show_raw=True,
-        audio_time_offset_sec=t0,
-    )
-    n_total = int(scene_meta.get("n_anim_frames") or 0)
-    if n_total < 1:
-        raise RuntimeError("Animation produced no frames.")
-
-    # Score frames by |raw| peak in the ±50 ms head-channel window.
-    fs_wav, wav_data = wavfile.read(str(wav_path))
-    if wav_data.ndim == 1:
-        wav_data = wav_data[:, np.newaxis]
-    # Absolute time in the original wav for scoring.
-    frame_times = np.array([p.time_sec for p in scene_shifted])
-    # build_animation may downsample; reconstruct the same step.
-    if len(frame_times) > max(n_print_frames * 16, 64):
-        step = int(np.ceil(len(frame_times) / max(n_print_frames * 16, 64)))
-        frame_times = frame_times[::step]
-    frame_times = frame_times[:n_total]
-    frame_channels = np.array([p.head_channel for p in scene_shifted])
-    if len(frame_channels) > len(frame_times):
-        step = int(np.ceil(len(frame_channels) / len(frame_times)))
-        frame_channels = frame_channels[::step][:n_total]
-    scores = []
-    half = RAW_WINDOW_SEC / 2.0
-    for t_rel, ch in zip(frame_times, frame_channels):
-        t_abs = t0 + float(t_rel)
-        i0 = max(0, int((t_abs - half) * fs_wav))
-        i1 = min(len(wav_data), int((t_abs + half) * fs_wav))
-        ch_i = int(np.clip(ch, 0, wav_data.shape[1] - 1))
-        seg = wav_data[i0:i1, ch_i]
-        scores.append(float(np.max(np.abs(seg))) if seg.size else 0.0)
-    scores = np.asarray(scores)
-    # Spread 4 frames across the scene, preferring high-signal candidates in each quartile.
-    # Keep keyframes inside the 10–60 s relative window when the scene allows.
-    min_rel = 10.0 if float(duration_ms) / 1000.0 >= 20.0 else 0.0
-    max_rel = min(float(duration_ms) / 1000.0, 60.0)
-    eligible = np.where((frame_times >= min_rel) & (frame_times <= max_rel))[0]
-    if eligible.size < n_print_frames:
-        eligible = np.arange(n_total)
-    picks = []
-    for q in range(n_print_frames):
-        lo_i = int(q * len(eligible) / n_print_frames)
-        hi_i = int((q + 1) * len(eligible) / n_print_frames)
-        hi_i = max(hi_i, lo_i + 1)
-        local_idx = eligible[lo_i:hi_i]
-        local_scores = scores[local_idx]
-        picks.append(int(local_idx[int(np.argmax(local_scores))]))
-    # Ensure unique sorted indices.
-    picks = sorted(set(picks))
-    while len(picks) < n_print_frames and len(picks) < n_total:
-        remaining = [i for i in np.argsort(scores)[::-1] if i not in picks and i in set(eligible.tolist())]
-        if not remaining:
-            remaining = [i for i in np.argsort(scores)[::-1] if i not in picks]
-        if not remaining:
-            break
-        picks.append(int(remaining[0]))
-        picks = sorted(set(picks))
-    picks = picks[:n_print_frames]
-
-    # Actual relative times for print labels (not evenly spaced placeholders).
-    actual_times_ms = [float(frame_times[i]) * 1000.0 for i in picks]
-
-    frame_paths = save_thesis_animation_frames(
-        fig,
-        anim,
-        n_total=n_total,
-        n_frames=n_total,  # export all, then compose from picks
-        poster_frame=picks[len(picks) // 2] + 1,
-    )
-    # Re-save only the chosen frames as frame_001..00N for the keyframe strip.
-    frame_dir = frame_paths[0].parent
-    latex_frame_dir = LATEX_POSITION_FIGURES / "anim_frames"
-    selected_paths = []
-    for out_i, src_i in enumerate(picks, start=1):
-        src = frame_dir / f"frame_{src_i + 1:03d}.png"
-        if not src.exists():
-            src = frame_paths[src_i]
-        dest_name = f"frame_{out_i:03d}.png"
-        dest = frame_dir / dest_name
-        shutil.copy2(src, dest)
-        shutil.copy2(src, latex_frame_dir / dest_name)
-        selected_paths.append(dest)
-    # Remove leftover higher-index frames so the keyframe composer can't pick them.
-    for leftover in frame_dir.glob("frame_*.png"):
-        idx = int(leftover.stem.split("_")[1])
-        if idx > n_print_frames:
-            leftover.unlink(missing_ok=True)
-            (latex_frame_dir / leftover.name).unlink(missing_ok=True)
-    plt.close(fig)
-
-    # Also refresh GIF for the short scene (electronic supplement).
-    out_dir = POSITION_FIGURES_DIR / "animations"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    gif_path = out_dir / "eel_position_animation.gif"
-    fig2, anim2 = build_animation(
-        scene_shifted,
-        scene_meta,
-        body_length_m=FIXED_BODY_LENGTH_M,
-        smooth_window=5,
-        fps=8,
-        max_frames=80,
-        show_raw=True,
-        audio_time_offset_sec=t0,
-    )
-    anim2.save(str(gif_path), writer="pillow", fps=8)
-    plt.close(fig2)
-    _copy_into_latex_position_figures(gif_path, "eel_position_animation.gif")
-
-    indices = tuple(range(1, n_print_frames + 1))
-    keyframes = save_print_keyframe_figure(
-        frame_numbers=indices,
-        duration_ms=duration_ms,
-        full_frame=True,
-        time_labels_ms=actual_times_ms,
-    )
-    url = qr_url or ANIMATION_SUPPLEMENT_URL
-    qr_path = save_animation_qr_code(url=url)
-    print(
-        f"Print scene window: {t0:.1f}–{t1:.1f}s "
-        f"({duration_ms/1000:.0f}s, {len(scene)} pulses, {n_print_frames} keyframes; "
-        f"signal scores={[round(scores[i], 0) for i in picks]})"
-    )
+    keyframes = save_polarity_contrast_figure(wav_path=wav_path, raw_channel=0)
+    qr_path = thesis_figure_path("position_estimation/eel_position_animation_qr.png")
+    if not qr_path.exists():
+        qr_path = save_animation_qr_code(url=ANIMATION_SUPPLEMENT_URL)
+    else:
+        print(f"Left existing QR untouched: {qr_path}")
     return keyframes, qr_path
 
 
