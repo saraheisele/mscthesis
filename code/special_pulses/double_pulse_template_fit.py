@@ -1138,7 +1138,8 @@ def plot_model_hierarchy_panel(
 
     apply_presentation_style()
     time_ms = np.arange(len(y)) / fs * 1000
-    fig, axes = plt.subplots(2, 3, figsize=(15, 8), sharex=True, sharey=True)
+    fig, axes = plt.subplots(2, 3, figsize=(15, 8.6), sharex=True, sharey=True)
+    fig.set_layout_engine("none")
     for ax, key in zip(axes.ravel(), MODEL_KEYS):
         result = results[key]
         ax.plot(time_ms, y, color=DOUBLE_COLOR, label="Observed", zorder=4)
@@ -1158,14 +1159,17 @@ def plot_model_hierarchy_panel(
             )
             ax.plot(time_ms, c1, color=NORMAL_COLOR, ls="--", alpha=0.85, label="C1")
             ax.plot(time_ms, c2, color=NORMAL_COLOR, ls=":", alpha=0.85, label="C2")
+            # Full model-key titles (unchanged wording); slightly smaller font + pad.
             ax.set_title(
                 f"{key}\n"
                 f"$R^2$={result.r2:.3f}, "
                 f"$\\Delta t$={result.delay_ms:.2f} ms, "
-                f"$w$=({result.width_scale:.2f},{w2:.2f})"
+                f"$w$=({result.width_scale:.2f},{w2:.2f})",
+                fontsize=11,
+                pad=10,
             )
         else:
-            ax.set_title(f"{key}\n(failed)")
+            ax.set_title(f"{key}\n(failed)", fontsize=11)
         ax.scatter(
             [t1 / fs * 1000, t2 / fs * 1000],
             [y[int(round(t1))], y[int(round(t2))]],
@@ -1183,6 +1187,7 @@ def plot_model_hierarchy_panel(
         ax.set_xlabel("Time (ms)")
     for ax in axes[:, 0]:
         ax.set_ylabel("Normalized amplitude")
+    fig.subplots_adjust(hspace=0.38, wspace=0.18, top=0.90)
     out = output_dir / f"double_pulse_model_hierarchy_{prototype_stat}.png"
     output_dir.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=300)

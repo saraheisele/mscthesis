@@ -23,7 +23,15 @@
   \@starttoc{lof} % just prints the list without title
 }
 \makeatother
-\subsection{List of Figures}                      
+\subsection{List of Figures}
 \listoffigures
+
+\makeatletter
+\renewcommand{\listoftables}{%
+  \@starttoc{lot}%
+}
+\makeatother
+\subsection{List of Tables}
+\listoftables
 
 \newpage

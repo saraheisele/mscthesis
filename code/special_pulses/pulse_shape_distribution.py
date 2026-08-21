@@ -139,6 +139,66 @@ def filter_mating_window(
     return df.loc[mask].copy()
 
 
+def _draw_total_brace(ax, bars, total: int, ymax: float) -> None:
+    """Horizontal curly brace above all bars; tip points up at the total-n label."""
+    from matplotlib.path import Path as MplPath
+    from matplotlib.patches import PathPatch
+
+    x0 = float(bars[0].get_x())
+    x1 = float(bars[-1].get_x() + bars[-1].get_width())
+    xm = 0.5 * (x0 + x1)
+    y = ymax * 0.88
+    h = ymax * 0.05
+    tip = ymax * 0.08
+    curl = 0.12 * (x1 - x0)
+    tip_w = 0.055 * (x1 - x0)
+
+    verts = [
+        (x0, y),
+        (x0, y + 0.7 * h),
+        (x0 + 0.5 * curl, y + h),
+        (x0 + curl, y + h),
+        (xm - tip_w, y + h),
+        (xm, y + h + tip),
+        (xm + tip_w, y + h),
+        (x1 - curl, y + h),
+        (x1 - 0.5 * curl, y + h),
+        (x1, y + 0.7 * h),
+        (x1, y),
+    ]
+    codes = [
+        MplPath.MOVETO,
+        MplPath.CURVE4,
+        MplPath.CURVE4,
+        MplPath.CURVE4,
+        MplPath.LINETO,
+        MplPath.LINETO,
+        MplPath.LINETO,
+        MplPath.LINETO,
+        MplPath.CURVE4,
+        MplPath.CURVE4,
+        MplPath.CURVE4,
+    ]
+    tip_y = y + h + tip
+    ax.add_patch(
+        PathPatch(
+            MplPath(verts, codes),
+            fill=False,
+            lw=1.8,
+            edgecolor="black",
+            clip_on=False,
+        )
+    )
+    ax.text(
+        xm,
+        tip_y + 0.012 * ymax,
+        f"n = {total:,}",
+        ha="center",
+        va="bottom",
+        clip_on=False,
+    )
+
+
 def plot_pulse_shape_distribution(
     counts: dict[str, int],
     *,
@@ -160,15 +220,14 @@ def plot_pulse_shape_distribution(
     else:
         plot_values = list(values)
         ylabel = "Pulse count"
-        ymax = (max(plot_values) if any(plot_values) else 1.0) * 1.18
+        ymax = (max(plot_values) if any(plot_values) else 1.0) * 1.28
         yticks = None
 
-    fig, ax = plt.subplots(figsize=(9, 6))
+    fig, ax = plt.subplots(figsize=(9, 6.4))
     bars = ax.bar(labels, plot_values, color=colors, edgecolor="black", linewidth=1.0)
     ax.set_ylabel(ylabel)
     ax.set_xlabel("Pulse shape")
-    # Headroom for count/percent labels above the tallest bar.
-    # (autolayout / constrained_layout only adjust subplot margins, not ylim.)
+    # Headroom for bar labels + total brace above the tallest bar.
     ax.set_ylim(0, ymax)
     if yticks is not None:
         ax.set_yticks(yticks)
@@ -186,16 +245,7 @@ def plot_pulse_shape_distribution(
         )
 
     if total:
-        # Place total count away from the typically tallest left-hand bar.
-        ax.text(
-            0.98,
-            0.94,
-            f"n = {total:,}",
-            transform=ax.transAxes,
-            ha="right",
-            va="top",
-            clip_on=True,
-        )
+        _draw_total_brace(ax, bars, total, ymax)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     out = output_dir / Path(filename).name

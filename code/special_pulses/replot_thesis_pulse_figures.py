@@ -49,6 +49,7 @@ def _sync_pulse_shape_pngs() -> None:
     dst_root.mkdir(parents=True, exist_ok=True)
     names = [
         "pulse_shape_distribution.png",
+        "prototype_pulses_stacked.png",
         "prototype_normal_pulse.png",
         "prototype_wide_pulse.png",
         "prototype_double_pulse.png",

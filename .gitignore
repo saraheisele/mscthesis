@@ -518,6 +518,18 @@ pyrightconfig.json
 !docs/latex_thesis/figures/position_estimation/eel_position_animation.gif
 !docs/latex_thesis/figures/position_estimation/eel_position_keyframes.png
 !docs/latex_thesis/figures/position_estimation/eel_position_animation_qr.png
+# Thesis figures regenerated for the current draft (force-track despite *.png).
+!docs/latex_thesis/figures/detection/
+!docs/latex_thesis/figures/detection/**
+!docs/latex_thesis/figures/activity_timescales/circadian_panels_by_shape_stacked.png
+!docs/latex_thesis/figures/pulse_shapes/pulse_shape_distribution.png
+!docs/latex_thesis/figures/pulse_shapes/half_width_distributions_combined.png
+!docs/latex_thesis/figures/pulse_shapes/double_pulse_model_hierarchy_median.png
+!docs/latex_thesis/figures/pulse_shapes/prototype_pulses_stacked.png
+!docs/latex_thesis/figures/pulse_shapes/prototype_normal_pulse.png
+!docs/latex_thesis/figures/pulse_shapes/prototype_wide_pulse.png
+!docs/latex_thesis/figures/pulse_shapes/prototype_double_pulse.png
+!docs/latex_thesis/figures/detection/results_intro_recording_excerpt.png
 
 # RAW image formats
 *.cr2

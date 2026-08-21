@@ -41,7 +41,7 @@ Ducke and FLONA together contribute about 11\,TiB of field WAV data from up to 1
   \label{tab:recording_inventory}
   \begin{tabularx}{\textwidth}{llll>{\raggedright\arraybackslash}X>{\raggedright\arraybackslash}X}
     \toprule
-    Dataset & Location & Period & Loggers & Arrays / sites & Effort (raw size) \\
+    \textbf{Dataset} & \textbf{Location} & \textbf{Period} & \textbf{Loggers} & \textbf{Arrays / sites} & \textbf{Effort (raw size)} \\
     \midrule
     Berlin & MfN tank & Nov 2023--Mar 2026 & 1--2 & 16-ch line(s) & $\sim$3770\,h over 165\,d (13.7\,TiB) \\
     Ducke & Reserva Ducke & 1--2 Sep 2025 & 7 & 4 sites (grids + lines) & $\sim$236\,h (1.3\,TiB) \\
@@ -133,11 +133,15 @@ Second, those pulses are analysed by waveform morphology and by discharge rate, 
 
 Continuous recordings were processed with eeltracker.
 The tool detects candidate pulses, groups them into multi-channel events with short waveform cutouts, and writes them to NIX/HDF5.
-Downstream analyses keep only events keep only events that have been classified as EODs.
+Downstream analyses keep only events that have been classified as EODs.
+No amplitude threshold or high-voltage/volley filter is applied: low-voltage search pulses and high-voltage discharges (shocks) are retained alike whenever they pass that EOD acceptance step.
+In the Results and later analyses, phrases such as ``all pulses'' or ``all EODs'' refer to this full accepted set.
 
 \subsubsection{EOD waveform classification}
+\label{sec:waveform_classification}
 
 Accepted EODs were further labelled by waveform morphology into three classes: normal, wide, and double pulses (Figure~\ref{fig:prototypes}).
+Classification uses peak-normalized waveforms, so labels reflect shape rather than absolute amplitude; a high-voltage pulse and a low-voltage pulse of the same shape receive the same class.
 Normal pulses are short single peaks while wide pulses are longer single peaks with a slower falling edge or shoulder. 
 Double pulses show two peaks separated by a shallow trough (training labels also included clear shoulders toward a second peak).
 A seed set was labelled by hand according to these shapes.
@@ -146,10 +150,14 @@ Rare classes (wide, double) were accepted only if their predicted probability wa
 The resulting markers (\texttt{is\_double\_peak}, \texttt{is\_wide\_pulse}, and \texttt{special\_pulse\_class}) provide the class assignments used throughout the Results.
 
 Classified pulses were characterised by half-maximum width and by mean and median prototype waveforms per class; class prevalence is summarised over the dataset (Figures~\ref{fig:pulse_shape_distribution}--\ref{fig:half_width}).
-To test whether the double shape is consistent with a short doublet of normal pulses, the median double prototype was fit as the sum of two median normal templates.
-Six nested models (A--F) relaxed constraints on the inter-component delay $\Delta t$ and on the component widths (Figure~\ref{fig:double_model_hierarchy}).
-Model E was chosen as the working description: it recovers the two-peak envelope and trough of the median double with free $t_1$ and $t_2$, a shared free width $w$, and free amplitudes $a_1$ and $a_2$.
-Allowing independent widths in model F did not improve the fit meaningfully.
+To test whether the double shape is consistent with a short doublet of normal pulses, the median double prototype was fit as the sum of two median normal templates:
+\begin{equation}
+  y(t) = a_1\,T_{w_1}(t-t_1) + a_2\,T_{w_2}(t-t_2),
+\end{equation}
+where $T_w$ is the median normal template time-scaled by width factor $w$ ($w=1$ keeps the native normal width; $w>1$ widens), $a_1$ and $a_2$ are free amplitudes, and $t_1$ and $t_2$ are free peak times with $\Delta t = t_2-t_1$.
+Six nested models (A--F) relaxed constraints on $\Delta t$ and on the width factors (Figure~\ref{fig:double_model_hierarchy}).
+Model~E was chosen as the working description: free $a_1$, $a_2$, $t_1$, and $t_2$, with a shared free width factor $w_1=w_2=w$.
+Allowing independent widths $w_1$ and $w_2$ in model~F did not improve the fit meaningfully.
 Labeled pulses were also examined in Robust PCA space (Figure~\ref{fig:pca_space}).
 
 \subsubsection{Activity rates}
@@ -161,7 +169,7 @@ The recording effort describes the total logger-on time (in seconds) that falls 
 This converts raw pulse counts into rates in Hz and avoids treating more heavily sampled periods as more active.
 A second electrode line was added in November 2025 to span bright and dark regions of the tank.
 Dual-line recordings from 25 November 2025 onward enter rate analyses with pulse counts weighted by 0.5, so the second line does not double-count activity.
-The multi-timescale panels (Figure~\ref{fig:activity_all_shapes}) are active-session medians of those per-session rates, with bootstrap 95\% CIs, not a single pooled rate per bin.
+The multi-timescale panels (Figure~\ref{fig:activity_by_shape}) are active-session medians of those per-session rates, with bootstrap 95\% CIs, not a single pooled rate per bin.
 Here, an active session is one with a positive pulse rate in that bin; sessions with no recording effort or zero pulses are excluded from the median.
 Yearly panels therefore report session-median rates in Hz, so partial calendar years 2023 and 2026 are not scaled by the fraction of the year recorded; those years remain samples of the months that were actually logged.
 

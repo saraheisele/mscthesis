@@ -22,7 +22,13 @@ from tqdm import tqdm
 from correlations.mating_notes_utils import extract_mating_events
 from data_paths import activity_hist_dir, processed_figures_dir, resolve_activity_hist_npz
 from plotting_utils import format_x_axis
-from presentation_style import apply_presentation_style, legend_on_upper_right_subplot, pulse_shape_color, save_thesis_figure
+from presentation_style import (
+    LEGEND_LOC,
+    apply_presentation_style,
+    legend_on_upper_right_subplot,
+    pulse_shape_color,
+    save_thesis_figure,
+)
 from pulse_config import PULSE_TYPES, PULSE_TYPE_DISPLAY_ORDER, select_pulse_type
 
 USE_BOOTSTRAP = True
@@ -359,6 +365,105 @@ def plot_circadian_panels_all_shapes(save_path=None):
     print(f"Saved combined circadian panels to {out_path}")
 
 
+def plot_circadian_panels_stacked_by_shape(save_path=None):
+    """Timescale rows × pulse-shape columns (flipped from the shape×timescale layout)."""
+    apply_presentation_style()
+    if save_path is None:
+        save_path = processed_figures_dir(PULSE_TYPES["all"]["figures_subdir"])
+    save_path = Path(save_path)
+    save_path.mkdir(parents=True, exist_ok=True)
+
+    axis_meta = load_histogram_metadata(
+        activity_hist_dir(PULSE_TYPES["all"]["hist_subdir"])
+    )
+    col_order = ("all", "wide", "double")
+    session_by_pulse = {}
+    for pulse_type in col_order:
+        data_path = activity_hist_dir(PULSE_TYPES[pulse_type]["hist_subdir"])
+        session_npz = resolve_activity_hist_npz(data_path, "session_pulse_rate_hz")
+        if session_npz.exists():
+            session_by_pulse[pulse_type] = np.load(session_npz)
+
+    n_rows = len(CIRCADIAN_PANEL_TIMESCALES)
+    n_cols = len(col_order)
+    fig, axes = plt.subplots(
+        n_rows,
+        n_cols,
+        figsize=(14, 16),
+        sharex="row",
+        sharey=False,
+    )
+    for col, pulse_type in enumerate(col_order):
+        session_data = session_by_pulse.get(pulse_type)
+        color = pulse_shape_color(pulse_type)
+        col_label = PULSE_TYPES[pulse_type]["label"]
+        for row, (timescale, panel_title) in enumerate(CIRCADIAN_PANEL_TIMESCALES):
+            ax = axes[row, col]
+            if session_data is None or timescale not in session_data.files:
+                ax.set_axis_off()
+                continue
+            plot_session_median_on_axis(
+                ax,
+                session_data[timescale],
+                timescale,
+                axis_meta,
+                color=color,
+                title="",
+                show_scatter=False,
+                median_label=col_label,
+                decorate_axis=False,
+                include_band_in_legend=False,
+                show_legend=False,
+            )
+            year_data = None
+            if timescale == "year":
+                arr = session_data[timescale]
+                active_arr = np.where(arr > 0, arr, np.nan)
+                year_data = np.nanmedian(active_arr, axis=0)
+            format_x_axis(
+                ax,
+                timescale,
+                session_data[timescale].shape[1],
+                data=year_data,
+                **axis_meta,
+            )
+            ax.set_ylim(bottom=0)
+            ax.grid(True, alpha=0.25)
+            # Shared axis labels: y on left column only, x on bottom row only.
+            if col == 0:
+                ax.set_ylabel("Pulse rate (Hz)")
+            else:
+                ax.set_ylabel("")
+            if row < n_rows - 1:
+                ax.set_xlabel("")
+            if row == 0:
+                ax.set_title(col_label, color=color, fontweight="bold")
+            if col == 0:
+                ax.annotate(
+                    panel_title,
+                    xy=(0, 0.5),
+                    xycoords="axes fraction",
+                    xytext=(-0.30, 0.5),
+                    textcoords="axes fraction",
+                    ha="right",
+                    va="center",
+                    rotation=90,
+                    fontweight="bold",
+                    fontsize=13,
+                    annotation_clip=False,
+                )
+
+    # No legend — column titles already name the shapes.
+    plt.tight_layout()
+    filename = "circadian_panels_by_shape_stacked.png"
+    out_path = save_path / filename
+    fig.savefig(out_path, dpi=300)
+    save_thesis_figure(f"activity_timescales/{filename}", fig)
+    plt.close(fig)
+    print(f"Saved stacked circadian panels to {out_path}")
+    return out_path
+
+
 def plot_session_pulse_rate_summary(
     save_path,
     axis_meta,
@@ -435,6 +540,7 @@ def main():
     )
 
     plot_circadian_panels_all_shapes()
+    plot_circadian_panels_stacked_by_shape()
 
     print(f"Saved figures to {save_path}")
 
@@ -443,5 +549,9 @@ if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "--all-shapes-panels":
         apply_presentation_style()
         plot_circadian_panels_all_shapes()
+        plot_circadian_panels_stacked_by_shape()
+    elif len(sys.argv) > 1 and sys.argv[1] == "--stacked-by-shape":
+        apply_presentation_style()
+        plot_circadian_panels_stacked_by_shape()
     else:
         main()
